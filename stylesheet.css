@@ -1,0 +1,109 @@
+/* ── Panel ───────────────────────────────────────── */
+.mei-panel-button {
+    background-color: transparent;
+    border: none;
+    padding: 0 6px;
+    margin: 0 4px;
+    border-radius: 8px;
+}
+
+.mei-panel-button:hover {
+    background-color: rgba(128, 128, 128, 0.15);
+    cursor: pointer;
+}
+
+.mei-panel-button.glow:hover {
+    background-color: transparent !important;
+    cursor: default;
+}
+
+/* ── Stop Button Text (on Hover) ─────────────────── */
+.mei-stop-hover-text {
+    font-family: sans-serif;
+    font-size: 14px;
+    color: black;
+    background-color: rgba(255, 255, 255, 0.95);
+    border-radius: 6px;
+    width: 34px;
+    text-align: center;
+}
+
+.mei-panel-label {
+    font-family: 'Lobster', cursive;
+    font-size: 16px;
+    font-weight: normal;
+    width: 34px;
+    text-align: center;
+}
+
+/* ── Popup ───────────────────────────────────────── */
+.mei-popup {
+    margin-top: 4px;
+}
+
+/* ── Container ───────────────────────────────────── */
+.mei-container {
+    padding: 10px;
+    spacing: 6px;
+    border-radius: 12px;
+}
+
+/* ── Bubbles ─────────────────────────────────────── */
+.mei-bubble-user {
+    background-color: rgba(128, 128, 128, 0.12);
+    border-radius: 14px 14px 4px 14px;
+    padding: 10px 14px;
+    font-size: 13px;
+    max-width: 290px;
+}
+
+.mei-bubble-ai {
+    padding: 8px 2px;
+    font-size: 13px;
+    max-width: 310px;
+}
+
+/* ── Scroll area ─────────────────────────────────── */
+.mei-scroll {
+    max-height: 400px;
+    margin-bottom: 6px;
+}
+
+.mei-scroll StScrollBar StBin#vhandle {
+    width: 4px;
+    background-color: rgba(128, 128, 128, 0.5);
+    border-radius: 2px;
+}
+.mei-scroll StScrollBar StBin#trough {
+    background-color: transparent;
+}
+
+/* ── Input ───────────────────────────────────────── */
+.mei-input {
+    background-color: transparent;
+    border: none;
+    border-width: 0;
+    padding: 0;
+    font-size: 13px;
+    min-height: 22px;
+}
+
+.mei-input:focus {
+    border: none;
+    border-width: 0;
+}
+
+/* ── Ask button ──────────────────────────────────── */
+.mei-ask-btn {
+    border-radius: 8px;
+    padding: 4px 0;
+    font-size: 11px;
+    min-height: 12px;
+    border: none;
+}
+
+.mei-ask-btn:hover {
+    background-color: white !important;
+    color: black !important;
+    cursor: pointer;
+}

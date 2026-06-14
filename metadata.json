@@ -1,0 +1,8 @@
+{
+  "name": "Mei",
+  "description": "Mei is an AI assistant",
+  "uuid": "mei@andystmc.com",
+  "shell-version": [
+    "50"
+  ]
+}
