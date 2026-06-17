@@ -1,32 +1,60 @@
 # Mei (AI Assistant GNOME Extension)
 
-Mei is a lightweight GNOME Shell extension that provides a quick-access panel popup for chatting with a local Ollama AI model.
+Mei is a GNOME Shell extension that provides a quick-access panel popup for chatting with AI models — local or cloud.
 
 ## Features
-- **Local Ollama Integration**: Connects directly to a local Ollama instance (default: `http://localhost:11435` with `llama3`).
-- **Dynamic Popup UI**: Clean, non-intrusive container matching the system's dark/light theme.
-- **Markdown Rendering**: Processes basic Markdown (headers, bold, italics, strikethrough, lists, blockquotes, and code blocks) using custom Pango markup.
-- **Copy Button**: Quickly copy the latest AI response to your clipboard.
-- **Input Control**: Support for multi-line inputs using `Shift+Enter` (press `Enter` to send).
-- **Processing Glint**: The top-bar button glows while waiting for responses, and turns into a stop icon (`⏹`) on hover to cancel the active request.
 
-## Installation
+- **Multiple AI Providers**: Ollama, llama.cpp, OpenAI, Anthropic, and Gemini.
+- **Settings UI**: Configure provider, model, endpoint URL, and API key from a GTK4/Libadwaita preferences window (click the ⚙ icon in the popup).
+- **Markdown Rendering**: Headers, bold, italic, strikethrough, code blocks, lists, blockquotes — rendered via Pango markup.
+- **Copy Button**: One-click copy of the last AI response.
+- **Dark/Light Theme**: Automatically matches your system color scheme.
+- **Processing Indicator**: The panel label glows while waiting; hover to reveal a stop button.
 
-1. Copy or symlink this directory to the GNOME Shell extensions folder:
-   ```sh
-   mkdir -p ~/.local/share/gnome-shell/extensions/
-   ln -s "$(pwd)" ~/.local/share/gnome-shell/extensions/mei@andystmc.com
-   ```
+## Requirements
 
-2. Restart GNOME Shell:
-   - **X11**: Press `Alt+F2`, type `r`, and hit `Enter`.
-   - **Wayland**: Log out and log back in.
+- GNOME Shell 45+
+- Node.js & npm (for building)
+- An AI backend (e.g., [Ollama](https://ollama.com) running locally)
 
-3. Enable the extension:
-   ```sh
-   gnome-extensions enable mei@andystmc.com
-   ```
+## Build & Install
 
-## Dependencies
-- **GNOME Shell**: 40 or newer
-- **Ollama**: A local instance running on port 11435 (can be configured in `extension.js`).
+```sh
+npm install
+npm run build
+npm run install:ext
+```
+
+Then restart GNOME Shell:
+- **X11**: `Alt+F2` → type `r` → Enter
+- **Wayland**: Log out and log back in
+
+Enable the extension:
+```sh
+gnome-extensions enable mei@andystmc.com
+```
+
+## Configuration
+
+Open settings via the ⚙ icon in the popup, or run:
+```sh
+gnome-extensions prefs mei@andystmc.com
+```
+
+### Settings
+
+| Setting | Description |
+|---------|-------------|
+| Provider | Ollama, llama.cpp, OpenAI, Anthropic, or Gemini |
+| Model | Model identifier (e.g., `gemma4`, `gpt-4o`, `claude-sonnet-4-20250514`) |
+| Endpoint URL | Custom URL (leave blank for provider default) |
+| API Key | Required for cloud providers |
+
+## Development
+
+```sh
+npm run typecheck   # Type-check without emitting
+npm run build       # Full build to dist/
+```
+
+The extension UUID is `mei@andystmc.com`.

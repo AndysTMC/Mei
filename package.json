@@ -1,0 +1,22 @@
+{
+  "name": "mei-gnome-extension",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "build:ts": "node esbuild.js",
+    "build:schemas": "mkdir -p dist/schemas && cp schemas/*.xml dist/schemas/ && glib-compile-schemas dist/schemas/",
+    "build:assets": "cp metadata.json dist/ && cp stylesheet.css dist/ && cp -r icons dist/",
+    "build": "npm run clean && mkdir -p dist && npm run build:ts && npm run build:schemas && npm run build:assets",
+    "install:ext": "ln -sf $(pwd)/dist ~/.local/share/gnome-shell/extensions/mei@andystmc.com"
+  },
+  "devDependencies": {
+    "@girs/gjs": "latest",
+    "@girs/gnome-shell": "latest",
+    "@girs/soup-3.0": "^3.6.6-4.0.4",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}

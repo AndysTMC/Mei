@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+    <schema id="org.gnome.shell.extensions.mei"
+            path="/org/gnome/shell/extensions/mei/">
+        <key name="provider" type="s">
+            <default>'ollama'</default>
+            <summary>AI Provider</summary>
+            <description>The AI provider to use: ollama, llamacpp, openai, anthropic, gemini</description>
+        </key>
+        <key name="provider-url" type="s">
+            <default>''</default>
+            <summary>Provider URL</summary>
+            <description>Custom endpoint URL. Leave empty to use the provider default.</description>
+        </key>
+        <key name="api-key" type="s">
+            <default>''</default>
+            <summary>API Key</summary>
+            <description>API key for cloud providers (OpenAI, Anthropic, Gemini)</description>
+        </key>
+        <key name="model-name" type="s">
+            <default>'gemma4'</default>
+            <summary>Model Name</summary>
+            <description>The model identifier to use with the selected provider</description>
+        </key>
+    </schema>
+</schemalist>
