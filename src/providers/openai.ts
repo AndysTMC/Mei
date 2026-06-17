@@ -11,6 +11,7 @@ import Soup from 'gi://Soup?version=3.0';
 import Gio from 'gi://Gio';
 
 import { postJson } from '../utils/http.js';
+import { Logger, Tag, maskKey } from '../utils/logger.js';
 import type { ChatMessage, Provider, ProviderConfig } from './types.js';
 
 export class OpenAIProvider implements Provider {
@@ -27,6 +28,7 @@ export class OpenAIProvider implements Provider {
         this._url = config.url || this.defaultUrl;
         this._model = config.model;
         this._apiKey = config.apiKey ?? '';
+        Logger.info(Tag.Provider, `Created ${this.name} → ${this._url} (model: ${this._model}, key: ${maskKey(this._apiKey)})`);
     }
 
     async sendMessage(
@@ -37,6 +39,8 @@ export class OpenAIProvider implements Provider {
             model: this._model,
             messages,
         };
+
+        Logger.debug(Tag.Provider, `${this.name} sending ${messages.length} message(s)`);
 
         const headers: Record<string, string> = {
             'Authorization': `Bearer ${this._apiKey}`,
@@ -50,6 +54,8 @@ export class OpenAIProvider implements Provider {
             cancellable
         );
 
-        return json?.choices?.[0]?.message?.content?.trim() || '(no response)';
+        const reply = json?.choices?.[0]?.message?.content?.trim() || '(no response)';
+        Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(reply, 500)}`);
+        return reply;
     }
 }

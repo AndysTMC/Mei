@@ -11,6 +11,7 @@ import Soup from 'gi://Soup?version=3.0';
 import Gio from 'gi://Gio';
 
 import { postJson } from '../utils/http.js';
+import { Logger, Tag, maskKey } from '../utils/logger.js';
 import type { ChatMessage, Provider, ProviderConfig } from './types.js';
 
 export class GeminiProvider implements Provider {
@@ -27,6 +28,7 @@ export class GeminiProvider implements Provider {
         this._baseUrl = config.url || this.defaultUrl;
         this._model = config.model;
         this._apiKey = config.apiKey ?? '';
+        Logger.info(Tag.Provider, `Created ${this.name} → ${this._baseUrl} (model: ${this._model}, key: ${maskKey(this._apiKey)})`);
     }
 
     async sendMessage(
@@ -54,6 +56,8 @@ export class GeminiProvider implements Provider {
             body.systemInstruction = systemInstruction;
         }
 
+        Logger.debug(Tag.Provider, `${this.name} sending ${contents.length} message(s)${systemInstruction ? ' + system instruction' : ''}`);
+
         const url = `${this._baseUrl}/models/${this._model}:generateContent?key=${this._apiKey}`;
 
         const json = await postJson(
@@ -64,9 +68,9 @@ export class GeminiProvider implements Provider {
             cancellable
         );
 
-        return (
-            json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ||
-            '(no response)'
-        );
+        const reply = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ||
+            '(no response)';
+        Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(reply, 500)}`);
+        return reply;
     }
 }

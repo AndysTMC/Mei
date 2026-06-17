@@ -1,12 +1,15 @@
 import Gio from 'gi://Gio';
 import St from 'gi://St';
 
+import { Logger, Tag } from './logger.js';
+
 export interface ThemedWidgets {
     menuBox?: St.Widget;
     popupItem?: St.Widget;
     container?: St.Widget;
     entry?: St.Entry;
     askBtn?: St.Button;
+    copyBtn?: St.Button;
 }
 
 /**
@@ -21,8 +24,13 @@ export class ThemeManager {
     constructor() {
         this._settings = new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
         this._isDark = this._settings.get_string('color-scheme') === 'prefer-dark';
+        Logger.debug(Tag.Theme, `Initial theme: ${this._isDark ? 'dark' : 'light'}`);
         this._signalId = this._settings.connect('changed::color-scheme', () => {
+            const wasDark = this._isDark;
             this._isDark = this._settings.get_string('color-scheme') === 'prefer-dark';
+            if (wasDark !== this._isDark) {
+                Logger.debug(Tag.Theme, `Theme changed: ${this._isDark ? 'dark' : 'light'}`);
+            }
         });
     }
 
@@ -57,6 +65,10 @@ export class ThemeManager {
             );
         if (widgets.askBtn)
             widgets.askBtn.set_style(
+                `background-color: ${askBg}; color: ${fg};`
+            );
+        if (widgets.copyBtn)
+            widgets.copyBtn.set_style(
                 `background-color: ${askBg}; color: ${fg};`
             );
     }

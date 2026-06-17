@@ -11,6 +11,7 @@ import Soup from 'gi://Soup?version=3.0';
 import Gio from 'gi://Gio';
 
 import { postJson } from '../utils/http.js';
+import { Logger, Tag, maskKey } from '../utils/logger.js';
 import type { ChatMessage, Provider, ProviderConfig } from './types.js';
 
 export class AnthropicProvider implements Provider {
@@ -27,6 +28,7 @@ export class AnthropicProvider implements Provider {
         this._url = config.url || this.defaultUrl;
         this._model = config.model;
         this._apiKey = config.apiKey ?? '';
+        Logger.info(Tag.Provider, `Created ${this.name} → ${this._url} (model: ${this._model}, key: ${maskKey(this._apiKey)})`);
     }
 
     async sendMessage(
@@ -59,6 +61,8 @@ export class AnthropicProvider implements Provider {
             body.system = systemPrompt;
         }
 
+        Logger.debug(Tag.Provider, `${this.name} sending ${filteredMessages.length} message(s)${systemPrompt ? ' + system prompt' : ''}`);
+
         const headers: Record<string, string> = {
             'x-api-key': this._apiKey,
             'anthropic-version': '2023-06-01',
@@ -72,6 +76,8 @@ export class AnthropicProvider implements Provider {
             cancellable
         );
 
-        return json?.content?.[0]?.text?.trim() || '(no response)';
+        const reply = json?.content?.[0]?.text?.trim() || '(no response)';
+        Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(reply, 500)}`);
+        return reply;
     }
 }

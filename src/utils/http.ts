@@ -2,6 +2,8 @@ import Soup from 'gi://Soup?version=3.0';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
+import { Logger, Tag } from './logger.js';
+
 /**
  * Sends a POST request with a JSON body and returns the parsed JSON response.
  */
@@ -15,17 +17,22 @@ export function postJson(
     return new Promise((resolve, reject) => {
         const msg = Soup.Message.new('POST', url);
         if (!msg) {
+            Logger.error(Tag.HTTP, `Invalid URL: ${url}`);
             reject(new Error(`Invalid URL: ${url}`));
             return;
         }
 
         const jsonStr = JSON.stringify(body);
+        Logger.debug(Tag.HTTP, `POST ${url} body=${Logger.truncate(jsonStr, 500)}`);
+
         const bytes = new GLib.Bytes(new TextEncoder().encode(jsonStr));
         msg.set_request_body_from_bytes('application/json', bytes);
 
         for (const [key, value] of Object.entries(headers)) {
             msg.get_request_headers().append(key, value);
         }
+
+        Logger.time(Tag.HTTP, url);
 
         session.send_and_read_async(
             msg,
@@ -35,9 +42,14 @@ export function postJson(
                 try {
                     const respBytes = session.send_and_read_finish(result);
                     const text = new TextDecoder().decode(respBytes.get_data()!);
+                    const elapsed = Logger.timeEnd(Tag.HTTP, url);
+                    const status = msg.get_status();
+                    Logger.debug(Tag.HTTP, `POST ${url} → ${status} (${elapsed}ms) body=${Logger.truncate(text, 500)}`);
                     const json = JSON.parse(text);
                     resolve(json);
                 } catch (e) {
+                    Logger.timeEnd(Tag.HTTP, url);
+                    Logger.error(Tag.HTTP, `POST ${url} failed`, e);
                     reject(e);
                 }
             }) as any

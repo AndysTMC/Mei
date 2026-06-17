@@ -14,6 +14,7 @@ import Gio from 'gi://Gio';
 import { MeiIndicator } from './panel/indicator.js';
 import { ChatPopup } from './ui/chatPopup.js';
 import { ThemeManager } from './utils/theme.js';
+import { Logger, Tag } from './utils/logger.js';
 
 import type { Provider, ProviderConfig, ProviderId, ChatMessage } from './providers/types.js';
 import { OllamaProvider } from './providers/ollama.js';
@@ -33,22 +34,24 @@ export default class MeiExtension extends Extension {
     private _provider: Provider | null = null;
 
     enable(): void {
+        Logger.info(Tag.Extension, 'Enabling Mei extension');
         this._soupSession = new Soup.Session({ timeout: 300 });
         this._messages = [];
         this._settings = this.getSettings();
 
-        /* ── Theme ────────────────────────────────────── */
+        /* ── Theme ──────────────────────────────────────── */
         this._themeManager = new ThemeManager();
 
-        /* ── Provider ─────────────────────────────────── */
+        /* ── Provider ───────────────────────────────────── */
         this._provider = this._createProvider();
 
-        /* ── Panel indicator ──────────────────────────── */
+        /* ── Panel indicator ────────────────────────────── */
         this._indicator = new MeiIndicator();
         this._indicator.onClicked = () => this._popup?.toggle();
         this._indicator.onStopRequested = () => {
             if (this._cancellable) {
                 this._cancellable.cancel();
+                Logger.info(Tag.Extension, 'Request cancelled by user');
             }
             this._indicator?.stopGlint();
             this._popup?.open();
@@ -60,12 +63,16 @@ export default class MeiExtension extends Extension {
         this._popup.onOpenSettings = () => this.openPreferences();
 
         /* ── Re-create provider when settings change ──── */
-        this._settings.connect('changed', () => {
+        this._settings.connect('changed', (_settings: Gio.Settings, key: string) => {
+            Logger.info(Tag.Extension, `Setting changed: ${key}`);
             this._provider = this._createProvider();
         });
+
+        Logger.info(Tag.Extension, 'Mei extension enabled');
     }
 
     disable(): void {
+        Logger.info(Tag.Extension, 'Disabling Mei extension');
         this._indicator?.destroy();
         this._indicator = null;
 
@@ -86,6 +93,7 @@ export default class MeiExtension extends Extension {
         this._settings = null;
         this._provider = null;
         this._messages = [];
+        Logger.info(Tag.Extension, 'Mei extension disabled');
     }
 
     /* ── Provider factory ─────────────────────────────── */
@@ -117,6 +125,7 @@ export default class MeiExtension extends Extension {
     /* ── Chat logic ───────────────────────────────────── */
 
     private _onSend(text: string): void {
+        Logger.debug(Tag.Extension, `User message: ${Logger.truncate(text, 100)}`);
         this._messages.push({ role: 'user', content: text });
 
         this._popup?.clearMessages();
@@ -130,6 +139,7 @@ export default class MeiExtension extends Extension {
         if (!this._soupSession || !this._provider) return;
 
         this._cancellable = new Gio.Cancellable();
+        Logger.info(Tag.Extension, `Fetching response from ${this._provider.name}`);
 
         try {
             const reply = await this._provider.sendMessage(
@@ -141,6 +151,7 @@ export default class MeiExtension extends Extension {
             this._indicator?.stopGlint();
             this._popup?.showMessage('assistant', reply);
             this._popup?.open();
+            Logger.info(Tag.Extension, `Response received (${reply.length} chars)`);
         } catch (e: any) {
             if (!this._cancellable?.is_cancelled()) {
                 this._indicator?.stopGlint();
@@ -149,8 +160,10 @@ export default class MeiExtension extends Extension {
                     `⚠ Could not reach ${this._provider.name}.`
                 );
                 this._popup?.open();
+                Logger.error(Tag.Extension, `${this._provider.name} request failed`, e);
+            } else {
+                Logger.warn(Tag.Extension, `Request to ${this._provider.name} was cancelled`);
             }
-            console.log(`[Mei] ${this._provider.name} error: ${e.message}`);
         }
     }
 }

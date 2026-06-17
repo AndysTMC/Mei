@@ -13,6 +13,8 @@ import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+import { Logger, Tag } from '../utils/logger.js';
+
 export class MeiIndicator {
     private _button: St.Button;
     private _label: St.Label;
@@ -80,6 +82,7 @@ export class MeiIndicator {
         this._glintActive = true;
         this._button.add_style_class_name('glow');
         this._pulseGlint();
+        Logger.debug(Tag.Indicator, 'Glint animation started');
     }
 
     stopGlint(): void {
@@ -90,6 +93,7 @@ export class MeiIndicator {
         this._label.add_style_class_name('mei-panel-label');
         this._label.remove_all_transitions();
         this._label.opacity = 255;
+        Logger.debug(Tag.Indicator, 'Glint animation stopped');
     }
 
     private _pulseGlint(): void {

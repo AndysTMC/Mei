@@ -11,6 +11,7 @@ import Soup from 'gi://Soup?version=3.0';
 import Gio from 'gi://Gio';
 
 import { postJson } from '../utils/http.js';
+import { Logger, Tag } from '../utils/logger.js';
 import type { ChatMessage, Provider, ProviderConfig } from './types.js';
 
 export class LlamaCppProvider implements Provider {
@@ -25,6 +26,7 @@ export class LlamaCppProvider implements Provider {
         this._session = session;
         this._url = config.url || this.defaultUrl;
         this._model = config.model;
+        Logger.info(Tag.Provider, `Created ${this.name} → ${this._url} (model: ${this._model})`);
     }
 
     async sendMessage(
@@ -36,6 +38,8 @@ export class LlamaCppProvider implements Provider {
             messages,
         };
 
+        Logger.debug(Tag.Provider, `${this.name} sending ${messages.length} message(s)`);
+
         const json = await postJson(
             this._session,
             this._url,
@@ -44,6 +48,8 @@ export class LlamaCppProvider implements Provider {
             cancellable
         );
 
-        return json?.choices?.[0]?.message?.content?.trim() || '(no response)';
+        const reply = json?.choices?.[0]?.message?.content?.trim() || '(no response)';
+        Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(reply, 500)}`);
+        return reply;
     }
 }

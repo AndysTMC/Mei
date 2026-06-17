@@ -21,6 +21,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { parseMarkdown } from './markdown.js';
 import { ThemeManager, type ThemedWidgets } from '../utils/theme.js';
+import { Logger, Tag } from '../utils/logger.js';
 
 const CHAT_WIDTH = 350;
 
@@ -55,6 +56,7 @@ export class ChatPopup {
 
         /* Auto-focus input on open */
         (this._menu as any).connect('open-state-changed', (_menu: any, isOpen: boolean) => {
+            Logger.debug(Tag.UI, `Popup ${isOpen ? 'opened' : 'closed'}`);
             if (isOpen) {
                 GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
                     this._entry?.grab_key_focus();
@@ -132,7 +134,6 @@ export class ChatPopup {
             track_hover: true,
             visible: false,
         });
-        this._copyBtn.set_style('background-color: #ffffff; color: #000000;');
         this._copyBtn.connect('clicked', () => {
             if (this._lastReply) {
                 St.Clipboard.get_default().set_text(
@@ -220,11 +221,12 @@ export class ChatPopup {
             try {
                 bubble.clutter_text.set_markup(parseMarkdown(text));
             } catch (_e) {
+                Logger.warn(Tag.UI, 'Pango markup parse failed, falling back to plain text');
                 bubble.clutter_text.use_markup = false;
                 bubble.clutter_text.set_text(text);
             }
             this._lastReply = text;
-            this._copyBtn.visible = true;
+            this._copyBtn.visible = text.length > 0;
         } else {
             bubble.clutter_text.set_text(text);
         }
@@ -237,6 +239,7 @@ export class ChatPopup {
     clearMessages(): void {
         this._messageBox.destroy_all_children();
         this._scrollView.visible = false;
+        this._copyBtn.visible = false;
     }
 
     /* ── Private ──────────────────────────────────────── */
@@ -255,13 +258,14 @@ export class ChatPopup {
             container: this._container,
             entry: this._entry,
             askBtn: this._askBtn,
+            copyBtn: this._copyBtn,
         };
         this._themeManager.applyTheme(widgets);
 
-        // Settings icon inherits text color
-        const fg = this._themeManager.isDark ? '#ffffff' : '#000000';
+        // Settings icon is gray so it's visible but not bright white/black
+        const iconColor = this._themeManager.isDark ? '#a0a0a0' : '#666666';
         this._settingsBtn.set_style(
-            `background-color: transparent; border: none; padding: 2px; color: ${fg};`
+            `background-color: transparent; border: none; padding: 2px; color: ${iconColor};`
         );
     }
 
