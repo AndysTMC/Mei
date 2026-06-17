@@ -10,6 +10,9 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
+
 /* ── Log levels ───────────────────────────────────── */
 
 export const enum LogLevel {
@@ -54,26 +57,42 @@ export function maskKey(key: string | undefined): string {
     return '***' + key.slice(-4);
 }
 
+/* ── File Logging ─────────────────────────────────── */
+
+const LOG_DIR = GLib.get_user_state_dir() + '/mei';
+const LOG_FILE = LOG_DIR + '/logs.txt';
+
+function writeToFile(level: string, tag: string, msg: string): void {
+    try {
+        if (!GLib.file_test(LOG_DIR, GLib.FileTest.EXISTS)) {
+            GLib.mkdir_with_parents(LOG_DIR, 0o700);
+        }
+        const file = Gio.File.new_for_path(LOG_FILE);
+        const out = file.append_to(Gio.FileCreateFlags.NONE, null);
+        
+        const now = new Date();
+        const timestamp = now.toISOString();
+        const line = `[${timestamp}] [${level}] [${tag}] ${msg}\n`;
+        
+        out.write_all(new TextEncoder().encode(line), null);
+        out.close(null);
+    } catch (e) {
+        console.error(`[Mei:ERROR] Failed to write log to file: ${e}`);
+    }
+}
+
 /* ── Logger ───────────────────────────────────────── */
 
 export class Logger {
-    /**
-     * Minimum level that will be printed.
-     * - Dev  builds: DEBUG (show everything)
-     * - Prod builds: WARN  (errors and warnings only)
-     *
-     * Can be overridden at runtime for ad-hoc debugging, but the
-     * `__DEV__` guard means DEBUG/INFO call-sites are stripped in prod.
-     */
-    static minLevel: LogLevel = __DEV__ ? LogLevel.DEBUG : LogLevel.WARN;
+    /** Minimum level to log. Set to DEBUG to capture everything to file. */
+    static minLevel: LogLevel = LogLevel.DEBUG;
 
     /* ── Timing (dev-only) ────────────────────────── */
 
     private static _timers: Map<string, number> = new Map();
 
-    /** Start a named timer (dev-only). */
+    /** Start a named timer. */
     static time(tag: TagName, label: string): void {
-        if (!__DEV__) return;
         this._timers.set(`${tag}:${label}`, Date.now());
     }
 
@@ -82,7 +101,6 @@ export class Logger {
      * Returns the elapsed ms (or -1 if no matching timer).
      */
     static timeEnd(tag: TagName, label: string): number {
-        if (!__DEV__) return -1;
         const key = `${tag}:${label}`;
         const start = this._timers.get(key);
         if (start === undefined) return -1;
@@ -95,28 +113,33 @@ export class Logger {
     /* ── Level methods ────────────────────────────── */
 
     static debug(tag: TagName, msg: string): void {
-        if (!__DEV__) return;
         if (this.minLevel > LogLevel.DEBUG) return;
-        console.log(`[Mei:DEBUG] [${tag}] ${msg}`);
+        writeToFile('DEBUG', tag, msg);
+        if (__DEV__) console.log(`[Mei:DEBUG] [${tag}] ${msg}`);
     }
 
     static info(tag: TagName, msg: string): void {
-        if (!__DEV__) return;
         if (this.minLevel > LogLevel.INFO) return;
-        console.log(`[Mei:INFO]  [${tag}] ${msg}`);
+        writeToFile('INFO', tag, msg);
+        if (__DEV__) console.log(`[Mei:INFO]  [${tag}] ${msg}`);
     }
 
     static warn(tag: TagName, msg: string): void {
         if (this.minLevel > LogLevel.WARN) return;
+        writeToFile('WARN', tag, msg);
         console.warn(`[Mei:WARN]  [${tag}] ${msg}`);
     }
 
     static error(tag: TagName, msg: string, err?: unknown): void {
         if (this.minLevel > LogLevel.ERROR) return;
         const suffix = err instanceof Error ? `: ${err.message}` : '';
-        console.error(`[Mei:ERROR] [${tag}] ${msg}${suffix}`);
+        const fullMsg = `${msg}${suffix}`;
+        writeToFile('ERROR', tag, fullMsg);
+        
+        console.error(`[Mei:ERROR] [${tag}] ${fullMsg}`);
         if (__DEV__ && err instanceof Error && err.stack) {
             console.error(err.stack);
+            writeToFile('ERROR', tag, `Stack:\n${err.stack}`);
         }
     }
 

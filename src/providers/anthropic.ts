@@ -25,7 +25,7 @@ export class AnthropicProvider implements Provider {
 
     constructor(session: Soup.Session, config: ProviderConfig) {
         this._session = session;
-        this._url = config.url || this.defaultUrl;
+        this._url = this.defaultUrl;
         this._model = config.model;
         this._apiKey = config.apiKey ?? '';
         Logger.info(Tag.Provider, `Created ${this.name} → ${this._url} (model: ${this._model}, key: ${maskKey(this._apiKey)})`);

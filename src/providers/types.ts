@@ -38,4 +38,4 @@ export interface Provider {
 }
 
 /** Supported provider identifiers. */
-export type ProviderId = 'ollama' | 'llamacpp' | 'openai' | 'anthropic' | 'gemini';
+export type ProviderId = 'ollama' | 'llamacpp' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'mistral' | 'openrouter' | 'deepseek' | 'custom' | 'opencode';

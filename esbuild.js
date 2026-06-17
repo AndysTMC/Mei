@@ -34,5 +34,6 @@ await build({
     outfile: 'dist/prefs.js',
 });
 
+
 const mode = isDev ? 'dev' : 'prod';
 console.log(`Build complete (${mode}).`);

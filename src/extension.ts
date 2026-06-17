@@ -19,7 +19,7 @@ import { Logger, Tag } from './utils/logger.js';
 import type { Provider, ProviderConfig, ProviderId, ChatMessage } from './providers/types.js';
 import { OllamaProvider } from './providers/ollama.js';
 import { LlamaCppProvider } from './providers/llamacpp.js';
-import { OpenAIProvider } from './providers/openai.js';
+import { OpenAIProvider, GroqProvider, MistralProvider, OpenRouterProvider, DeepSeekProvider, CustomProvider, OpenCodeProvider } from './providers/openai.js';
 import { AnthropicProvider } from './providers/anthropic.js';
 import { GeminiProvider } from './providers/gemini.js';
 
@@ -100,11 +100,20 @@ export default class MeiExtension extends Extension {
 
     private _createProvider(): Provider {
         const session = this._soupSession!;
-        const providerId = (this._settings!.get_string('provider') || 'ollama') as ProviderId;
+        const providerId = this._settings!.get_string('provider') as ProviderId;
+        const configsJson = this._settings!.get_string('provider-configs');
+        let parsedConfigs: Record<string, any> = {};
+        try {
+            parsedConfigs = JSON.parse(configsJson || '{}');
+        } catch (e) {
+            Logger.warn(Tag.Extension, `Failed to parse provider-configs: ${e}`);
+        }
+        const providerConfig = parsedConfigs[providerId] || {};
+
         const config: ProviderConfig = {
-            url: this._settings!.get_string('provider-url') || '',
-            model: this._settings!.get_string('model-name') || 'gemma4',
-            apiKey: this._settings!.get_string('api-key') || '',
+            url: providerConfig.url || '',
+            model: providerConfig.modelName || '',
+            apiKey: providerConfig.apiKey || '',
         };
 
         switch (providerId) {
@@ -112,6 +121,18 @@ export default class MeiExtension extends Extension {
                 return new LlamaCppProvider(session, config);
             case 'openai':
                 return new OpenAIProvider(session, config);
+            case 'groq':
+                return new GroqProvider(session, config);
+            case 'mistral':
+                return new MistralProvider(session, config);
+            case 'openrouter':
+                return new OpenRouterProvider(session, config);
+            case 'deepseek':
+                return new DeepSeekProvider(session, config);
+            case 'custom':
+                return new CustomProvider(session, config);
+            case 'opencode':
+                return new OpenCodeProvider(session, config);
             case 'anthropic':
                 return new AnthropicProvider(session, config);
             case 'gemini':

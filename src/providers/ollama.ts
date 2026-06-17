@@ -21,11 +21,13 @@ export class OllamaProvider implements Provider {
     private _session: Soup.Session;
     private _url: string;
     private _model: string;
+    private _apiKey: string;
 
     constructor(session: Soup.Session, config: ProviderConfig) {
         this._session = session;
-        this._url = config.url || this.defaultUrl;
+        this._url = this.defaultUrl;
         this._model = config.model;
+        this._apiKey = config.apiKey || '';
         Logger.info(Tag.Provider, `Created ${this.name} → ${this._url} (model: ${this._model})`);
     }
 
@@ -41,11 +43,16 @@ export class OllamaProvider implements Provider {
 
         Logger.debug(Tag.Provider, `${this.name} sending ${messages.length} message(s)`);
 
+        const headers: Record<string, string> = {};
+        if (this._apiKey) {
+            headers['Authorization'] = `Bearer ${this._apiKey}`;
+        }
+
         const json = await postJson(
             this._session,
             this._url,
             body,
-            {},
+            headers,
             cancellable
         );
 

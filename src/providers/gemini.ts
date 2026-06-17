@@ -25,7 +25,7 @@ export class GeminiProvider implements Provider {
 
     constructor(session: Soup.Session, config: ProviderConfig) {
         this._session = session;
-        this._baseUrl = config.url || this.defaultUrl;
+        this._baseUrl = this.defaultUrl;
         this._model = config.model;
         this._apiKey = config.apiKey ?? '';
         Logger.info(Tag.Provider, `Created ${this.name} → ${this._baseUrl} (model: ${this._model}, key: ${maskKey(this._apiKey)})`);

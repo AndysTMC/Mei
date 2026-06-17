@@ -16,6 +16,7 @@
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
@@ -82,12 +83,14 @@ export class ChatPopup {
         });
         this._popupItem.add_child(this._container);
 
-        /* ── Settings icon (top-right) ────────────────── */
+        /* ── Header icons (top-right) ─────────────────── */
         const topBar = new St.BoxLayout({
             x_expand: true,
             x_align: Clutter.ActorAlign.END,
         });
 
+
+        // Settings Icon
         this._settingsBtn = new St.Button({
             style_class: 'mei-settings-btn',
             can_focus: true,
@@ -264,9 +267,8 @@ export class ChatPopup {
 
         // Settings icon is gray so it's visible but not bright white/black
         const iconColor = this._themeManager.isDark ? '#a0a0a0' : '#666666';
-        this._settingsBtn.set_style(
-            `background-color: transparent; border: none; padding: 2px; color: ${iconColor};`
-        );
+        const iconStyle = `background-color: transparent; border: none; padding: 2px; color: ${iconColor};`;
+        this._settingsBtn.set_style(iconStyle);
     }
 
     /* ── Cleanup ──────────────────────────────────────── */

@@ -24,7 +24,7 @@
     color: black;
     background-color: rgba(255, 255, 255, 0.95);
     border-radius: 6px;
-    width: 34px;
+    min-width: 34px;
     text-align: center;
 }
 
@@ -32,8 +32,9 @@
     font-family: 'Lobster', cursive;
     font-size: 16px;
     font-weight: normal;
-    width: 34px;
+    min-width: 34px;
     text-align: center;
+    color: white;
 }
 
 /* ── Popup ───────────────────────────────────────── */

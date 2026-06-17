@@ -45,6 +45,19 @@ export function postJson(
                     const elapsed = Logger.timeEnd(Tag.HTTP, url);
                     const status = msg.get_status();
                     Logger.debug(Tag.HTTP, `POST ${url} → ${status} (${elapsed}ms) body=${Logger.truncate(text, 500)}`);
+
+                    if (status >= 400) {
+                        let errMsg = `HTTP ${status}`;
+                        try {
+                            const parsed = JSON.parse(text);
+                            errMsg = parsed.error?.message || parsed.error || parsed.detail || errMsg;
+                        } catch {
+                            if (text.trim()) errMsg += `: ${Logger.truncate(text.trim(), 100)}`;
+                        }
+                        reject(new Error(errMsg));
+                        return;
+                    }
+
                     const json = JSON.parse(text);
                     resolve(json);
                 } catch (e) {

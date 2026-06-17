@@ -15,6 +15,8 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { Logger, Tag } from '../utils/logger.js';
 
+const PANEL_LABEL = __DEV__ ? 'Mei  <span face="sans-serif" size="60%" alpha="80%">(DEV)</span>' : 'Mei';
+
 export class MeiIndicator {
     private _button: St.Button;
     private _label: St.Label;
@@ -28,10 +30,14 @@ export class MeiIndicator {
 
     constructor() {
         this._label = new St.Label({
-            text: 'Mei',
             style_class: 'mei-panel-label',
             y_align: Clutter.ActorAlign.CENTER,
         });
+
+        if (__DEV__) {
+            this._label.clutter_text.use_markup = true;
+        }
+        this._setLabelText(PANEL_LABEL);
 
         this._button = new St.Button({
             style_class: 'mei-panel-button',
@@ -52,11 +58,11 @@ export class MeiIndicator {
         this._button.connect('notify::hover', () => {
             if (this._glintActive) {
                 if (this._button.hover) {
-                    this._label.set_text('⏹');
+                    this._setLabelText('⏹');
                     this._label.remove_style_class_name('mei-panel-label');
                     this._label.add_style_class_name('mei-stop-hover-text');
                 } else {
-                    this._label.set_text('Mei');
+                    this._setLabelText(PANEL_LABEL);
                     this._label.remove_style_class_name('mei-stop-hover-text');
                     this._label.add_style_class_name('mei-panel-label');
                 }
@@ -64,6 +70,19 @@ export class MeiIndicator {
         });
 
         (Main.panel as any)._centerBox.insert_child_at_index(this._button, -1);
+    }
+
+    private _setLabelText(text: string): void {
+        if (__DEV__) {
+            try {
+                this._label.clutter_text.set_markup(text);
+            } catch (e) {
+                Logger.error(Tag.Indicator, `Failed to parse markup: ${text}`, e);
+                this._label.set_text(text);
+            }
+        } else {
+            this._label.set_text(text);
+        }
     }
 
     /** The underlying St.Button actor (used as popup menu anchor). */
@@ -88,7 +107,7 @@ export class MeiIndicator {
     stopGlint(): void {
         this._glintActive = false;
         this._button.remove_style_class_name('glow');
-        this._label.set_text('Mei');
+        this._setLabelText(PANEL_LABEL);
         this._label.remove_style_class_name('mei-stop-hover-text');
         this._label.add_style_class_name('mei-panel-label');
         this._label.remove_all_transitions();
