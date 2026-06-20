@@ -1,22 +1,27 @@
 # Mei (AI Assistant GNOME Extension)
 
-Mei is a GNOME Shell extension that provides a quick-access panel popup for chatting with AI models — local or cloud.
+Mei is a modern, feature-rich GNOME Shell extension that provides a quick-access panel popup for chatting with various AI models — both local and cloud-based.
 
 ## Features
 
-- **Multiple AI Providers**: Ollama, llama.cpp, OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter, DeepSeek, OpenCode, and Custom.
-- **Unified Settings UI**: Configure preferences using a clean, tabbed window with navigation pages (General, Providers, Advanced, Logs) accessible via the ⚙ icon in the popup.
-- **Isolated Provider Configs**: Connection settings, API keys, and active models are stored independently for each provider.
-- **Dynamic Model Fetching**: Fetch model dropdown lists directly from provider endpoints.
-- **Markdown Rendering**: Headers, bold, italic, strikethrough, code blocks, lists, blockquotes — rendered via Pango markup.
-- **Copy Button**: One-click copy of the last AI response.
-- **Dark/Light Theme**: Automatically matches your system color scheme.
-- **Processing Indicator**: The panel label glows while waiting; hover to reveal a stop button.
+- **Quick-Access Panel Popup**: Immediate, one-click access to AI assistance directly from the GNOME Shell top panel.
+- **Local & Cloud Provider Support**: Native integration with local engines (Ollama, llama.cpp) and cloud-based APIs (OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter, DeepSeek, OpenCode) or custom endpoints.
+- **Dual Conversation Layouts**: Toggle between a compact popup for quick, ephemeral queries and a wider "Big Mode" that includes a nested view of your chat history.
+- **Dynamic Settings & Config Manager**: Tabbed preferences window with isolated configs (API keys, custom endpoints) and automatic model listings for each provider.
+- **Response Management**: Easily cancel active requests mid-generation or copy responses to your clipboard with a single click.
+
+## User Experience (UX) Enhancements
+
+- **Markdown Formatting**: Renders rich formatting (headers, bold, italic, lists, code blocks, and blockquotes) inside responses using Pango markup.
+- **Responsive Viewport Scrolling**: Smart height constraints tailored to the display resolution (`60vh` max for messages, `20vh` max for input) with automatic scroll-to-bottom logic on text updates.
+- **Custom Caret & Input Blinking**: Highly responsive manual cursor blinking and arrow-key navigation inside the text entry.
+- **System Theme Integration**: Automatic, real-time styling sync with your preferred GNOME dark/light mode desktop settings.
+- **State Indicators**: Visual feedback through inline button loaders and glowing panel labels when processing a prompt.
 
 ## Requirements
 
 - GNOME Shell 45+
-- Node.js & npm (for building)
+- Node.js & npm (for building from source)
 - An AI backend (e.g., [Ollama](https://ollama.com) running locally, or a cloud provider API key)
 
 ## Build & Install
@@ -43,13 +48,6 @@ Open settings via the ⚙ icon in the popup, or run:
 gnome-extensions prefs mei@andystmc.com
 ```
 
-### Settings Pages
-
-- **General**: Select the active AI provider, choose or input the model name, and set preferences like system prompt or memory limits.
-- **Providers**: Manage independent configuration for each AI provider. Customize provider type (Cloud, Local, Custom), edit custom endpoints, input API keys, and dynamically fetch/select available models.
-- **Advanced**: Adjust network timeout settings and other extension behavior.
-- **Logs**: View extension log output for debugging.
-
 ## Development
 
 ```sh
@@ -59,3 +57,12 @@ npm run build       # Full build to dist/
 
 The extension UUID is `mei@andystmc.com`.
 
+### Testing in a Nested Session
+
+To debug or test the extension in an isolated nested session, you can run:
+```sh
+dbus-run-session gnome-shell --nested --wayland
+```
+
+> [!NOTE]
+> Running a nested GNOME Shell instance requires `mutter-bin-dev` (or the equivalent mutter binaries/development package on your distribution). Without it, the nested Wayland DBus session command will fail to instantiate the shell environment.

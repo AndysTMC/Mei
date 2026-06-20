@@ -277,6 +277,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         let fetchTimeout = 0;
         let currentFetchProvider = '';
         let currentFetchKey = '';
+        let modelFetchSeq = 0;
 
         function queueUpdateModels() {
             if (fetchTimeout) {
@@ -300,6 +301,7 @@ export default class MeiPreferences extends ExtensionPreferences {
                 return;
             }
 
+            const fetchSeq = ++modelFetchSeq;
             modelComboRow.set_visible(false);
             modelStatusRow.set_visible(true);
             modelStatusRow.set_subtitle('Loading models...');
@@ -308,6 +310,15 @@ export default class MeiPreferences extends ExtensionPreferences {
 
             try {
                 const models = await fetchModels(provider, apiKey);
+                if (
+                    fetchSeq !== modelFetchSeq ||
+                    provider !== settings.get_string('provider') ||
+                    apiKey !== (getCurrentProviderConfig().apiKey || '') ||
+                    settings.get_string('provider-type') !== 'cloud'
+                ) {
+                    return;
+                }
+
                 if (models.length === 0) {
                     throw new Error('No models returned.');
                 }
@@ -326,7 +337,18 @@ export default class MeiPreferences extends ExtensionPreferences {
 
                 modelStatusRow.set_visible(false);
                 modelComboRow.set_visible(true);
+                spinner.stop();
+                spinner.set_visible(false);
             } catch (e) {
+                if (
+                    fetchSeq !== modelFetchSeq ||
+                    provider !== settings.get_string('provider') ||
+                    apiKey !== (getCurrentProviderConfig().apiKey || '') ||
+                    settings.get_string('provider-type') !== 'cloud'
+                ) {
+                    return;
+                }
+
                 modelComboRow.set_visible(false);
                 modelStatusRow.set_visible(true);
                 modelStatusRow.set_subtitle('API Key required or network error.');
@@ -354,6 +376,9 @@ export default class MeiPreferences extends ExtensionPreferences {
                     GLib.Source.remove(fetchTimeout);
                     fetchTimeout = 0;
                 }
+                modelFetchSeq++;
+                spinner.stop();
+                spinner.set_visible(false);
             } else {
                 modelEntryRow.set_visible(false);
                 if (provider === currentFetchProvider && getCurrentProviderConfig().apiKey === currentFetchKey && modelStringList.get_n_items() > 0) {
@@ -572,6 +597,13 @@ export default class MeiPreferences extends ExtensionPreferences {
         });
 
         window.connect('destroy', () => {
+            if (fetchTimeout) {
+                GLib.Source.remove(fetchTimeout);
+                fetchTimeout = 0;
+            }
+            modelFetchSeq++;
+            session.abort();
+
             if (timeoutId) {
                 GLib.Source.remove(timeoutId);
                 timeoutId = 0;

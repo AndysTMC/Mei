@@ -19,6 +19,7 @@ export interface ThemedWidgets {
 export class ThemeManager {
     private _settings: Gio.Settings;
     private _signalId: number;
+    private _callbackSignalIds: Set<number> = new Set();
     private _isDark: boolean;
 
     constructor() {
@@ -67,17 +68,25 @@ export class ThemeManager {
             widgets.askBtn.set_style(
                 `background-color: ${askBg}; color: ${fg};`
             );
-        if (widgets.copyBtn)
+        if (widgets.copyBtn) {
             widgets.copyBtn.set_style(
                 `background-color: ${askBg}; color: ${fg};`
             );
+        }
     }
 
     /**
      * Connect a callback to be invoked whenever the theme changes.
      */
-    onThemeChanged(callback: () => void): void {
-        this._settings.connect('changed::color-scheme', callback);
+    onThemeChanged(callback: () => void): number {
+        const signalId = this._settings.connect('changed::color-scheme', callback);
+        this._callbackSignalIds.add(signalId);
+        return signalId;
+    }
+
+    disconnect(signalId: number): void {
+        if (signalId === 0 || !this._callbackSignalIds.delete(signalId)) return;
+        this._settings.disconnect(signalId);
     }
 
     destroy(): void {
@@ -85,5 +94,10 @@ export class ThemeManager {
             this._settings.disconnect(this._signalId);
             this._signalId = 0;
         }
+
+        for (const signalId of this._callbackSignalIds) {
+            this._settings.disconnect(signalId);
+        }
+        this._callbackSignalIds.clear();
     }
 }

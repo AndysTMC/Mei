@@ -12,7 +12,8 @@
     "build:assets": "cp metadata.json dist/ && cp stylesheet.css dist/ && cp -r icons dist/",
     "build": "npm run clean && mkdir -p dist && npm run build:ts && npm run build:schemas && npm run build:assets",
     "build:dev": "npm run clean && mkdir -p dist && npm run build:ts:dev && npm run build:schemas && npm run build:assets",
-    "install:ext": "ln -sf $(pwd)/dist ~/.local/share/gnome-shell/extensions/mei@andystmc.com"
+    "install:ext": "ln -sf $(pwd)/dist ~/.local/share/gnome-shell/extensions/mei@andystmc.com",
+    "dev": "npm run build:dev && npm run install:ext && dbus-run-session gnome-shell --devkit --wayland"
   },
   "devDependencies": {
     "@girs/gjs": "latest",

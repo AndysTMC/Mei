@@ -4,6 +4,13 @@ import GLib from 'gi://GLib';
 
 import { Logger, Tag } from './logger.js';
 
+function redactSensitiveUrl(url: string): string {
+    return url.replace(
+        /([?&](?:api[_-]?key|access[_-]?token|token|key)=)[^&]+/gi,
+        '$1***'
+    );
+}
+
 /**
  * Sends a POST request with a JSON body and returns the parsed JSON response.
  */
@@ -15,15 +22,16 @@ export function postJson(
     cancellable: Gio.Cancellable
 ): Promise<any> {
     return new Promise((resolve, reject) => {
+        const logUrl = redactSensitiveUrl(url);
         const msg = Soup.Message.new('POST', url);
         if (!msg) {
-            Logger.error(Tag.HTTP, `Invalid URL: ${url}`);
-            reject(new Error(`Invalid URL: ${url}`));
+            Logger.error(Tag.HTTP, `Invalid URL: ${logUrl}`);
+            reject(new Error(`Invalid URL: ${logUrl}`));
             return;
         }
 
         const jsonStr = JSON.stringify(body);
-        Logger.debug(Tag.HTTP, `POST ${url} body=${Logger.truncate(jsonStr, 500)}`);
+        Logger.debug(Tag.HTTP, `POST ${logUrl} body=${Logger.truncate(jsonStr, 500)}`);
 
         const bytes = new GLib.Bytes(new TextEncoder().encode(jsonStr));
         msg.set_request_body_from_bytes('application/json', bytes);
@@ -32,7 +40,7 @@ export function postJson(
             msg.get_request_headers().append(key, value);
         }
 
-        Logger.time(Tag.HTTP, url);
+        Logger.time(Tag.HTTP, logUrl);
 
         session.send_and_read_async(
             msg,
@@ -42,9 +50,9 @@ export function postJson(
                 try {
                     const respBytes = session.send_and_read_finish(result);
                     const text = new TextDecoder().decode(respBytes.get_data()!);
-                    const elapsed = Logger.timeEnd(Tag.HTTP, url);
+                    const elapsed = Logger.timeEnd(Tag.HTTP, logUrl);
                     const status = msg.get_status();
-                    Logger.debug(Tag.HTTP, `POST ${url} → ${status} (${elapsed}ms) body=${Logger.truncate(text, 500)}`);
+                    Logger.debug(Tag.HTTP, `POST ${logUrl} → ${status} (${elapsed}ms) body=${Logger.truncate(text, 500)}`);
 
                     if (status >= 400) {
                         let errMsg = `HTTP ${status}`;
@@ -61,8 +69,8 @@ export function postJson(
                     const json = JSON.parse(text);
                     resolve(json);
                 } catch (e) {
-                    Logger.timeEnd(Tag.HTTP, url);
-                    Logger.error(Tag.HTTP, `POST ${url} failed`, e);
+                    Logger.timeEnd(Tag.HTTP, logUrl);
+                    Logger.error(Tag.HTTP, `POST ${logUrl} failed`, e);
                     reject(e);
                 }
             }) as any

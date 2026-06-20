@@ -30,7 +30,9 @@ export default class MeiExtension extends Extension {
     private _soupSession: Soup.Session | null = null;
     private _cancellable: Gio.Cancellable | null = null;
     private _messages: ChatMessage[] = [];
+    private _messagesBackup: ChatMessage[] | null = null;
     private _settings: Gio.Settings | null = null;
+    private _settingsSignalId: number = 0;
     private _provider: Provider | null = null;
 
     enable(): void {
@@ -61,9 +63,19 @@ export default class MeiExtension extends Extension {
         this._popup = new ChatPopup(this._indicator.actor, this._themeManager);
         this._popup.onSend = (text: string) => this._onSend(text);
         this._popup.onOpenSettings = () => this.openPreferences();
+        this._popup.onReload = (index: number) => this._onReload(index);
+        this._popup.onToggleExpand = (isExpanded: boolean) => {
+            if (isExpanded) {
+                this._popup?.showHistory(this._messages);
+            } else {
+                const assistantMsgs = this._messages.filter(m => m.role === 'assistant');
+                const lastReply = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].content : '';
+                this._popup?.showMessage('assistant', lastReply);
+            }
+        };
 
         /* ── Re-create provider when settings change ──── */
-        this._settings.connect('changed', (_settings: Gio.Settings, key: string) => {
+        this._settingsSignalId = this._settings.connect('changed', (_settings: Gio.Settings, key: string) => {
             Logger.info(Tag.Extension, `Setting changed: ${key}`);
             this._provider = this._createProvider();
         });
@@ -90,6 +102,10 @@ export default class MeiExtension extends Extension {
         this._soupSession?.abort();
         this._soupSession = null;
 
+        if (this._settings && this._settingsSignalId !== 0) {
+            this._settings.disconnect(this._settingsSignalId);
+            this._settingsSignalId = 0;
+        }
         this._settings = null;
         this._provider = null;
         this._messages = [];
@@ -149,8 +165,12 @@ export default class MeiExtension extends Extension {
         Logger.debug(Tag.Extension, `User message: ${Logger.truncate(text, 100)}`);
         this._messages.push({ role: 'user', content: text });
 
-        this._popup?.clearMessages();
-        this._popup?.close();
+        if (this._popup?.isExpanded) {
+            this._popup.showHistory(this._messages);
+        } else {
+            this._popup?.clearMessages();
+            this._popup?.close();
+        }
         this._indicator?.startGlint();
 
         this._fetchResponse();
@@ -159,32 +179,93 @@ export default class MeiExtension extends Extension {
     private async _fetchResponse(): Promise<void> {
         if (!this._soupSession || !this._provider) return;
 
-        this._cancellable = new Gio.Cancellable();
-        Logger.info(Tag.Extension, `Fetching response from ${this._provider.name}`);
+        const provider = this._provider;
+        const cancellable = new Gio.Cancellable();
+        this._cancellable = cancellable;
+        Logger.info(Tag.Extension, `Fetching response from ${provider.name}`);
+
+        if (this._popup?.isExpanded) {
+            this._popup.setLoading(true);
+        }
 
         try {
-            const reply = await this._provider.sendMessage(
+            const reply = await provider.sendMessage(
                 this._messages,
-                this._cancellable
+                cancellable
             );
 
             this._messages.push({ role: 'assistant', content: reply });
+            this._messagesBackup = null;
             this._indicator?.stopGlint();
-            this._popup?.showMessage('assistant', reply);
-            this._popup?.open();
+
+            if (this._popup?.isExpanded) {
+                this._popup.showHistory(this._messages);
+            } else {
+                this._popup?.showMessage('assistant', reply);
+                this._popup?.open();
+            }
             Logger.info(Tag.Extension, `Response received (${reply.length} chars)`);
         } catch (e: any) {
-            if (!this._cancellable?.is_cancelled()) {
+            if (!cancellable.is_cancelled()) {
                 this._indicator?.stopGlint();
-                this._popup?.showMessage(
-                    'assistant',
-                    `⚠ Could not reach ${this._provider.name}.`
-                );
-                this._popup?.open();
-                Logger.error(Tag.Extension, `${this._provider.name} request failed`, e);
+                if (this._messagesBackup) {
+                    this._messages = this._messagesBackup;
+                    this._messagesBackup = null;
+                    if (this._popup?.isExpanded) {
+                        this._popup.showHistory(this._messages);
+                    }
+                } else {
+                    const errMsg = `⚠ Could not reach ${provider.name}.`;
+
+                    if (this._popup?.isExpanded) {
+                        this._messages.push({ role: 'assistant', content: errMsg });
+                        this._popup.showHistory(this._messages);
+                    } else {
+                        this._popup?.showMessage('assistant', errMsg);
+                        this._popup?.open();
+                    }
+                }
+                Logger.error(Tag.Extension, `${provider.name} request failed`, e);
             } else {
-                Logger.warn(Tag.Extension, `Request to ${this._provider.name} was cancelled`);
+                Logger.warn(Tag.Extension, `Request to ${provider.name} was cancelled`);
+                if (this._messagesBackup) {
+                    this._messages = this._messagesBackup;
+                    this._messagesBackup = null;
+                } else {
+                    if (this._messages.length > 0 && this._messages[this._messages.length - 1].role === 'user') {
+                        this._messages.pop();
+                    }
+                }
+                if (this._popup?.isExpanded) {
+                    this._popup.showHistory(this._messages);
+                } else {
+                    const assistantMsgs = this._messages.filter(m => m.role === 'assistant');
+                    const lastReply = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].content : '';
+                    this._popup?.showMessage('assistant', lastReply);
+                }
             }
+        } finally {
+            if (this._cancellable === cancellable) {
+                this._cancellable = null;
+            }
+            this._popup?.setLoading(false);
         }
+    }
+
+    private _onReload(index: number): void {
+        Logger.debug(Tag.Extension, `Reload message at index ${index}`);
+        this._messagesBackup = [...this._messages];
+        this._messages.splice(index);
+
+        if (this._popup?.isExpanded) {
+            this._popup.showHistory(this._messages);
+        } else {
+            const assistantMsgs = this._messages.filter(m => m.role === 'assistant');
+            const lastReply = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].content : '';
+            this._popup?.showMessage('assistant', lastReply);
+        }
+
+        this._indicator?.startGlint();
+        this._fetchResponse();
     }
 }

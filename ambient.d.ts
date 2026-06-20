@@ -8,3 +8,12 @@ import '@girs/soup-3.0';
 declare global {
     const __DEV__: boolean;
 }
+
+declare module 'resource:///org/gnome/shell/ui/animation.js' {
+    import Clutter from 'gi://Clutter';
+    export class Spinner extends Clutter.Actor {
+        constructor(size: number, options?: { animate?: boolean; hideOnStop?: boolean });
+        play(): void;
+        stop(): void;
+    }
+}

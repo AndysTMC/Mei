@@ -66,16 +66,23 @@
 
 /* ── Scroll area ─────────────────────────────────── */
 .mei-scroll {
-    max-height: 400px;
     margin-bottom: 6px;
 }
 
-.mei-scroll StScrollBar StBin#vhandle {
+.mei-input-scroll {
+    background-color: transparent;
+    border: none;
+    margin-bottom: 6px;
+}
+
+.mei-scroll StScrollBar StBin#vhandle,
+.mei-input-scroll StScrollBar StBin#vhandle {
     width: 4px;
     background-color: rgba(128, 128, 128, 0.5);
     border-radius: 2px;
 }
-.mei-scroll StScrollBar StBin#trough {
+.mei-scroll StScrollBar StBin#trough,
+.mei-input-scroll StScrollBar StBin#trough {
     background-color: transparent;
 }
 
@@ -109,6 +116,20 @@
     cursor: pointer;
 }
 
+/* ── Copy button ────────────────────────────────── */
+.mei-copy-btn {
+    border-radius: 8px;
+    padding: 4px 12px;
+    font-size: 11px;
+    border: none;
+}
+
+.mei-copy-btn:hover {
+    background-color: white !important;
+    color: black !important;
+    cursor: pointer;
+}
+
 /* ── Settings icon ──────────────────────────────── */
 .mei-settings-btn {
     background-color: transparent;
@@ -119,6 +140,49 @@
 }
 
 .mei-settings-btn:hover {
+    opacity: 255;
+    background-color: rgba(128, 128, 128, 0.15);
+}
+
+/* ── Expand button ──────────────────────────────── */
+.mei-expand-btn {
+    background-color: transparent;
+    border: none;
+    padding: 2px;
+    border-radius: 4px;
+    opacity: 180;
+}
+
+.mei-expand-btn:hover {
+    opacity: 255;
+    background-color: rgba(128, 128, 128, 0.15);
+}
+
+/* ── Expanded mode bubbles ──────────────────────── */
+.mei-container.expanded .mei-bubble-user {
+    max-width: 610px;
+}
+
+.mei-container.expanded .mei-bubble-ai {
+    max-width: 610px;
+}
+
+/* ── History Message Action Buttons ────────────── */
+.mei-action-bar {
+    spacing: 8px;
+    margin-top: 2px;
+    margin-bottom: 6px;
+}
+
+.mei-action-btn {
+    background-color: transparent;
+    border: none;
+    padding: 4px;
+    border-radius: 4px;
+    opacity: 180;
+}
+
+.mei-action-btn:hover {
     opacity: 255;
     background-color: rgba(128, 128, 128, 0.15);
 }
