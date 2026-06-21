@@ -52,6 +52,7 @@ export class ChatPopup {
     private _lastReply: string | null = null;
     private _focusTimeoutId: number = 0;
     private _blinkTimeoutId: number = 0;
+
     private _copyTimeoutId: number = 0;
     private _historyScrollTimeoutId: number = 0;
     private _inputLayoutTimeoutId: number = 0;
@@ -112,13 +113,13 @@ export class ChatPopup {
         });
 
         /* ── Popup content ────────────────────────────── */
-        this._menu.box.style = 'padding: 0; margin: 0;';
+        this._menu.box.add_style_class_name('mei-menu-box');
 
         this._popupItem = new PopupMenu.PopupBaseMenuItem({
             reactive: false,
             can_focus: false,
         });
-        this._popupItem.style = 'padding: 0; margin: 0;';
+        this._popupItem.add_style_class_name('mei-popup-item');
         this._menu.addMenuItem(this._popupItem);
 
         this._container = new St.BoxLayout({
@@ -131,6 +132,7 @@ export class ChatPopup {
         /* ── Header bar (Copy left, Settings right) ───── */
         const topBar = new St.BoxLayout({
             x_expand: true,
+            style_class: 'mei-top-bar'
         });
 
         // Copy Button (text only)
@@ -232,8 +234,8 @@ export class ChatPopup {
         this._messageBox = new St.BoxLayout({
             vertical: true,
             x_expand: true,
+            style_class: 'mei-message-box',
         });
-        (this._messageBox as any).spacing = 8;
         this._scrollView.set_child(this._messageBox);
         this._contentBox.add_child(this._scrollView);
 
@@ -250,12 +252,16 @@ export class ChatPopup {
         ct.set_line_wrap(true);
         ct.set_line_wrap_mode(0); // WORD_CHAR
         ct.cursor_visible = true;
+        ct.x_expand = true;
+        ct.y_expand = true;
+        ct.x_align = Clutter.ActorAlign.FILL;
+        ct.y_align = Clutter.ActorAlign.FILL;
 
         ct.connect('key-focus-in', () => this._startCursorBlink());
         ct.connect('key-focus-out', () => this._stopCursorBlink());
         ct.connect('text-changed', () => {
             this._resetCursorBlink();
-            this._queueInputLayoutUpdate('bottom');
+            this._queueInputLayoutUpdate('cursor');
         });
         ct.connect('cursor-changed', () => this._queueInputLayoutUpdate('cursor'));
 
@@ -267,6 +273,21 @@ export class ChatPopup {
                     this._handleSend();
                     return Clutter.EVENT_STOP;
                 }
+            }
+            return Clutter.EVENT_PROPAGATE;
+        });
+
+        // Intercept clicks on the St.Entry padding/margin area (empty space to
+        // the right of short lines). Transform the click coordinates into the
+        // ClutterText actor's own coordinate space and use coords_to_position()
+        // to place the cursor at the nearest character.
+        this._entry.connect('button-press-event', (_actor: any, event: Clutter.Event) => {
+            const [ex, ey] = event.get_coords();
+            const [ok, lx, ly] = ct.transform_stage_point(ex, ey);
+            if (ok) {
+                const pos = ct.coords_to_position(lx, ly);
+                ct.grab_key_focus();
+                ct.set_cursor_position(pos);
             }
             return Clutter.EVENT_PROPAGATE;
         });
@@ -354,6 +375,7 @@ export class ChatPopup {
         const bubble = new St.Label({
             style_class: role === 'user' ? 'mei-bubble-user' : 'mei-bubble-ai',
             x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START,
+            x_expand: role === 'assistant',
         });
         bubble.clutter_text.set_line_wrap(true);
         bubble.clutter_text.set_line_wrap_mode(0);
@@ -408,6 +430,7 @@ export class ChatPopup {
             const bubble = new St.Label({
                 style_class: role === 'user' ? 'mei-bubble-user' : 'mei-bubble-ai',
                 x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START,
+                x_expand: role === 'assistant',
             });
             bubble.clutter_text.set_line_wrap(true);
             bubble.clutter_text.set_line_wrap_mode(0);
@@ -622,10 +645,7 @@ export class ChatPopup {
 
     private _updateInputLayout(scrollTarget: InputScrollTarget): void {
         const allocatedWidth = Math.max(
-            this._inputScrollView.get_width(),
-            this._entry.get_width(),
-            this._container.get_width() - 20,
-            CHAT_WIDTH
+            this._entry.get_width()
         );
         const width = Math.max(1, Math.floor(allocatedWidth));
         const [, naturalHeight] = this._entry.clutter_text.get_preferred_height(width);
@@ -729,7 +749,7 @@ export class ChatPopup {
 
         // Icons are gray so they're visible but not bright white/black
         const iconColor = this._themeManager.isDark ? '#a0a0a0' : '#666666';
-        const iconStyle = `background-color: transparent; border: none; padding: 2px; width: 22px; height: 22px; color: ${iconColor};`;
+        const iconStyle = `color: ${iconColor};`;
         this._settingsBtn.set_style(iconStyle);
         this._expandBtn.set_style(iconStyle);
     }

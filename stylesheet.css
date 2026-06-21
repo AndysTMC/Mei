@@ -44,9 +44,15 @@
 
 /* ── Container ───────────────────────────────────── */
 .mei-container {
-    padding: 10px;
     spacing: 6px;
     border-radius: 12px;
+    width: 350px;
+}
+
+.mei-top-bar {
+    margin-top: 10px; 
+    margin-left: 10px;
+    margin-right: 10px;
 }
 
 /* ── Bubbles ─────────────────────────────────────── */
@@ -61,7 +67,6 @@
 .mei-bubble-ai {
     padding: 8px 2px;
     font-size: 13px;
-    max-width: 310px;
 }
 
 /* ── Scroll area ─────────────────────────────────── */
@@ -75,15 +80,27 @@
     margin-bottom: 6px;
 }
 
+.mei-scroll StScrollBar,
+.mei-input-scroll StScrollBar {
+    width: 6px;
+}
+
 .mei-scroll StScrollBar StBin#vhandle,
 .mei-input-scroll StScrollBar StBin#vhandle {
     width: 4px;
     background-color: rgba(128, 128, 128, 0.5);
     border-radius: 2px;
 }
+
 .mei-scroll StScrollBar StBin#trough,
 .mei-input-scroll StScrollBar StBin#trough {
     background-color: transparent;
+}
+
+.mei-message-box {
+    margin-left: 10px;
+    margin-right: 10px;
+    spacing: 8px;
 }
 
 /* ── Input ───────────────────────────────────────── */
@@ -92,6 +109,8 @@
     border: none;
     border-width: 0;
     padding: 0;
+    margin-left: 10px;
+    margin-right: 10px;
     font-size: 13px;
     min-height: 22px;
 }
@@ -104,7 +123,12 @@
 /* ── Ask button ──────────────────────────────────── */
 .mei-ask-btn {
     border-radius: 8px;
-    padding: 4px 0;
+    margin-top: 4px;
+    margin-bottom: 10px;
+    margin-left: 10px;
+    margin-right: 10px;
+    padding-top: 4px;
+    padding-bottom: 4px;
     font-size: 11px;
     min-height: 12px;
     border: none;
@@ -137,6 +161,8 @@
     padding: 2px;
     border-radius: 4px;
     opacity: 180;
+    width: 22px;
+    height: 22px;
 }
 
 .mei-settings-btn:hover {
@@ -151,6 +177,8 @@
     padding: 2px;
     border-radius: 4px;
     opacity: 180;
+    width: 22px;
+    height: 22px;
 }
 
 .mei-expand-btn:hover {
@@ -163,9 +191,7 @@
     max-width: 610px;
 }
 
-.mei-container.expanded .mei-bubble-ai {
-    max-width: 610px;
-}
+
 
 /* ── History Message Action Buttons ────────────── */
 .mei-action-bar {
@@ -185,4 +211,16 @@
 .mei-action-btn:hover {
     opacity: 255;
     background-color: rgba(128, 128, 128, 0.15);
+}
+
+/* ── Menu & Popup Items ─────────────────────────── */
+.mei-menu-box {
+    padding: 0;
+    margin: 0;
+    border-radius: 12px;
+}
+
+.mei-popup-item {
+    padding: 0;
+    margin: 0;
 }

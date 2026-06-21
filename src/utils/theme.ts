@@ -50,15 +50,15 @@ export class ThemeManager {
 
         if (widgets.menuBox)
             widgets.menuBox.set_style(
-                `padding: 0; margin: 0; background-color: ${bg}; border-radius: 12px;`
+                `background-color: ${bg};`
             );
         if (widgets.popupItem)
             widgets.popupItem.set_style(
-                `padding: 0; margin: 0; background-color: ${bg};`
+                `background-color: ${bg};`
             );
         if (widgets.container)
             widgets.container.set_style(
-                `background-color: ${bg}; color: ${fg}; padding: 10px; border-radius: 12px;`
+                `background-color: ${bg}; color: ${fg};`
             );
         if (widgets.entry)
             widgets.entry.set_style(
