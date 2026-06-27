@@ -35,6 +35,11 @@ const INPUT_SCROLL_PRIORITY: Record<InputScrollTarget, number> = {
     bottom: 3,
 };
 
+export interface ChatSummary {
+    id: string;
+    title: string;
+}
+
 export class ChatPopup {
     private _menu: PopupMenu.PopupMenu;
     private _container: St.BoxLayout;
@@ -43,6 +48,7 @@ export class ChatPopup {
     private _entry: St.Entry;
     private _askBtn: St.Button;
     private _spinner!: Animation.Spinner;
+    private _loadingBubble?: St.BoxLayout;
     private _isLoading = false;
     private _copyBtn: St.Button;
     private _settingsBtn: St.Button;
@@ -67,8 +73,29 @@ export class ChatPopup {
     private _contentMaxHeight: number;
     private _inputMaxHeight: number;
 
+    // Layout view managers
+    private _chatView!: St.BoxLayout;
+    private _topBar!: St.BoxLayout;
+    private _clearBtn!: St.Button;
+    private _newChatBtn!: St.Button;
+    private _historyBtn!: St.Button;
+    private _errorContainer!: St.BoxLayout;
+    private _errorMessage: string = '';
+    private _historyView!: St.BoxLayout;
+    private _historyTopBar!: St.BoxLayout;
+    private _backBtn!: St.Button;
+    private _historyTitle!: St.Label;
+    private _historyScrollView!: St.ScrollView;
+    private _historyListBox!: St.BoxLayout;
+
+    private _hasMessages: boolean = false;
+    private _isHistoryView: boolean = false;
+
     /** Called when the user sends a message. */
     onSend: ((text: string) => void) | null = null;
+
+    /** Called when the user clicks the stop button to cancel request. */
+    onCancel: (() => void) | null = null;
 
     /** Called when the settings icon is clicked. */
     onOpenSettings: (() => void) | null = null;
@@ -78,6 +105,18 @@ export class ChatPopup {
 
     /** Called when the user clicks the reload icon on an AI response. */
     onReload: ((index: number) => void) | null = null;
+
+    /** Called when the user requests to clear the current chat (new chat). */
+    onNewChat: (() => void) | null = null;
+
+    /** Called when the user requests to show the history list. */
+    onHistoryRequested: (() => void) | null = null;
+
+    /** Called when a chat session is selected from the history list to load. */
+    onLoadChat: ((id: string) => void) | null = null;
+
+    /** Called when a chat session is deleted from the history list. */
+    onDeleteChat: ((id: string) => void) | null = null;
 
     constructor(anchor: St.Widget, themeManager: ThemeManager) {
         this._themeManager = themeManager;
@@ -129,8 +168,15 @@ export class ChatPopup {
         });
         this._popupItem.add_child(this._container);
 
-        /* ── Header bar (Copy left, Settings right) ───── */
-        const topBar = new St.BoxLayout({
+        /* ── Chat View (wraps topBar + contentBox) ────── */
+        this._chatView = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            y_expand: true,
+        });
+
+        /* ── Header bar ──────────────────────────────── */
+        this._topBar = new St.BoxLayout({
             x_expand: true,
             style_class: 'mei-top-bar'
         });
@@ -165,14 +211,70 @@ export class ChatPopup {
                 });
             }
         });
-        topBar.add_child(this._copyBtn);
+        this._topBar.add_child(this._copyBtn);
         this._addButtonClickScaleEffect(this._copyBtn);
 
-        // Spacer to push settings button to the far right
+        // Spacer to push action buttons to the far right
         const spacer = new St.Widget({
             x_expand: true,
         });
-        topBar.add_child(spacer);
+        this._topBar.add_child(spacer);
+
+        // Clear button (small popup only — starts new chat)
+        this._clearBtn = new St.Button({
+            style_class: 'mei-icon-btn',
+            can_focus: true,
+            reactive: true,
+            track_hover: true,
+            child: new St.Icon({
+                icon_name: 'edit-clear-all-symbolic',
+                icon_size: 14,
+            }),
+            visible: true,
+        });
+        this._clearBtn.connect('clicked', () => {
+            if (!this._hasMessages) return;
+            this.onNewChat?.();
+        });
+        this._topBar.add_child(this._clearBtn);
+        this._addButtonClickScaleEffect(this._clearBtn);
+
+        // New Chat / Edit button (big popup only)
+        this._newChatBtn = new St.Button({
+            style_class: 'mei-icon-btn',
+            can_focus: true,
+            reactive: true,
+            track_hover: true,
+            child: new St.Icon({
+                icon_name: 'document-edit-symbolic',
+                icon_size: 14,
+            }),
+            visible: false,
+        });
+        this._newChatBtn.connect('clicked', () => {
+            if (!this._hasMessages) return;
+            this.onNewChat?.();
+        });
+        this._topBar.add_child(this._newChatBtn);
+        this._addButtonClickScaleEffect(this._newChatBtn);
+
+        // History button (big popup only)
+        this._historyBtn = new St.Button({
+            style_class: 'mei-icon-btn',
+            can_focus: true,
+            reactive: true,
+            track_hover: true,
+            child: new St.Icon({
+                icon_name: 'document-open-recent-symbolic',
+                icon_size: 14,
+            }),
+            visible: false,
+        });
+        this._historyBtn.connect('clicked', () => {
+            this.onHistoryRequested?.();
+        });
+        this._topBar.add_child(this._historyBtn);
+        this._addButtonClickScaleEffect(this._historyBtn);
 
         // Expand Icon & Button
         this._expandIcon = new St.Icon({
@@ -180,7 +282,7 @@ export class ChatPopup {
             icon_size: 14,
         });
         this._expandBtn = new St.Button({
-            style_class: 'mei-expand-btn',
+            style_class: 'mei-icon-btn',
             can_focus: true,
             reactive: true,
             track_hover: true,
@@ -189,12 +291,12 @@ export class ChatPopup {
         this._expandBtn.connect('clicked', () => {
             this.toggleExpand();
         });
-        topBar.add_child(this._expandBtn);
+        this._topBar.add_child(this._expandBtn);
         this._addButtonClickScaleEffect(this._expandBtn);
 
         // Settings Icon
         this._settingsBtn = new St.Button({
-            style_class: 'mei-settings-btn',
+            style_class: 'mei-icon-btn',
             can_focus: true,
             reactive: true,
             track_hover: true,
@@ -207,8 +309,8 @@ export class ChatPopup {
             this._menu.close();
             this.onOpenSettings?.();
         });
-        topBar.add_child(this._settingsBtn);
-        this._container.add_child(topBar);
+        this._topBar.add_child(this._settingsBtn);
+        this._chatView.add_child(this._topBar);
 
         /* ── Content Box (Fading container) ───────────── */
         this._contentBox = new St.BoxLayout({
@@ -216,7 +318,6 @@ export class ChatPopup {
             x_expand: true,
             y_expand: true,
         });
-        this._container.add_child(this._contentBox);
 
         /* ── Message area (scrollable, max 60vh) ──────── */
         this._scrollView = new St.ScrollView({
@@ -321,9 +422,24 @@ export class ChatPopup {
             reactive: true,
             track_hover: true,
         });
-        this._askBtn.connect('clicked', () => this._handleSend());
+        this._askBtn.connect('clicked', () => {
+            if (this._isLoading) {
+                this.onCancel?.();
+            } else {
+                this._handleSend();
+            }
+        });
         this._contentBox.add_child(this._askBtn);
         this._addButtonClickScaleEffect(this._askBtn);
+
+        /* ── Error pill (hidden by default) ───────────── */
+        this._errorContainer = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            style_class: 'mei-error-pill',
+            visible: false,
+        });
+        this._contentBox.add_child(this._errorContainer);
 
         this._spinner = new Animation.Spinner(16, {
             animate: false,
@@ -335,6 +451,76 @@ export class ChatPopup {
         this._spinner.y_expand = true;
         this._spinner.visible = false;
         this._contentBox.add_child(this._spinner);
+
+        this._chatView.add_child(this._contentBox);
+        this._container.add_child(this._chatView);
+
+        /* ── History View ────────────────────────────────── */
+        this._historyView = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            y_expand: true,
+            visible: false,
+        });
+
+        this._historyTopBar = new St.BoxLayout({
+            x_expand: true,
+            style_class: 'mei-top-bar',
+        });
+
+        this._backBtn = new St.Button({
+            style_class: 'mei-icon-btn',
+            can_focus: true,
+            reactive: true,
+            track_hover: true,
+            child: new St.Icon({
+                icon_name: 'go-previous-symbolic',
+                icon_size: 14,
+            }),
+        });
+        this._backBtn.connect('clicked', () => this.hideHistoryList());
+        this._historyTopBar.add_child(this._backBtn);
+        this._addButtonClickScaleEffect(this._backBtn);
+
+        // Centered "History" heading label
+        this._historyTitle = new St.Label({
+            text: 'History',
+            style_class: 'mei-history-header-title',
+            x_expand: true,
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._historyTopBar.add_child(this._historyTitle);
+
+        // Dummy right spacer of matching size (22px) for perfect centering
+        const rightSpacer = new St.Widget({
+            width: 22,
+        });
+        this._historyTopBar.add_child(rightSpacer);
+
+        this._historyView.add_child(this._historyTopBar);
+
+        this._historyScrollView = new St.ScrollView({
+            style_class: 'mei-scroll',
+            x_expand: true,
+            y_expand: true,
+            overlay_scrollbars: true,
+        });
+        this._historyScrollView.set_policy(
+            St.PolicyType.NEVER,
+            St.PolicyType.AUTOMATIC
+        );
+        this._historyScrollView.set_style(`max-height: ${this._contentMaxHeight}px;`);
+
+        this._historyListBox = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            style_class: 'mei-history-list',
+        });
+        this._historyScrollView.set_child(this._historyListBox);
+        this._historyView.add_child(this._historyScrollView);
+
+        this._container.add_child(this._historyView);
 
         /* ── Apply theme ──────────────────────────────── */
         this._applyTheme();
@@ -369,8 +555,10 @@ export class ChatPopup {
         if (!text) {
             this._scrollView.visible = false;
             this._copyBtn.visible = false;
+            this._hasMessages = false;
             return;
         }
+        this._hasMessages = true;
 
         const bubble = new St.Label({
             style_class: role === 'user' ? 'mei-bubble-user' : 'mei-bubble-ai',
@@ -401,12 +589,50 @@ export class ChatPopup {
         this._scrollView.visible = true;
     }
 
+    private _animateHeightChange(changeFn: () => void): void {
+        const fromHeight = this._container.get_height();
+        this._container.set_height(fromHeight);
+
+        changeFn();
+
+        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            const containerWidth = this._container.get_width();
+            let targetHeight = 0;
+            
+            if (this._isHistoryView) {
+                const [, toHeight] = this._historyView.get_preferred_height(containerWidth);
+                const [, topBarHeight] = this._historyTopBar.get_preferred_height(containerWidth);
+                targetHeight = toHeight + topBarHeight + 20; // 10px top + 10px bottom margin
+            } else {
+                const [, toHeight] = this._chatView.get_preferred_height(containerWidth);
+                const [, topBarHeight] = this._topBar.get_preferred_height(containerWidth);
+                targetHeight = toHeight + topBarHeight + 20; // 10px top + 10px bottom margin
+            }
+
+            this._container.ease({
+                height: targetHeight,
+                duration: 200,
+                mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                onComplete: () => {
+                    this._container.set_height(-1);
+                    if (!this._isHistoryView) {
+                        this._queueInputLayoutUpdate('cursor');
+                    }
+                }
+            });
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
     /** Clear the message area and hide it. */
     clearMessages(): void {
-        this._messageBox.destroy_all_children();
-        this._scrollView.visible = false;
-        this._copyBtn.visible = false;
-        this._resetCopyState();
+        this._animateHeightChange(() => {
+            this._messageBox.destroy_all_children();
+            this._scrollView.visible = false;
+            this._copyBtn.visible = false;
+            this._hasMessages = false;
+            this._resetCopyState();
+        });
     }
 
     /**
@@ -507,7 +733,8 @@ export class ChatPopup {
         }
 
         this._scrollView.visible = messages.length > 0;
-        this._copyBtn.visible = false; // Never show top copy button in history (big) mode
+        this._copyBtn.visible = false;
+        this._hasMessages = messages.length > 0;
 
         this._queueHistoryScrollToBottom();
     }
@@ -519,6 +746,19 @@ export class ChatPopup {
             this._container.add_style_class_name('expanded');
         } else {
             this._container.remove_style_class_name('expanded');
+        }
+
+        // Toggle button visibility based on mode
+        this._clearBtn.visible = !this._isExpanded;
+        this._newChatBtn.visible = this._isExpanded;
+        this._historyBtn.visible = this._isExpanded;
+
+        // If collapsing while in history view, go back to chat first
+        if (!this._isExpanded && this._isHistoryView) {
+            this._chatView.visible = true;
+            this._chatView.opacity = 255;
+            this._historyView.visible = false;
+            this._isHistoryView = false;
         }
 
         // 1. Fade out the content smoothly
@@ -563,17 +803,63 @@ export class ChatPopup {
         this._isLoading = loading;
 
         if (loading) {
-            this._askBtn.set_label('');
-            this._reparentSpinner(this._askBtn);
+            // 1. Change Ask Button to Stop Button
+            this._askBtn.set_label('Stop');
+            this._askBtn.add_style_class_name('loading');
+            this._askBtn.reactive = true; // MUST BE REACTIVE to be clickable!
+
+            // 2. Add AI loading bubble to message box
+            this._loadingBubble = new St.BoxLayout({
+                style_class: 'mei-bubble-ai',
+                x_align: Clutter.ActorAlign.START,
+                x_expand: false,
+            });
+            this._reparentSpinner(this._loadingBubble);
             this._spinner.play();
-            this._askBtn.reactive = false;
+            this._spinner.visible = true;
+            this._messageBox.add_child(this._loadingBubble);
+            this._scrollView.visible = true;
+            this._hasMessages = true;
+
+            // Auto-scroll to bottom
+            GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                const adjustment = this._scrollView.vscroll.adjustment;
+                adjustment.value = adjustment.upper - adjustment.page_size;
+                return GLib.SOURCE_REMOVE;
+            });
         } else {
-            this._spinner.stop();
-            this._reparentSpinner(null);
-            this._spinner.visible = false;
-            this._reparentSpinner(this._contentBox);
+            this._askBtn.remove_style_class_name('loading');
             this._askBtn.set_label('Ask');
             this._askBtn.reactive = true;
+
+            // Workaround for Clutter hover/scale sticking when child is replaced during interaction
+            this._askBtn.scale_x = 1.0;
+            this._askBtn.scale_y = 1.0;
+            this._askBtn.sync_hover();
+
+            // Safely clean up spinner — detach from whatever parent it's in
+            this._spinner.stop();
+            this._spinner.visible = false;
+            const spinnerParent = this._spinner.get_parent();
+            if (spinnerParent) {
+                if (spinnerParent instanceof St.Button) {
+                    spinnerParent.set_child(null);
+                } else {
+                    spinnerParent.remove_child(this._spinner);
+                }
+            }
+            this._contentBox.add_child(this._spinner);
+
+            // Safely clean up loading bubble — it may already be destroyed
+            // by showHistory/clearMessages calling destroy_all_children()
+            if (this._loadingBubble) {
+                const bubbleParent = this._loadingBubble.get_parent();
+                if (bubbleParent) {
+                    bubbleParent.remove_child(this._loadingBubble);
+                    this._loadingBubble.destroy();
+                }
+                this._loadingBubble = undefined;
+            }
         }
     }
 
@@ -595,9 +881,233 @@ export class ChatPopup {
         }
     }
 
+    /* ── Error pill ──────────────────────────────────── */
+
+    /** Show an error pill below the Ask button. */
+    showError(message: string): void {
+        this._errorMessage = message;
+        this._errorContainer.destroy_all_children();
+
+        // Row: warning icon + error text
+        const row = new St.BoxLayout({
+            x_expand: true,
+            style_class: 'mei-error-row',
+        });
+
+        const icon = new St.Icon({
+            icon_name: 'dialog-warning-symbolic',
+            icon_size: 14,
+            y_align: Clutter.ActorAlign.START,
+        });
+        row.add_child(icon);
+
+        const label = new St.Label({
+            text: message,
+            x_expand: true,
+            style_class: 'mei-error-text',
+        });
+        label.clutter_text.set_line_wrap(true);
+        label.clutter_text.set_line_wrap_mode(0);
+        label.clutter_text.set_ellipsize(0);
+        row.add_child(label);
+
+        this._errorContainer.add_child(row);
+
+        // Copy Error button
+        const copyBtn = new St.Button({
+            label: 'Copy Error',
+            style_class: 'mei-error-copy-btn',
+            can_focus: true,
+            reactive: true,
+            track_hover: true,
+        });
+        copyBtn.connect('clicked', () => {
+            St.Clipboard.get_default().set_text(
+                St.ClipboardType.CLIPBOARD,
+                this._errorMessage
+            );
+            copyBtn.set_label('Copied');
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
+                if (copyBtn.get_parent()) copyBtn.set_label('Copy Error');
+                return GLib.SOURCE_REMOVE;
+            });
+        });
+        this._errorContainer.add_child(copyBtn);
+        this._addButtonClickScaleEffect(copyBtn);
+
+        this._errorContainer.visible = true;
+        this._applyErrorTheme();
+    }
+
+    /** Hide the error pill. */
+    hideError(): void {
+        this._errorContainer.visible = false;
+        this._errorContainer.destroy_all_children();
+        this._errorMessage = '';
+    }
+
+    /* ── History list panel ──────────────────────────── */
+
+    /**
+     * Populate and show the history panel (big popup only).
+     * Fades out the chat view and fades in the history list.
+     */
+    showHistoryList(items: ChatSummary[]): void {
+        // Populate list
+        this._historyListBox.destroy_all_children();
+
+        if (items.length === 0) {
+            const emptyLabel = new St.Label({
+                text: 'No saved chats',
+                style_class: 'mei-history-empty',
+                x_align: Clutter.ActorAlign.CENTER,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            this._historyListBox.add_child(emptyLabel);
+        } else {
+            for (const item of items) {
+                const row = new St.BoxLayout({
+                    x_expand: true,
+                    style_class: 'mei-history-item-row',
+                });
+
+                const titleBtn = new St.Button({
+                    label: item.title || 'Untitled',
+                    style_class: 'mei-history-title-btn',
+                    x_expand: true,
+                    x_align: Clutter.ActorAlign.FILL,
+                    can_focus: true,
+                    reactive: true,
+                    track_hover: true,
+                });
+                titleBtn.connect('clicked', () => {
+                    this.hideHistoryList();
+                    this.onLoadChat?.(item.id);
+                });
+                row.add_child(titleBtn);
+                this._addButtonClickScaleEffect(titleBtn);
+
+                const deleteBtn = new St.Button({
+                    style_class: 'mei-history-delete-btn',
+                    can_focus: true,
+                    reactive: true,
+                    track_hover: true,
+                    child: new St.Icon({
+                        icon_name: 'user-trash-symbolic',
+                        icon_size: 14,
+                    }),
+                });
+                deleteBtn.connect('clicked', () => {
+                    row.ease({
+                        opacity: 0,
+                        duration: 150,
+                        mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                        onComplete: () => {
+                            row.destroy();
+                        },
+                    });
+                    this.onDeleteChat?.(item.id);
+                });
+                row.add_child(deleteBtn);
+                this._addButtonClickScaleEffect(deleteBtn);
+
+                this._historyListBox.add_child(row);
+            }
+        }
+
+        this._applyHistoryTheme();
+
+        // Transition: Fade out chat → animate height → fade in history
+        this._chatView.ease({
+            opacity: 0,
+            duration: 150,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            onComplete: () => {
+                // 1. Freeze container at current height BEFORE anything changes
+                const fromHeight = this._container.get_height();
+                this._container.set_height(fromHeight);
+
+                // 2. Swap views while height is frozen — no visual change
+                this._chatView.visible = false;
+                this._historyView.visible = true;
+                this._historyView.opacity = 0;
+
+                // 3. Query the preferred height without releasing the pin
+                const containerWidth = this._container.get_width();
+                const [, toHeight] = this._historyView.get_preferred_height(containerWidth);
+                // Add top-bar height + spacing to get full container target
+                const [, topBarHeight] = this._historyTopBar.get_preferred_height(containerWidth);
+                const targetHeight = toHeight + topBarHeight + 20; // 10px top + 10px bottom margin
+
+                // 4. Animate height — container stays pinned, only ease changes it
+                this._container.ease({
+                    height: targetHeight,
+                    duration: 200,
+                    mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                    onComplete: () => {
+                        this._container.set_height(-1); // Release pin
+                        this._historyView.ease({
+                            opacity: 255,
+                            duration: 150,
+                            mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                        });
+                        this._isHistoryView = true;
+                    },
+                });
+            },
+        });
+    }
+
+    /** Hide the history panel and show the chat view. */
+    hideHistoryList(): void {
+        if (!this._isHistoryView) return;
+
+        // Transition: Fade out history → animate height → fade in chat
+        this._historyView.ease({
+            opacity: 0,
+            duration: 150,
+            mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            onComplete: () => {
+                // 1. Freeze container at current height BEFORE anything changes
+                const fromHeight = this._container.get_height();
+                this._container.set_height(fromHeight);
+
+                // 2. Swap views while height is frozen — no visual change
+                this._historyView.visible = false;
+                this._chatView.visible = true;
+                this._chatView.opacity = 0;
+
+                // 3. Query the preferred height without releasing the pin
+                const containerWidth = this._container.get_width();
+                const [, toHeight] = this._chatView.get_preferred_height(containerWidth);
+                // Add top-bar height + spacing to get full container target
+                const [, topBarHeight] = this._topBar.get_preferred_height(containerWidth);
+                const targetHeight = toHeight + topBarHeight + 20; // 10px top + 10px bottom margin
+
+                // 4. Animate height — container stays pinned, only ease changes it
+                this._container.ease({
+                    height: targetHeight,
+                    duration: 200,
+                    mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                    onComplete: () => {
+                        this._container.set_height(-1); // Release pin
+                        this._chatView.ease({
+                            opacity: 255,
+                            duration: 150,
+                            mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                        });
+                        this._isHistoryView = false;
+                        this._queueInputLayoutUpdate('cursor');
+                    },
+                });
+            },
+        });
+    }
+
     /* ── Private ──────────────────────────────────────── */
 
     private _handleSend(): void {
+        if (this._isLoading) return;
         const text = this._entry.get_text().trim();
         if (!text) return;
         this._entry.set_text('');
@@ -752,6 +1262,52 @@ export class ChatPopup {
         const iconStyle = `color: ${iconColor};`;
         this._settingsBtn.set_style(iconStyle);
         this._expandBtn.set_style(iconStyle);
+        this._clearBtn.set_style(iconStyle);
+        this._newChatBtn.set_style(iconStyle);
+        this._historyBtn.set_style(iconStyle);
+        this._backBtn.set_style(iconStyle);
+
+        // Apply theme color to History Title
+        const fg = this._themeManager.isDark ? '#ffffff' : '#000000';
+        this._historyTitle.set_style(`color: ${fg}; font-weight: bold; font-size: 14px;`);
+
+        this._applyErrorTheme();
+        this._applyHistoryTheme();
+    }
+
+    private _applyErrorTheme(): void {
+        if (!this._errorContainer || !this._errorContainer.visible) return;
+
+        const isDark = this._themeManager.isDark;
+        const bg = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+        const fg = isDark ? '#ffffff' : '#000000';
+
+        this._errorContainer.set_style(`background-color: ${bg}; color: ${fg};`);
+    }
+
+    private _applyHistoryTheme(): void {
+        if (!this._historyListBox) return;
+
+        const isDark = this._themeManager.isDark;
+        const fg = isDark ? '#ffffff' : '#000000';
+        const bg = 'rgba(128, 128, 128, 0.15)'; // Hover background color applied permanently
+        const iconColor = isDark ? '#a0a0a0' : '#666666';
+
+        for (const child of this._historyListBox.get_children()) {
+            if (child instanceof St.Label) {
+                // Empty label
+                child.set_style(`color: ${iconColor};`);
+            } else if (child instanceof St.BoxLayout) {
+                // History item row
+                const buttons = child.get_children();
+                if (buttons.length >= 2) {
+                    const titleBtn = buttons[0] as St.Button;
+                    const deleteBtn = buttons[1] as St.Button;
+                    titleBtn.set_style(`color: ${fg}; background-color: ${bg};`);
+                    deleteBtn.set_style(`color: ${iconColor}; background-color: ${bg};`);
+                }
+            }
+        }
     }
 
     private _startCursorBlink(): void {

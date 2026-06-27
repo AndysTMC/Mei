@@ -53,6 +53,7 @@
     margin-top: 10px; 
     margin-left: 10px;
     margin-right: 10px;
+    margin-bottom: 10px;
 }
 
 /* ── Bubbles ─────────────────────────────────────── */
@@ -134,10 +135,14 @@
     border: none;
 }
 
-.mei-ask-btn:hover {
+.mei-ask-btn:not(.loading):hover {
     background-color: white !important;
     color: black !important;
     cursor: pointer;
+}
+
+.mei-ask-btn.loading:hover {
+    opacity: 0.8;
 }
 
 /* ── Copy button ────────────────────────────────── */
@@ -154,8 +159,8 @@
     cursor: pointer;
 }
 
-/* ── Settings icon ──────────────────────────────── */
-.mei-settings-btn {
+/* ── Icon buttons (settings, expand, history, clear, new chat, delete, back) ──────────────────────────────── */
+.mei-icon-btn {
     background-color: transparent;
     border: none;
     padding: 2px;
@@ -165,23 +170,7 @@
     height: 22px;
 }
 
-.mei-settings-btn:hover {
-    opacity: 255;
-    background-color: rgba(128, 128, 128, 0.15);
-}
-
-/* ── Expand button ──────────────────────────────── */
-.mei-expand-btn {
-    background-color: transparent;
-    border: none;
-    padding: 2px;
-    border-radius: 4px;
-    opacity: 180;
-    width: 22px;
-    height: 22px;
-}
-
-.mei-expand-btn:hover {
+.mei-icon-btn:hover {
     opacity: 255;
     background-color: rgba(128, 128, 128, 0.15);
 }
@@ -223,4 +212,89 @@
 .mei-popup-item {
     padding: 0;
     margin: 0;
+}
+
+/* ── Error Pill ─────────────────────────────────── */
+.mei-error-pill {
+    margin-top: 4px;
+    margin-bottom: 10px;
+    margin-left: 10px;
+    margin-right: 10px;
+    padding: 10px;
+    border-radius: 8px;
+    spacing: 8px;
+}
+
+.mei-error-row {
+    spacing: 6px;
+}
+
+.mei-error-text {
+    font-size: 12px;
+}
+
+.mei-error-copy-btn {
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 11px;
+    border: none;
+    background-color: rgba(128, 128, 128, 0.2);
+    text-align: center;
+}
+
+.mei-error-copy-btn:hover {
+    background-color: white !important;
+    color: black !important;
+    cursor: pointer;
+}
+
+/* ── History View ───────────────────────────────── */
+.mei-history-list {
+    margin-left: 10px;
+    margin-right: 10px;
+    margin-bottom: 10px;
+    spacing: 8px; /* Slightly more space between items */
+}
+
+.mei-history-item-row {
+    spacing: 8px;
+    x_expand: true;
+}
+
+.mei-history-title-btn {
+    border: none;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    text-align: left;
+}
+
+/* Ensure no hover/active background color changes for title pill */
+.mei-history-title-btn:hover,
+.mei-history-title-btn:focus,
+.mei-history-title-btn:active {
+    background-color: rgba(128, 128, 128, 0.15) !important;
+}
+
+.mei-history-delete-btn {
+    background-color: rgba(128, 128, 128, 0.15);
+    border: none;
+    padding: 2px;
+    border-radius: 8px;
+    opacity: 180;
+    width: 28px;
+    height: 28px;
+}
+
+/* Ensure delete button remains colored on hover/focus */
+.mei-history-delete-btn:hover,
+.mei-history-delete-btn:focus {
+    opacity: 255;
+    background-color: rgba(128, 128, 128, 0.15) !important;
+}
+
+.mei-history-empty {
+    font-size: 13px;
+    margin-top: 20px;
+    opacity: 0.7;
 }

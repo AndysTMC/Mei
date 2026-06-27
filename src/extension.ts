@@ -15,6 +15,7 @@ import { MeiIndicator } from './panel/indicator.js';
 import { ChatPopup } from './ui/chatPopup.js';
 import { ThemeManager } from './utils/theme.js';
 import { Logger, Tag } from './utils/logger.js';
+import { ChatStore, ChatSession } from './utils/chatStore.js';
 
 import type { Provider, ProviderConfig, ProviderId, ChatMessage } from './providers/types.js';
 import { OllamaProvider } from './providers/ollama.js';
@@ -34,6 +35,8 @@ export default class MeiExtension extends Extension {
     private _settings: Gio.Settings | null = null;
     private _settingsSignalId: number = 0;
     private _provider: Provider | null = null;
+    private _chatStore: ChatStore | null = null;
+    private _chatSessionId: string | null = null;
 
     enable(): void {
         Logger.info(Tag.Extension, 'Enabling Mei extension');
@@ -43,6 +46,10 @@ export default class MeiExtension extends Extension {
 
         /* ── Theme ──────────────────────────────────────── */
         this._themeManager = new ThemeManager();
+
+        /* ── Store ──────────────────────────────────────── */
+        this._chatStore = new ChatStore();
+        this._chatSessionId = null;
 
         /* ── Provider ───────────────────────────────────── */
         this._provider = this._createProvider();
@@ -62,8 +69,13 @@ export default class MeiExtension extends Extension {
         /* ── Chat popup ───────────────────────────────── */
         this._popup = new ChatPopup(this._indicator.actor, this._themeManager);
         this._popup.onSend = (text: string) => this._onSend(text);
+        this._popup.onCancel = () => this._onCancel();
         this._popup.onOpenSettings = () => this.openPreferences();
         this._popup.onReload = (index: number) => this._onReload(index);
+        this._popup.onNewChat = () => this._onNewChat();
+        this._popup.onHistoryRequested = () => this._onHistoryRequested();
+        this._popup.onLoadChat = (id: string) => this._onLoadChat(id);
+        this._popup.onDeleteChat = (id: string) => this._onDeleteChat(id);
         this._popup.onToggleExpand = (isExpanded: boolean) => {
             if (isExpanded) {
                 this._popup?.showHistory(this._messages);
@@ -109,6 +121,8 @@ export default class MeiExtension extends Extension {
         this._settings = null;
         this._provider = null;
         this._messages = [];
+        this._chatStore = null;
+        this._chatSessionId = null;
         Logger.info(Tag.Extension, 'Mei extension disabled');
     }
 
@@ -161,9 +175,83 @@ export default class MeiExtension extends Extension {
 
     /* ── Chat logic ───────────────────────────────────── */
 
+    private _saveCurrentSession(): void {
+        if (!this._chatStore || this._messages.length === 0) return;
+
+        if (!this._chatSessionId) {
+            this._chatSessionId = ChatStore.generateId();
+        }
+
+        const session: ChatSession = {
+            id: this._chatSessionId,
+            title: ChatStore.generateTitle(this._messages),
+            messages: [...this._messages],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+        };
+
+        // If the store already has this session, preserve the createdAt timestamp
+        const existing = this._chatStore.getChat(this._chatSessionId);
+        if (existing) {
+            session.createdAt = existing.createdAt;
+        }
+
+        this._chatStore.saveChat(session);
+    }
+
+    private _onNewChat(): void {
+        if (this._cancellable) {
+            this._cancellable.cancel();
+            this._cancellable = null;
+        }
+        this._messages = [];
+        this._chatSessionId = null;
+        this._popup?.clearMessages();
+        this._popup?.hideError();
+    }
+
+    private _onCancel(): void {
+        if (this._cancellable) {
+            this._cancellable.cancel();
+            Logger.info(Tag.Extension, 'Request cancelled by user via stop button');
+        }
+        this._indicator?.stopGlint();
+    }
+
+    private _onHistoryRequested(): void {
+        if (!this._chatStore) return;
+        const chats = this._chatStore.loadChats();
+        const summaries = chats.map(c => ({ id: c.id, title: c.title }));
+        this._popup?.showHistoryList(summaries);
+    }
+
+    private _onLoadChat(id: string): void {
+        if (!this._chatStore) return;
+        if (this._cancellable) {
+            this._cancellable.cancel();
+            this._cancellable = null;
+        }
+        const session = this._chatStore.getChat(id);
+        if (session) {
+            this._chatSessionId = session.id;
+            this._messages = [...session.messages];
+            this._popup?.showHistory(this._messages);
+        }
+    }
+
+    private _onDeleteChat(id: string): void {
+        if (!this._chatStore) return;
+        this._chatStore.deleteChat(id);
+        if (this._chatSessionId === id) {
+            this._onNewChat(); // Clear current view if we deleted the active chat
+        }
+    }
+
     private _onSend(text: string): void {
         Logger.debug(Tag.Extension, `User message: ${Logger.truncate(text, 100)}`);
+        this._popup?.hideError();
         this._messages.push({ role: 'user', content: text });
+        this._saveCurrentSession();
 
         if (this._popup?.isExpanded) {
             this._popup.showHistory(this._messages);
@@ -194,7 +282,10 @@ export default class MeiExtension extends Extension {
                 cancellable
             );
 
+            this._popup?.setLoading(false);
+
             this._messages.push({ role: 'assistant', content: reply });
+            this._saveCurrentSession();
             this._messagesBackup = null;
             this._indicator?.stopGlint();
 
@@ -206,24 +297,35 @@ export default class MeiExtension extends Extension {
             }
             Logger.info(Tag.Extension, `Response received (${reply.length} chars)`);
         } catch (e: any) {
+            this._popup?.setLoading(false);
+
             if (!cancellable.is_cancelled()) {
                 this._indicator?.stopGlint();
+                const errMsg = `⚠ Could not reach ${provider.name}. ${e.message || ''}`;
+
                 if (this._messagesBackup) {
                     this._messages = this._messagesBackup;
                     this._messagesBackup = null;
+                    this._saveCurrentSession();
                     if (this._popup?.isExpanded) {
                         this._popup.showHistory(this._messages);
                     }
+                    this._popup?.showError(errMsg);
+                    this._popup?.open();
                 } else {
-                    const errMsg = `⚠ Could not reach ${provider.name}.`;
+                    // Remove the user message that caused the error
+                    if (this._messages.length > 0 && this._messages[this._messages.length - 1].role === 'user') {
+                        this._messages.pop();
+                        this._saveCurrentSession();
+                    }
 
                     if (this._popup?.isExpanded) {
-                        this._messages.push({ role: 'assistant', content: errMsg });
                         this._popup.showHistory(this._messages);
                     } else {
-                        this._popup?.showMessage('assistant', errMsg);
+                        // In small popup, we just open and show the error, no chat history
                         this._popup?.open();
                     }
+                    this._popup?.showError(errMsg);
                 }
                 Logger.error(Tag.Extension, `${provider.name} request failed`, e);
             } else {
@@ -236,6 +338,8 @@ export default class MeiExtension extends Extension {
                         this._messages.pop();
                     }
                 }
+                this._saveCurrentSession();
+                
                 if (this._popup?.isExpanded) {
                     this._popup.showHistory(this._messages);
                 } else {
@@ -248,7 +352,6 @@ export default class MeiExtension extends Extension {
             if (this._cancellable === cancellable) {
                 this._cancellable = null;
             }
-            this._popup?.setLoading(false);
         }
     }
 
@@ -256,6 +359,8 @@ export default class MeiExtension extends Extension {
         Logger.debug(Tag.Extension, `Reload message at index ${index}`);
         this._messagesBackup = [...this._messages];
         this._messages.splice(index);
+        this._saveCurrentSession();
+        this._popup?.hideError();
 
         if (this._popup?.isExpanded) {
             this._popup.showHistory(this._messages);
