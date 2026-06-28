@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import type { ChatMessage, Provider, ProviderConfig } from './types.js';
+import { getStringAtPath, type ChatMessage, type Provider, type ProviderConfig } from './types.js';
 
 export class AnthropicProvider implements Provider {
     readonly name = 'Anthropic';
@@ -76,7 +76,7 @@ export class AnthropicProvider implements Provider {
             cancellable
         );
 
-        const reply = json?.content?.[0]?.text?.trim() || '(no response)';
+        const reply = getStringAtPath(json, ['content', 0, 'text'])?.trim() || '(no response)';
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(reply, 500)}`);
         return reply;
     }

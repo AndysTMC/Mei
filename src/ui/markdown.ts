@@ -75,13 +75,15 @@ export function parseMarkdown(text: string): string {
     // 7. Images: ![alt](url)
     result = result.replace(
         /!\[([^\]]*)\]\(([^)]+)\)/g,
-        '🖼 <a href="$2">$1</a>'
+        (_match, alt: string, url: string) =>
+            `🖼 <a href="${escapePangoAttribute(url)}">${alt}</a>`
     );
 
     // 8. Links: [text](url)
     result = result.replace(
         /\[([^\]]+)\]\(([^)]+)\)/g,
-        '<a href="$2">$1</a>'
+        (_match, label: string, url: string) =>
+            `<a href="${escapePangoAttribute(url)}">${label}</a>`
     );
 
     // 9. Bold: **text**
@@ -105,4 +107,10 @@ export function parseMarkdown(text: string): string {
     );
 
     return result;
+}
+
+function escapePangoAttribute(value: string): string {
+    return value
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
 }

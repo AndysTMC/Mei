@@ -19,6 +19,8 @@ export interface ProviderConfig {
     apiKey?: string;
 }
 
+export type JsonObject = Record<string, unknown>;
+
 /** Interface that all AI providers must implement. */
 export interface Provider {
     /** Human-readable name of this provider. */
@@ -39,3 +41,22 @@ export interface Provider {
 
 /** Supported provider identifiers. */
 export type ProviderId = 'ollama' | 'llamacpp' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'mistral' | 'openrouter' | 'deepseek' | 'custom' | 'opencode';
+
+export function getStringAtPath(
+    root: unknown,
+    path: readonly (string | number)[]
+): string | null {
+    let current = root;
+
+    for (const segment of path) {
+        if (typeof segment === 'number') {
+            if (!Array.isArray(current)) return null;
+            current = current[segment];
+        } else {
+            if (typeof current !== 'object' || current === null || Array.isArray(current)) return null;
+            current = (current as Record<string, unknown>)[segment];
+        }
+    }
+
+    return typeof current === 'string' ? current : null;
+}

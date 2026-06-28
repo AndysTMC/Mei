@@ -16,7 +16,7 @@
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
-import Gio from 'gi://Gio';
+import Atk from 'gi://Atk';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
@@ -63,6 +63,8 @@ export class ChatPopup {
     private _historyScrollTimeoutId: number = 0;
     private _inputLayoutTimeoutId: number = 0;
     private _inputScrollTimeoutId: number = 0;
+    private _transientSourceIds: Set<number> = new Set();
+    private _destroyed = false;
     private _inputScrollTargetAfterLayout: InputScrollTarget = 'none';
     private _inputScrollTargetAfterIdle: InputScrollTarget = 'none';
     private _isExpanded: boolean = false;
@@ -134,7 +136,7 @@ export class ChatPopup {
         this._menu.close();
 
         /* Auto-focus input on open */
-        (this._menu as any).connect('open-state-changed', (_menu: any, isOpen: boolean) => {
+        this._menu.connect('open-state-changed', (_menu: PopupMenu.PopupMenu, isOpen: boolean) => {
             Logger.debug(Tag.UI, `Popup ${isOpen ? 'opened' : 'closed'}`);
             if (isOpen) {
                 this._clearFocusTimeout();
@@ -149,6 +151,7 @@ export class ChatPopup {
                 this._stopCursorBlink();
                 this._resetCopyState();
             }
+            return undefined;
         });
 
         /* ── Popup content ────────────────────────────── */
@@ -189,6 +192,8 @@ export class ChatPopup {
             reactive: true,
             track_hover: true,
             visible: false,
+            accessible_name: 'Copy latest response',
+            accessible_role: Atk.Role.PUSH_BUTTON,
         });
         this._copyBtn.connect('clicked', () => {
             if (this._lastReply) {
@@ -198,13 +203,13 @@ export class ChatPopup {
                 );
 
                 if (this._copyTimeoutId !== 0) {
-                    GLib.source_remove(this._copyTimeoutId);
+                    this._removeSource(this._copyTimeoutId);
                     this._copyTimeoutId = 0;
                 }
 
                 this._copyBtn.set_label('Copied');
 
-                this._copyTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+                this._copyTimeoutId = this._addOneShotTimeout(GLib.PRIORITY_DEFAULT, 2000, () => {
                     this._copyBtn.set_label('Copy');
                     this._copyTimeoutId = 0;
                     return GLib.SOURCE_REMOVE;
@@ -226,6 +231,8 @@ export class ChatPopup {
             can_focus: true,
             reactive: true,
             track_hover: true,
+            accessible_name: 'Clear current chat',
+            accessible_role: Atk.Role.PUSH_BUTTON,
             child: new St.Icon({
                 icon_name: 'edit-clear-all-symbolic',
                 icon_size: 14,
@@ -245,6 +252,8 @@ export class ChatPopup {
             can_focus: true,
             reactive: true,
             track_hover: true,
+            accessible_name: 'Start new chat',
+            accessible_role: Atk.Role.PUSH_BUTTON,
             child: new St.Icon({
                 icon_name: 'document-edit-symbolic',
                 icon_size: 14,
@@ -264,6 +273,8 @@ export class ChatPopup {
             can_focus: true,
             reactive: true,
             track_hover: true,
+            accessible_name: 'Show chat history',
+            accessible_role: Atk.Role.PUSH_BUTTON,
             child: new St.Icon({
                 icon_name: 'document-open-recent-symbolic',
                 icon_size: 14,
@@ -286,6 +297,8 @@ export class ChatPopup {
             can_focus: true,
             reactive: true,
             track_hover: true,
+            accessible_name: 'Expand chat',
+            accessible_role: Atk.Role.PUSH_BUTTON,
             child: this._expandIcon,
         });
         this._expandBtn.connect('clicked', () => {
@@ -300,6 +313,8 @@ export class ChatPopup {
             can_focus: true,
             reactive: true,
             track_hover: true,
+            accessible_name: 'Open Mei settings',
+            accessible_role: Atk.Role.PUSH_BUTTON,
             child: new St.Icon({
                 icon_name: 'emblem-system-symbolic',
                 icon_size: 14,
@@ -346,6 +361,7 @@ export class ChatPopup {
             can_focus: true,
             x_expand: true,
             style_class: 'mei-input',
+            accessible_name: 'Message input',
         });
 
         const ct = this._entry.clutter_text;
@@ -366,7 +382,7 @@ export class ChatPopup {
         });
         ct.connect('cursor-changed', () => this._queueInputLayoutUpdate('cursor'));
 
-        ct.connect('key-press-event', (_actor: any, event: Clutter.Event) => {
+        ct.connect('key-press-event', (_actor: Clutter.Actor, event: Clutter.Event) => {
             const key = event.get_key_symbol();
             if (key === Clutter.KEY_Return || key === Clutter.KEY_KP_Enter) {
                 const state = event.get_state();
@@ -382,7 +398,7 @@ export class ChatPopup {
         // the right of short lines). Transform the click coordinates into the
         // ClutterText actor's own coordinate space and use coords_to_position()
         // to place the cursor at the nearest character.
-        this._entry.connect('button-press-event', (_actor: any, event: Clutter.Event) => {
+        this._entry.connect('button-press-event', (_actor: Clutter.Actor, event: Clutter.Event) => {
             const [ex, ey] = event.get_coords();
             const [ok, lx, ly] = ct.transform_stage_point(ex, ey);
             if (ok) {
@@ -421,6 +437,8 @@ export class ChatPopup {
             x_expand: true,
             reactive: true,
             track_hover: true,
+            accessible_name: 'Send message',
+            accessible_role: Atk.Role.PUSH_BUTTON,
         });
         this._askBtn.connect('clicked', () => {
             if (this._isLoading) {
@@ -473,6 +491,8 @@ export class ChatPopup {
             can_focus: true,
             reactive: true,
             track_hover: true,
+            accessible_name: 'Back to chat',
+            accessible_role: Atk.Role.PUSH_BUTTON,
             child: new St.Icon({
                 icon_name: 'go-previous-symbolic',
                 icon_size: 14,
@@ -590,12 +610,14 @@ export class ChatPopup {
     }
 
     private _animateHeightChange(changeFn: () => void): void {
+        if (this._destroyed) return;
         const fromHeight = this._container.get_height();
         this._container.set_height(fromHeight);
 
         changeFn();
 
-        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        this._addOneShotIdle(GLib.PRIORITY_DEFAULT, () => {
+            if (this._destroyed) return GLib.SOURCE_REMOVE;
             const containerWidth = this._container.get_width();
             let targetHeight = 0;
             
@@ -614,6 +636,7 @@ export class ChatPopup {
                 duration: 200,
                 mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                 onComplete: () => {
+                    if (this._destroyed) return;
                     this._container.set_height(-1);
                     if (!this._isHistoryView) {
                         this._queueInputLayoutUpdate('cursor');
@@ -692,6 +715,8 @@ export class ChatPopup {
                 can_focus: true,
                 reactive: true,
                 track_hover: true,
+                accessible_name: `Copy ${role === 'user' ? 'message' : 'response'}`,
+                accessible_role: Atk.Role.PUSH_BUTTON,
                 child: copyIcon,
             });
             copyBtn.connect('clicked', () => {
@@ -700,7 +725,7 @@ export class ChatPopup {
                     text
                 );
                 copyIcon.icon_name = 'object-select-symbolic';
-                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
+                this._addOneShotTimeout(GLib.PRIORITY_DEFAULT, 1500, () => {
                     copyIcon.icon_name = 'edit-copy-symbolic';
                     return GLib.SOURCE_REMOVE;
                 });
@@ -719,6 +744,8 @@ export class ChatPopup {
                     can_focus: true,
                     reactive: true,
                     track_hover: true,
+                    accessible_name: 'Regenerate response',
+                    accessible_role: Atk.Role.PUSH_BUTTON,
                     child: reloadIcon,
                 });
                 reloadBtn.connect('clicked', () => {
@@ -767,12 +794,16 @@ export class ChatPopup {
             duration: 150,
             mode: Clutter.AnimationMode.EASE_OUT_QUAD,
             onComplete: () => {
+                if (this._destroyed) return;
                 const targetWidth = this._isExpanded ? 650 : CHAT_WIDTH;
 
                 // Update settings/expand icon and copy button visibility
                 this._expandIcon.icon_name = this._isExpanded
                     ? 'bolt-symbolic'
                     : 'chat-symbolic';
+                this._expandBtn.accessible_name = this._isExpanded
+                    ? 'Collapse chat'
+                    : 'Expand chat';
 
                 // Notify extension to refresh rendering (via onToggleExpand)
                 this.onToggleExpand?.(this._isExpanded);
@@ -783,6 +814,7 @@ export class ChatPopup {
                     duration: 200,
                     mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                     onComplete: () => {
+                        if (this._destroyed) return;
                         this._queueInputLayoutUpdate('cursor');
 
                         // 3. Fade the content back in
@@ -805,6 +837,7 @@ export class ChatPopup {
         if (loading) {
             // 1. Change Ask Button to Stop Button
             this._askBtn.set_label('Stop');
+            this._askBtn.accessible_name = 'Stop response';
             this._askBtn.add_style_class_name('loading');
             this._askBtn.reactive = true; // MUST BE REACTIVE to be clickable!
 
@@ -822,14 +855,16 @@ export class ChatPopup {
             this._hasMessages = true;
 
             // Auto-scroll to bottom
-            GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-                const adjustment = this._scrollView.vscroll.adjustment;
+            this._addOneShotIdle(GLib.PRIORITY_DEFAULT, () => {
+                if (this._destroyed) return GLib.SOURCE_REMOVE;
+                const adjustment = this._scrollView.get_vadjustment();
                 adjustment.value = adjustment.upper - adjustment.page_size;
                 return GLib.SOURCE_REMOVE;
             });
         } else {
             this._askBtn.remove_style_class_name('loading');
             this._askBtn.set_label('Ask');
+            this._askBtn.accessible_name = 'Send message';
             this._askBtn.reactive = true;
 
             // Workaround for Clutter hover/scale sticking when child is replaced during interaction
@@ -920,6 +955,8 @@ export class ChatPopup {
             can_focus: true,
             reactive: true,
             track_hover: true,
+            accessible_name: 'Copy error details',
+            accessible_role: Atk.Role.PUSH_BUTTON,
         });
         copyBtn.connect('clicked', () => {
             St.Clipboard.get_default().set_text(
@@ -927,7 +964,7 @@ export class ChatPopup {
                 this._errorMessage
             );
             copyBtn.set_label('Copied');
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
+            this._addOneShotTimeout(GLib.PRIORITY_DEFAULT, 1500, () => {
                 if (copyBtn.get_parent()) copyBtn.set_label('Copy Error');
                 return GLib.SOURCE_REMOVE;
             });
@@ -979,6 +1016,8 @@ export class ChatPopup {
                     can_focus: true,
                     reactive: true,
                     track_hover: true,
+                    accessible_name: `Load chat: ${item.title || 'Untitled'}`,
+                    accessible_role: Atk.Role.PUSH_BUTTON,
                 });
                 titleBtn.connect('clicked', () => {
                     this.hideHistoryList();
@@ -992,6 +1031,8 @@ export class ChatPopup {
                     can_focus: true,
                     reactive: true,
                     track_hover: true,
+                    accessible_name: `Delete chat: ${item.title || 'Untitled'}`,
+                    accessible_role: Atk.Role.PUSH_BUTTON,
                     child: new St.Icon({
                         icon_name: 'user-trash-symbolic',
                         icon_size: 14,
@@ -1023,6 +1064,7 @@ export class ChatPopup {
             duration: 150,
             mode: Clutter.AnimationMode.EASE_OUT_QUAD,
             onComplete: () => {
+                if (this._destroyed) return;
                 // 1. Freeze container at current height BEFORE anything changes
                 const fromHeight = this._container.get_height();
                 this._container.set_height(fromHeight);
@@ -1045,6 +1087,7 @@ export class ChatPopup {
                     duration: 200,
                     mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                     onComplete: () => {
+                        if (this._destroyed) return;
                         this._container.set_height(-1); // Release pin
                         this._historyView.ease({
                             opacity: 255,
@@ -1068,6 +1111,7 @@ export class ChatPopup {
             duration: 150,
             mode: Clutter.AnimationMode.EASE_OUT_QUAD,
             onComplete: () => {
+                if (this._destroyed) return;
                 // 1. Freeze container at current height BEFORE anything changes
                 const fromHeight = this._container.get_height();
                 this._container.set_height(fromHeight);
@@ -1090,6 +1134,7 @@ export class ChatPopup {
                     duration: 200,
                     mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                     onComplete: () => {
+                        if (this._destroyed) return;
                         this._container.set_height(-1); // Release pin
                         this._chatView.ease({
                             opacity: 255,
@@ -1145,6 +1190,10 @@ export class ChatPopup {
         if (this._inputLayoutTimeoutId !== 0) return;
 
         this._inputLayoutTimeoutId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            if (this._destroyed) {
+                this._inputLayoutTimeoutId = 0;
+                return GLib.SOURCE_REMOVE;
+            }
             const scrollTarget = this._inputScrollTargetAfterLayout;
             this._inputLayoutTimeoutId = 0;
             this._inputScrollTargetAfterLayout = 'none';
@@ -1186,6 +1235,10 @@ export class ChatPopup {
         if (this._inputScrollTimeoutId !== 0) return;
 
         this._inputScrollTimeoutId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            if (this._destroyed) {
+                this._inputScrollTimeoutId = 0;
+                return GLib.SOURCE_REMOVE;
+            }
             const scrollTarget = this._inputScrollTargetAfterIdle;
             this._inputScrollTimeoutId = 0;
             this._inputScrollTargetAfterIdle = 'none';
@@ -1238,6 +1291,10 @@ export class ChatPopup {
         }
 
         this._historyScrollTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+            if (this._destroyed) {
+                this._historyScrollTimeoutId = 0;
+                return GLib.SOURCE_REMOVE;
+            }
             this._historyScrollTimeoutId = 0;
             const adj = this._scrollView.get_vadjustment();
             const maxValue = Math.max(adj.get_lower(), adj.get_upper() - adj.get_page_size());
@@ -1315,6 +1372,10 @@ export class ChatPopup {
         const ct = this._entry.clutter_text;
         ct.cursor_visible = true;
         this._blinkTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+            if (this._destroyed) {
+                this._blinkTimeoutId = 0;
+                return GLib.SOURCE_REMOVE;
+            }
             ct.cursor_visible = !ct.cursor_visible;
             return GLib.SOURCE_CONTINUE;
         });
@@ -1336,6 +1397,10 @@ export class ChatPopup {
         const ct = this._entry.clutter_text;
         ct.cursor_visible = true;
         this._blinkTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+            if (this._destroyed) {
+                this._blinkTimeoutId = 0;
+                return GLib.SOURCE_REMOVE;
+            }
             ct.cursor_visible = !ct.cursor_visible;
             return GLib.SOURCE_CONTINUE;
         });
@@ -1379,15 +1444,46 @@ export class ChatPopup {
 
     private _resetCopyState(): void {
         if (this._copyTimeoutId !== 0) {
-            GLib.source_remove(this._copyTimeoutId);
+            this._removeSource(this._copyTimeoutId);
             this._copyTimeoutId = 0;
         }
         this._copyBtn.set_label('Copy');
     }
 
+    private _addOneShotTimeout(priority: number, interval: number, callback: () => typeof GLib.SOURCE_REMOVE): number {
+        let sourceId = 0;
+        sourceId = GLib.timeout_add(priority, interval, () => {
+            this._transientSourceIds.delete(sourceId);
+            if (this._destroyed) return GLib.SOURCE_REMOVE;
+            return callback();
+        });
+        this._transientSourceIds.add(sourceId);
+        return sourceId;
+    }
+
+    private _addOneShotIdle(priority: number, callback: () => typeof GLib.SOURCE_REMOVE): number {
+        let sourceId = 0;
+        sourceId = GLib.idle_add(priority, () => {
+            this._transientSourceIds.delete(sourceId);
+            if (this._destroyed) return GLib.SOURCE_REMOVE;
+            return callback();
+        });
+        this._transientSourceIds.add(sourceId);
+        return sourceId;
+    }
+
+    private _removeSource(sourceId: number): void {
+        if (sourceId === 0) return;
+        this._transientSourceIds.delete(sourceId);
+        GLib.source_remove(sourceId);
+    }
+
     /* ── Cleanup ──────────────────────────────────────── */
 
     destroy(): void {
+        if (this._destroyed) return;
+        this.setLoading(false);
+        this._destroyed = true;
         if (this._themeSignalId !== 0) {
             this._themeManager.disconnect(this._themeSignalId);
             this._themeSignalId = 0;
@@ -1398,6 +1494,14 @@ export class ChatPopup {
             GLib.source_remove(this._historyScrollTimeoutId);
             this._historyScrollTimeoutId = 0;
         }
+        for (const sourceId of this._transientSourceIds) {
+            GLib.source_remove(sourceId);
+        }
+        this._transientSourceIds.clear();
+        this._container.remove_all_transitions();
+        this._contentBox.remove_all_transitions();
+        this._chatView.remove_all_transitions();
+        this._historyView.remove_all_transitions();
         this._stopCursorBlink();
         this._resetCopyState();
         if (this._menu) {

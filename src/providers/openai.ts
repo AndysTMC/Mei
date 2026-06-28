@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import type { ChatMessage, Provider, ProviderConfig } from './types.js';
+import { getStringAtPath, type ChatMessage, type Provider, type ProviderConfig } from './types.js';
 
 export class OpenAICompatibleProvider implements Provider {
     readonly name: string;
@@ -63,7 +63,7 @@ export class OpenAICompatibleProvider implements Provider {
             cancellable
         );
 
-        const reply = json?.choices?.[0]?.message?.content?.trim() || '(no response)';
+        const reply = getStringAtPath(json, ['choices', 0, 'message', 'content'])?.trim() || '(no response)';
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(reply, 500)}`);
         return reply;
     }

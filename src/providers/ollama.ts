@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson } from '../utils/http.js';
 import { Logger, Tag } from '../utils/logger.js';
-import type { ChatMessage, Provider, ProviderConfig } from './types.js';
+import { getStringAtPath, type ChatMessage, type Provider, type ProviderConfig } from './types.js';
 
 export class OllamaProvider implements Provider {
     readonly name = 'Ollama';
@@ -25,7 +25,7 @@ export class OllamaProvider implements Provider {
 
     constructor(session: Soup.Session, config: ProviderConfig) {
         this._session = session;
-        this._url = this.defaultUrl;
+        this._url = config.url || this.defaultUrl;
         this._model = config.model;
         this._apiKey = config.apiKey || '';
         Logger.info(Tag.Provider, `Created ${this.name} → ${this._url} (model: ${this._model})`);
@@ -56,7 +56,7 @@ export class OllamaProvider implements Provider {
             cancellable
         );
 
-        const reply = json?.message?.content?.trim() || '(no response)';
+        const reply = getStringAtPath(json, ['message', 'content'])?.trim() || '(no response)';
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(reply, 500)}`);
         return reply;
     }

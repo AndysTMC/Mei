@@ -11,16 +11,23 @@
 
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
+import Atk from 'gi://Atk';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { Logger, Tag } from '../utils/logger.js';
 
 const PANEL_LABEL = __DEV__ ? 'Mei  <span face="sans-serif" size="60%" alpha="80%">(DEV)</span>' : 'Mei';
 
+type PanelWithCenterBox = typeof Main.panel & {
+    _centerBox: St.BoxLayout;
+};
+
 export class MeiIndicator {
     private _button: St.Button;
     private _label: St.Label;
     private _glintActive: boolean = false;
+    private _centerBox: St.BoxLayout | null = null;
+    private _destroyed = false;
 
     /** Called when the panel button is clicked (and not in glint mode). */
     onClicked: (() => void) | null = null;
@@ -45,6 +52,8 @@ export class MeiIndicator {
             reactive: true,
             can_focus: true,
             track_hover: true,
+            accessible_name: 'Mei assistant',
+            accessible_role: Atk.Role.PUSH_BUTTON,
         });
 
         this._button.connect('clicked', () => {
@@ -59,17 +68,24 @@ export class MeiIndicator {
             if (this._glintActive) {
                 if (this._button.hover) {
                     this._setLabelText('⏹');
+                    this._button.accessible_name = 'Stop Mei response';
                     this._label.remove_style_class_name('mei-panel-label');
                     this._label.add_style_class_name('mei-stop-hover-text');
                 } else {
                     this._setLabelText(PANEL_LABEL);
+                    this._button.accessible_name = 'Mei assistant';
                     this._label.remove_style_class_name('mei-stop-hover-text');
                     this._label.add_style_class_name('mei-panel-label');
                 }
             }
         });
 
-        (Main.panel as any)._centerBox.insert_child_at_index(this._button, -1);
+        this._centerBox = getPanelCenterBox();
+        if (this._centerBox) {
+            this._centerBox.insert_child_at_index(this._button, -1);
+        } else {
+            Logger.error(Tag.Indicator, 'Unable to add Mei indicator: panel center box unavailable');
+        }
     }
 
     private _setLabelText(text: string): void {
@@ -107,6 +123,7 @@ export class MeiIndicator {
     stopGlint(): void {
         this._glintActive = false;
         this._button.remove_style_class_name('glow');
+        this._button.accessible_name = 'Mei assistant';
         this._setLabelText(PANEL_LABEL);
         this._label.remove_style_class_name('mei-stop-hover-text');
         this._label.add_style_class_name('mei-panel-label');
@@ -136,10 +153,18 @@ export class MeiIndicator {
     /* ── Cleanup ──────────────────────────────────────── */
 
     destroy(): void {
+        if (this._destroyed) return;
+        this._destroyed = true;
         this.stopGlint();
         if (this._button) {
-            (Main.panel as any)._centerBox.remove_child(this._button);
+            this._centerBox?.remove_child(this._button);
             this._button.destroy();
         }
+        this._centerBox = null;
     }
+}
+
+function getPanelCenterBox(): St.BoxLayout | null {
+    const panel = Main.panel as unknown as Partial<PanelWithCenterBox>;
+    return panel._centerBox ?? null;
 }

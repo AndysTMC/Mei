@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson } from '../utils/http.js';
 import { Logger, Tag } from '../utils/logger.js';
-import type { ChatMessage, Provider, ProviderConfig } from './types.js';
+import { getStringAtPath, type ChatMessage, type Provider, type ProviderConfig } from './types.js';
 
 export class LlamaCppProvider implements Provider {
     readonly name = 'llama.cpp';
@@ -24,7 +24,7 @@ export class LlamaCppProvider implements Provider {
 
     constructor(session: Soup.Session, config: ProviderConfig) {
         this._session = session;
-        this._url = this.defaultUrl;
+        this._url = config.url || this.defaultUrl;
         this._model = config.model;
         Logger.info(Tag.Provider, `Created ${this.name} → ${this._url} (model: ${this._model})`);
     }
@@ -48,7 +48,7 @@ export class LlamaCppProvider implements Provider {
             cancellable
         );
 
-        const reply = json?.choices?.[0]?.message?.content?.trim() || '(no response)';
+        const reply = getStringAtPath(json, ['choices', 0, 'message', 'content'])?.trim() || '(no response)';
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(reply, 500)}`);
         return reply;
     }

@@ -17,9 +17,22 @@ import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/
 const LOG_DIR = GLib.get_user_state_dir() + '/mei';
 const LOG_FILE = LOG_DIR + '/logs.txt';
 
+type ProviderType = 'local' | 'cloud' | 'custom';
+type ProviderConfigKey = 'url' | 'modelName' | 'apiKey';
+
+interface StoredProviderConfig {
+    url: string;
+    modelName: string;
+    apiKey: string;
+}
+
+type ProviderConfigs = Record<string, StoredProviderConfig>;
+
 export default class MeiPreferences extends ExtensionPreferences {
     async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
         const settings = this.getSettings();
+        const settingsSignalIds: number[] = [];
+        let destroyed = false;
 
         // Put main window title
         window.set_title('Manage Mei');
@@ -77,7 +90,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         providerPrefPage.add(providerTypeGroup);
 
         const providerTypeModel = new Gtk.StringList();
-        const typeIds = ['local', 'cloud', 'custom'];
+        const typeIds: ProviderType[] = ['local', 'cloud', 'custom'];
         const typeLabels = ['Local', 'Cloud', 'Custom'];
         for (const label of typeLabels) {
             providerTypeModel.append(label);
@@ -88,7 +101,7 @@ export default class MeiPreferences extends ExtensionPreferences {
             model: providerTypeModel,
         });
 
-        const currentType = settings.get_string('provider-type') || 'cloud';
+        const currentType = getProviderType(settings.get_string('provider-type'));
         let currentTypeIdx = typeIds.indexOf(currentType);
         if (currentTypeIdx === -1) currentTypeIdx = 1;
         providerTypeComboRow.set_selected(currentTypeIdx);
@@ -118,7 +131,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         let activeProviderIds: string[] = [];
 
         function updateProviderList() {
-            const pType = settings.get_string('provider-type');
+            const pType = getProviderType(settings.get_string('provider-type'));
             
             providerModel.splice(0, providerModel.get_n_items(), []); // Clear
             
@@ -147,7 +160,7 @@ export default class MeiPreferences extends ExtensionPreferences {
             }
         }
 
-        settings.connect('changed::provider-type', updateProviderList);
+        settingsSignalIds.push(settings.connect('changed::provider-type', updateProviderList));
 
         providerComboRow.connect('notify::selected', () => {
             const idx = providerComboRow.get_selected();
@@ -164,22 +177,22 @@ export default class MeiPreferences extends ExtensionPreferences {
         });
         providerPrefPage.add(connectionGroup);
 
-        function getProviderConfigs() {
+        function getProviderConfigs(): ProviderConfigs {
             const jsonStr = settings.get_string('provider-configs') || '{}';
-            try { return JSON.parse(jsonStr); } catch (e) { return {}; }
+            return parseProviderConfigs(jsonStr);
         }
-        function saveProviderConfigs(configs: any) {
+        function saveProviderConfigs(configs: ProviderConfigs): void {
             settings.set_string('provider-configs', JSON.stringify(configs));
         }
-        function getCurrentProviderConfig() {
+        function getCurrentProviderConfig(): StoredProviderConfig {
             const provider = settings.get_string('provider');
             const configs = getProviderConfigs();
-            return configs[provider] || { url: '', modelName: '', apiKey: '' };
+            return configs[provider] || createEmptyProviderConfig();
         }
-        function updateCurrentProviderConfig(key: 'url' | 'modelName' | 'apiKey', value: string) {
+        function updateCurrentProviderConfig(key: ProviderConfigKey, value: string): void {
             const provider = settings.get_string('provider');
             const configs = getProviderConfigs();
-            if (!configs[provider]) configs[provider] = { url: '', modelName: '', apiKey: '' };
+            if (!configs[provider]) configs[provider] = createEmptyProviderConfig();
             configs[provider][key] = value;
             saveProviderConfigs(configs);
         }
@@ -214,13 +227,14 @@ export default class MeiPreferences extends ExtensionPreferences {
         const apiKeyRow = new Adw.PasswordEntryRow({ title: 'API Key' });
         apiKeyRow.connect('notify::text', () => {
             updateCurrentProviderConfig('apiKey', apiKeyRow.get_text());
-            if (settings.get_string('provider-type') === 'cloud') queueUpdateModels();
+            if (getProviderType(settings.get_string('provider-type')) === 'cloud') queueUpdateModels();
         });
         connectionGroup.add(apiKeyRow);
 
         const session = new Soup.Session({ timeout: 5 });
+        let modelFetchCancellable: Gio.Cancellable | null = null;
 
-        async function fetchModels(provider: string, apiKey: string): Promise<string[]> {
+        async function fetchModels(provider: string, apiKey: string, cancellable: Gio.Cancellable): Promise<string[]> {
             let url = '';
             let headers: Record<string, string> = {};
             let isGemini = false;
@@ -245,33 +259,24 @@ export default class MeiPreferences extends ExtensionPreferences {
                     return [];
             }
 
-            return new Promise((resolve, reject) => {
-                const msg = Soup.Message.new('GET', url);
-                if (!msg) { reject(new Error('Invalid URL')); return; }
-                
-                for (const [k, v] of Object.entries(headers)) {
-                    msg.get_request_headers().append(k, v);
-                }
+            const msg = Soup.Message.new('GET', url);
+            if (!msg) throw new Error('Invalid URL');
 
-                session.send_and_read_async(msg, GLib.PRIORITY_DEFAULT, null, (_sess, res) => {
-                    try {
-                        const bytes = session.send_and_read_finish(res);
-                        const text = new TextDecoder().decode(bytes.get_data()!);
-                        if (msg.get_status() >= 400) {
-                            reject(new Error(`HTTP ${msg.get_status()}`));
-                            return;
-                        }
-                        const json = JSON.parse(text);
-                        if (isGemini) {
-                            resolve((json.models || []).map((m: any) => m.name.replace('models/', '')));
-                        } else {
-                            resolve((json.data || []).map((m: any) => m.id || m.display_name));
-                        }
-                    } catch (e) {
-                        reject(e);
-                    }
-                });
-            });
+            for (const [key, value] of Object.entries(headers)) {
+                msg.get_request_headers().append(key, value);
+            }
+
+            const bytes = await session.send_and_read_async(
+                msg,
+                GLib.PRIORITY_DEFAULT,
+                cancellable
+            );
+            const data = bytes.get_data();
+            const text = data ? new TextDecoder().decode(data) : '';
+            if (msg.get_status() >= 400) {
+                throw new Error(`HTTP ${msg.get_status()}`);
+            }
+            return parseModelList(text, isGemini);
         }
 
         let fetchTimeout = 0;
@@ -280,8 +285,9 @@ export default class MeiPreferences extends ExtensionPreferences {
         let modelFetchSeq = 0;
 
         function queueUpdateModels() {
+            if (destroyed) return;
             if (fetchTimeout) {
-                GLib.Source.remove(fetchTimeout);
+                GLib.source_remove(fetchTimeout);
             }
             fetchTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
                 fetchTimeout = 0;
@@ -291,9 +297,21 @@ export default class MeiPreferences extends ExtensionPreferences {
         }
 
         async function doUpdateModels() {
+            if (destroyed) return;
             const provider = settings.get_string('provider');
             const config = getCurrentProviderConfig();
             const apiKey = config.apiKey || '';
+
+            if (apiKey.length === 0) {
+                modelComboRow.set_visible(false);
+                modelStatusRow.set_visible(true);
+                modelStatusRow.set_subtitle('API key required.');
+                spinner.stop();
+                spinner.set_visible(false);
+                currentFetchProvider = '';
+                currentFetchKey = '';
+                return;
+            }
 
             if (provider === currentFetchProvider && apiKey === currentFetchKey && modelStringList.get_n_items() > 0) {
                 modelStatusRow.set_visible(false);
@@ -302,6 +320,8 @@ export default class MeiPreferences extends ExtensionPreferences {
             }
 
             const fetchSeq = ++modelFetchSeq;
+            modelFetchCancellable?.cancel();
+            modelFetchCancellable = new Gio.Cancellable();
             modelComboRow.set_visible(false);
             modelStatusRow.set_visible(true);
             modelStatusRow.set_subtitle('Loading models...');
@@ -309,8 +329,9 @@ export default class MeiPreferences extends ExtensionPreferences {
             spinner.set_visible(true);
 
             try {
-                const models = await fetchModels(provider, apiKey);
+                const models = await fetchModels(provider, apiKey, modelFetchCancellable);
                 if (
+                    destroyed ||
                     fetchSeq !== modelFetchSeq ||
                     provider !== settings.get_string('provider') ||
                     apiKey !== (getCurrentProviderConfig().apiKey || '') ||
@@ -341,6 +362,7 @@ export default class MeiPreferences extends ExtensionPreferences {
                 spinner.set_visible(false);
             } catch (e) {
                 if (
+                    destroyed ||
                     fetchSeq !== modelFetchSeq ||
                     provider !== settings.get_string('provider') ||
                     apiKey !== (getCurrentProviderConfig().apiKey || '') ||
@@ -352,13 +374,15 @@ export default class MeiPreferences extends ExtensionPreferences {
                 modelComboRow.set_visible(false);
                 modelStatusRow.set_visible(true);
                 modelStatusRow.set_subtitle('API Key required or network error.');
+                currentFetchProvider = '';
+                currentFetchKey = '';
                 spinner.stop();
                 spinner.set_visible(false);
             }
         }
 
         function updateVisibility() {
-            const pType = settings.get_string('provider-type');
+            const pType = getProviderType(settings.get_string('provider-type'));
             const provider = settings.get_string('provider');
             
             const config = getCurrentProviderConfig();
@@ -373,9 +397,11 @@ export default class MeiPreferences extends ExtensionPreferences {
                 modelComboRow.set_visible(false);
                 modelStatusRow.set_visible(false);
                 if (fetchTimeout) {
-                    GLib.Source.remove(fetchTimeout);
+                    GLib.source_remove(fetchTimeout);
                     fetchTimeout = 0;
                 }
+                modelFetchCancellable?.cancel();
+                modelFetchCancellable = null;
                 modelFetchSeq++;
                 spinner.stop();
                 spinner.set_visible(false);
@@ -390,8 +416,8 @@ export default class MeiPreferences extends ExtensionPreferences {
             }
         }
 
-        settings.connect('changed::provider', updateVisibility);
-        settings.connect('changed::provider-type', updateVisibility);
+        settingsSignalIds.push(settings.connect('changed::provider', updateVisibility));
+        settingsSignalIds.push(settings.connect('changed::provider-type', updateVisibility));
         updateVisibility();
 
         const providerSubpage = new Adw.NavigationPage({
@@ -560,7 +586,7 @@ export default class MeiPreferences extends ExtensionPreferences {
                 }
                 updateView();
             } catch (e) {
-                console.error(`Failed to clear logs: ${e}`);
+                buffer.set_text(`Failed to clear logs: ${e}`, -1);
             }
         }
 
@@ -598,16 +624,73 @@ export default class MeiPreferences extends ExtensionPreferences {
 
         window.connect('destroy', () => {
             if (fetchTimeout) {
-                GLib.Source.remove(fetchTimeout);
+                GLib.source_remove(fetchTimeout);
                 fetchTimeout = 0;
             }
+            destroyed = true;
             modelFetchSeq++;
+            modelFetchCancellable?.cancel();
+            modelFetchCancellable = null;
             session.abort();
 
             if (timeoutId) {
-                GLib.Source.remove(timeoutId);
+                GLib.source_remove(timeoutId);
                 timeoutId = 0;
             }
+            for (const signalId of settingsSignalIds) {
+                settings.disconnect(signalId);
+            }
+            settingsSignalIds.length = 0;
         });
     }
+}
+
+function createEmptyProviderConfig(): StoredProviderConfig {
+    return { url: '', modelName: '', apiKey: '' };
+}
+
+function getProviderType(value: string): ProviderType {
+    return value === 'local' || value === 'custom' ? value : 'cloud';
+}
+
+function parseProviderConfigs(json: string): ProviderConfigs {
+    try {
+        const parsed = JSON.parse(json || '{}') as unknown;
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+            return {};
+        }
+
+        const configs: ProviderConfigs = {};
+        for (const [provider, value] of Object.entries(parsed)) {
+            if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
+            const source = value as Record<string, unknown>;
+            configs[provider] = {
+                url: typeof source.url === 'string' ? source.url : '',
+                modelName: typeof source.modelName === 'string' ? source.modelName : '',
+                apiKey: typeof source.apiKey === 'string' ? source.apiKey : '',
+            };
+        }
+        return configs;
+    } catch {
+        return {};
+    }
+}
+
+function parseModelList(text: string, isGemini: boolean): string[] {
+    const parsed = JSON.parse(text) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return [];
+    }
+
+    const root = parsed as Record<string, unknown>;
+    const items = isGemini ? root.models : root.data;
+    if (!Array.isArray(items)) return [];
+
+    return items.flatMap(item => {
+        if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
+        const model = item as Record<string, unknown>;
+        const value = isGemini ? model.name : model.id ?? model.display_name;
+        if (typeof value !== 'string' || value.length === 0) return [];
+        return isGemini ? value.replace('models/', '') : value;
+    });
 }

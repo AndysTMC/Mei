@@ -24,6 +24,7 @@ export interface ChatSession {
 export class ChatStore {
     private _filePath: string;
     private _sessions: ChatSession[] = [];
+    private _saveChain: Promise<void> = Promise.resolve();
 
     constructor() {
         const dataDir = GLib.get_user_data_dir();
@@ -43,7 +44,7 @@ export class ChatStore {
             const [ok, contents] = file.load_contents(null);
             if (ok && contents) {
                 const decoder = new TextDecoder();
-                this._sessions = JSON.parse(decoder.decode(contents));
+                this._sessions = parseChatSessions(JSON.parse(decoder.decode(contents)));
             }
         } catch (e) {
             Logger.warn(Tag.Extension, `Failed to load chat history: ${e}`);
@@ -55,22 +56,21 @@ export class ChatStore {
         try {
             const json = JSON.stringify(this._sessions);
             const file = Gio.File.new_for_path(this._filePath);
-            const bytes = new GLib.Bytes(new TextEncoder().encode(json));
-            
-            file.replace_contents_async(
-                bytes,
-                null,
-                false,
-                Gio.FileCreateFlags.REPLACE_DESTINATION,
-                null,
-                (source_object, res) => {
-                    try {
-                        file.replace_contents_finish(res);
-                    } catch (err) {
-                        Logger.error(Tag.Extension, 'Failed to finish saving chat history', err);
-                    }
-                }
-            );
+            const bytes = new TextEncoder().encode(json);
+
+            this._saveChain = this._saveChain
+                .then(async () => {
+                    await file.replace_contents_async(
+                        bytes,
+                        null,
+                        false,
+                        Gio.FileCreateFlags.REPLACE_DESTINATION,
+                        null
+                    );
+                })
+                .catch(err => {
+                    Logger.error(Tag.Extension, 'Failed to save chat history', err);
+                });
         } catch (e) {
             Logger.error(Tag.Extension, 'Failed to serialize chat history', e);
         }
@@ -109,4 +109,28 @@ export class ChatStore {
         const text = firstUser.content.trim();
         return text.length > 40 ? `${text.substring(0, 40)}…` : text;
     }
+}
+
+function parseChatSessions(value: unknown): ChatSession[] {
+    if (!Array.isArray(value)) return [];
+
+    return value.filter((session): session is ChatSession => {
+        if (typeof session !== 'object' || session === null) return false;
+        const candidate = session as Record<string, unknown>;
+        return typeof candidate.id === 'string' &&
+            typeof candidate.title === 'string' &&
+            Array.isArray(candidate.messages) &&
+            candidate.messages.every(isChatMessage) &&
+            typeof candidate.createdAt === 'number' &&
+            typeof candidate.updatedAt === 'number';
+    });
+}
+
+function isChatMessage(value: unknown): value is ChatMessage {
+    if (typeof value !== 'object' || value === null) return false;
+    const candidate = value as Record<string, unknown>;
+    return (candidate.role === 'user' ||
+        candidate.role === 'assistant' ||
+        candidate.role === 'system') &&
+        typeof candidate.content === 'string';
 }

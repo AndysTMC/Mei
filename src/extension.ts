@@ -24,6 +24,12 @@ import { OpenAIProvider, GroqProvider, MistralProvider, OpenRouterProvider, Deep
 import { AnthropicProvider } from './providers/anthropic.js';
 import { GeminiProvider } from './providers/gemini.js';
 
+type StoredProviderConfig = {
+    url?: string;
+    modelName?: string;
+    apiKey?: string;
+};
+
 export default class MeiExtension extends Extension {
     private _indicator: MeiIndicator | null = null;
     private _popup: ChatPopup | null = null;
@@ -132,9 +138,9 @@ export default class MeiExtension extends Extension {
         const session = this._soupSession!;
         const providerId = this._settings!.get_string('provider') as ProviderId;
         const configsJson = this._settings!.get_string('provider-configs');
-        let parsedConfigs: Record<string, any> = {};
+        let parsedConfigs: Record<string, StoredProviderConfig> = {};
         try {
-            parsedConfigs = JSON.parse(configsJson || '{}');
+            parsedConfigs = parseProviderConfigs(configsJson);
         } catch (e) {
             Logger.warn(Tag.Extension, `Failed to parse provider-configs: ${e}`);
         }
@@ -176,7 +182,15 @@ export default class MeiExtension extends Extension {
     /* ── Chat logic ───────────────────────────────────── */
 
     private _saveCurrentSession(): void {
-        if (!this._chatStore || this._messages.length === 0) return;
+        if (!this._chatStore) return;
+
+        if (this._messages.length === 0) {
+            if (this._chatSessionId) {
+                this._chatStore.deleteChat(this._chatSessionId);
+                this._chatSessionId = null;
+            }
+            return;
+        }
 
         if (!this._chatSessionId) {
             this._chatSessionId = ChatStore.generateId();
@@ -203,6 +217,10 @@ export default class MeiExtension extends Extension {
         if (this._cancellable) {
             this._cancellable.cancel();
             this._cancellable = null;
+            if (this._messages.length > 0 && this._messages[this._messages.length - 1].role === 'user') {
+                this._messages.pop();
+                this._saveCurrentSession();
+            }
         }
         this._messages = [];
         this._chatSessionId = null;
@@ -248,6 +266,11 @@ export default class MeiExtension extends Extension {
     }
 
     private _onSend(text: string): void {
+        if (this._cancellable) {
+            Logger.warn(Tag.Extension, 'Ignoring send while a request is already active');
+            return;
+        }
+
         Logger.debug(Tag.Extension, `User message: ${Logger.truncate(text, 100)}`);
         this._popup?.hideError();
         this._messages.push({ role: 'user', content: text });
@@ -272,9 +295,7 @@ export default class MeiExtension extends Extension {
         this._cancellable = cancellable;
         Logger.info(Tag.Extension, `Fetching response from ${provider.name}`);
 
-        if (this._popup?.isExpanded) {
-            this._popup.setLoading(true);
-        }
+        this._popup?.setLoading(true);
 
         try {
             const reply = await provider.sendMessage(
@@ -296,12 +317,12 @@ export default class MeiExtension extends Extension {
                 this._popup?.open();
             }
             Logger.info(Tag.Extension, `Response received (${reply.length} chars)`);
-        } catch (e: any) {
+        } catch (e: unknown) {
             this._popup?.setLoading(false);
 
             if (!cancellable.is_cancelled()) {
                 this._indicator?.stopGlint();
-                const errMsg = `⚠ Could not reach ${provider.name}. ${e.message || ''}`;
+                const errMsg = `⚠ Could not reach ${provider.name}. ${getErrorMessage(e)}`;
 
                 if (this._messagesBackup) {
                     this._messages = this._messagesBackup;
@@ -356,6 +377,16 @@ export default class MeiExtension extends Extension {
     }
 
     private _onReload(index: number): void {
+        if (index < 0 || index >= this._messages.length || this._messages[index].role !== 'assistant') {
+            Logger.warn(Tag.Extension, `Ignoring invalid reload index: ${index}`);
+            return;
+        }
+
+        if (this._cancellable) {
+            this._cancellable.cancel();
+            this._cancellable = null;
+        }
+
         Logger.debug(Tag.Extension, `Reload message at index ${index}`);
         this._messagesBackup = [...this._messages];
         this._messages.splice(index);
@@ -373,4 +404,29 @@ export default class MeiExtension extends Extension {
         this._indicator?.startGlint();
         this._fetchResponse();
     }
+}
+
+function parseProviderConfigs(json: string): Record<string, StoredProviderConfig> {
+    const parsed = JSON.parse(json || '{}') as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return {};
+    }
+
+    const configs: Record<string, StoredProviderConfig> = {};
+    for (const [provider, value] of Object.entries(parsed)) {
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
+        const source = value as Record<string, unknown>;
+        configs[provider] = {
+            url: typeof source.url === 'string' ? source.url : '',
+            modelName: typeof source.modelName === 'string' ? source.modelName : '',
+            apiKey: typeof source.apiKey === 'string' ? source.apiKey : '',
+        };
+    }
+    return configs;
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+    return '';
 }

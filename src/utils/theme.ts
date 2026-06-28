@@ -19,7 +19,8 @@ export interface ThemedWidgets {
 export class ThemeManager {
     private _settings: Gio.Settings;
     private _signalId: number;
-    private _callbackSignalIds: Set<number> = new Set();
+    private _nextCallbackId = 1;
+    private _callbacks: Map<number, () => void> = new Map();
     private _isDark: boolean;
 
     constructor() {
@@ -31,6 +32,9 @@ export class ThemeManager {
             this._isDark = this._settings.get_string('color-scheme') === 'prefer-dark';
             if (wasDark !== this._isDark) {
                 Logger.debug(Tag.Theme, `Theme changed: ${this._isDark ? 'dark' : 'light'}`);
+                for (const callback of this._callbacks.values()) {
+                    callback();
+                }
             }
         });
     }
@@ -79,14 +83,14 @@ export class ThemeManager {
      * Connect a callback to be invoked whenever the theme changes.
      */
     onThemeChanged(callback: () => void): number {
-        const signalId = this._settings.connect('changed::color-scheme', callback);
-        this._callbackSignalIds.add(signalId);
+        const signalId = this._nextCallbackId++;
+        this._callbacks.set(signalId, callback);
         return signalId;
     }
 
     disconnect(signalId: number): void {
-        if (signalId === 0 || !this._callbackSignalIds.delete(signalId)) return;
-        this._settings.disconnect(signalId);
+        if (signalId === 0) return;
+        this._callbacks.delete(signalId);
     }
 
     destroy(): void {
@@ -95,9 +99,6 @@ export class ThemeManager {
             this._signalId = 0;
         }
 
-        for (const signalId of this._callbackSignalIds) {
-            this._settings.disconnect(signalId);
-        }
-        this._callbackSignalIds.clear();
+        this._callbacks.clear();
     }
 }

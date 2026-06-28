@@ -3,7 +3,7 @@
     <schema id="org.gnome.shell.extensions.mei"
             path="/org/gnome/shell/extensions/mei/">
         <key name="provider-type" type="s">
-            <default>'cloud'</default>
+            <default>'local'</default>
             <summary>Provider Type</summary>
             <description>The category of AI provider: local, cloud, custom</description>
         </key>
