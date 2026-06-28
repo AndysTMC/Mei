@@ -21,7 +21,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
 
-import { parseMarkdown } from './markdown.js';
+import { createMessageActor, type MessageRole } from './messageRenderer.js';
 import { ThemeManager, type ThemedWidgets } from '../utils/theme.js';
 import { Logger, Tag } from '../utils/logger.js';
 
@@ -567,7 +567,6 @@ export class ChatPopup {
 
     /**
      * Display a message bubble in the scroll area.
-     * Assistant messages are rendered with Pango markup.
      */
     showMessage(role: 'user' | 'assistant', text: string): void {
         this._messageBox.destroy_all_children();
@@ -580,32 +579,21 @@ export class ChatPopup {
         }
         this._hasMessages = true;
 
-        const bubble = new St.Label({
-            style_class: role === 'user' ? 'mei-bubble-user' : 'mei-bubble-ai',
-            x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START,
-            x_expand: role === 'assistant',
+        const rendered = createMessageActor(text, {
+            role,
+            compact: !this._isExpanded,
         });
-        bubble.clutter_text.set_line_wrap(true);
-        bubble.clutter_text.set_line_wrap_mode(0);
-        bubble.clutter_text.set_ellipsize(0);
+        rendered.actor.x_align = role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START;
+        rendered.actor.x_expand = role === 'assistant';
 
         if (role === 'assistant') {
-            bubble.clutter_text.use_markup = true;
-            try {
-                bubble.clutter_text.set_markup(parseMarkdown(text));
-            } catch (_e) {
-                Logger.warn(Tag.UI, 'Pango markup parse failed, falling back to plain text');
-                bubble.clutter_text.use_markup = false;
-                bubble.clutter_text.set_text(text);
-            }
             this._lastReply = text;
             this._copyBtn.visible = !this._isExpanded && text.length > 0;
         } else {
-            bubble.clutter_text.set_text(text);
             this._copyBtn.visible = false;
         }
 
-        this._messageBox.add_child(bubble);
+        this._messageBox.add_child(rendered.actor);
         this._scrollView.visible = true;
     }
 
@@ -660,7 +648,6 @@ export class ChatPopup {
 
     /**
      * Display the full chat history in the scroll area.
-     * Assistant messages are rendered with Pango markup, and user messages are aligned to the right.
      */
     showHistory(messages: { role: string, content: string }[]): void {
         this._messageBox.destroy_all_children();
@@ -669,6 +656,7 @@ export class ChatPopup {
             const msg = messages[i];
             const role = msg.role;
             const text = msg.content;
+            if (!isRenderableRole(role)) continue;
 
             const msgContainer = new St.BoxLayout({
                 vertical: true,
@@ -676,28 +664,14 @@ export class ChatPopup {
                 style_class: 'mei-msg-container',
             });
 
-            const bubble = new St.Label({
-                style_class: role === 'user' ? 'mei-bubble-user' : 'mei-bubble-ai',
-                x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START,
-                x_expand: role === 'assistant',
+            const rendered = createMessageActor(text, {
+                role,
+                compact: !this._isExpanded,
             });
-            bubble.clutter_text.set_line_wrap(true);
-            bubble.clutter_text.set_line_wrap_mode(0);
-            bubble.clutter_text.set_ellipsize(0);
+            rendered.actor.x_align = role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START;
+            rendered.actor.x_expand = role === 'assistant';
 
-            if (role === 'assistant') {
-                bubble.clutter_text.use_markup = true;
-                try {
-                    bubble.clutter_text.set_markup(parseMarkdown(text));
-                } catch (_e) {
-                    bubble.clutter_text.use_markup = false;
-                    bubble.clutter_text.set_text(text);
-                }
-            } else {
-                bubble.clutter_text.set_text(text);
-            }
-
-            msgContainer.add_child(bubble);
+            msgContainer.add_child(rendered.actor);
 
             // Action buttons bar below each message
             const actionBar = new St.BoxLayout({
@@ -1510,4 +1484,8 @@ export class ChatPopup {
             this._menu.destroy();
         }
     }
+}
+
+function isRenderableRole(role: string): role is MessageRole {
+    return role === 'user' || role === 'assistant';
 }
