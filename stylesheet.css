@@ -180,6 +180,149 @@
     max-width: 610px;
 }
 
+/* ── Rendered Markdown Blocks ───────────────────── */
+.mei-rendered-message {
+    spacing: 8px;
+}
+
+.mei-md-paragraph,
+.mei-md-list-text,
+.mei-md-copyable-text {
+    font-size: 13px;
+}
+
+.mei-md-heading {
+    font-weight: bold;
+    margin-top: 4px;
+}
+
+.mei-md-heading-1 {
+    font-size: 18px;
+}
+
+.mei-md-heading-2 {
+    font-size: 16px;
+}
+
+.mei-md-heading-3,
+.mei-md-heading-4,
+.mei-md-heading-5,
+.mei-md-heading-6 {
+    font-size: 14px;
+}
+
+.mei-md-code,
+.mei-md-table-wrapper,
+.mei-md-blockquote,
+.mei-md-footnote,
+.mei-md-citation,
+.mei-md-math {
+    border-radius: 8px;
+    background-color: rgba(128, 128, 128, 0.14);
+    padding: 8px;
+    spacing: 6px;
+}
+
+.mei-md-diagram-source {
+    border-left: 2px solid rgba(128, 128, 128, 0.45);
+}
+
+.mei-md-code-header,
+.mei-md-table-actions,
+.mei-md-link-actions {
+    spacing: 6px;
+}
+
+.mei-md-code-language,
+.mei-md-table-label,
+.mei-md-status {
+    font-size: 10px;
+    opacity: 170;
+}
+
+.mei-md-code-body {
+    max-width: 100%;
+}
+
+.mei-md-code-text {
+    font-family: monospace;
+    font-size: 12px;
+    padding: 4px;
+}
+
+.mei-md-copy-icon,
+.mei-md-copy-chip,
+.mei-md-link-chip {
+    border: none;
+    border-radius: 6px;
+    background-color: rgba(128, 128, 128, 0.18);
+    padding: 3px 7px;
+    font-size: 10px;
+}
+
+.mei-md-copy-icon {
+    width: 22px;
+    height: 22px;
+    padding: 3px;
+}
+
+.mei-md-copy-confirmed {
+    background-color: rgba(128, 128, 128, 0.28);
+}
+
+.mei-md-copy-icon:hover,
+.mei-md-copy-chip:hover,
+.mei-md-link-chip:hover {
+    background-color: rgba(128, 128, 128, 0.28);
+}
+
+.mei-md-linkable-paragraph {
+    spacing: 4px;
+}
+
+.mei-md-list {
+    spacing: 4px;
+}
+
+.mei-md-list-row {
+    spacing: 6px;
+}
+
+.mei-md-list-marker {
+    min-width: 22px;
+    opacity: 180;
+}
+
+.mei-md-table {
+    spacing: 0;
+}
+
+.mei-md-table-row {
+    spacing: 0;
+}
+
+.mei-md-table-cell {
+    padding: 5px 8px;
+    border: 1px solid rgba(128, 128, 128, 0.2);
+    font-size: 12px;
+}
+
+.mei-md-table-header .mei-md-table-cell {
+    font-weight: bold;
+    background-color: rgba(128, 128, 128, 0.18);
+}
+
+.mei-md-blockquote {
+    border-left: 2px solid rgba(128, 128, 128, 0.5);
+}
+
+.mei-md-rule {
+    min-height: 1px;
+    background-color: rgba(128, 128, 128, 0.35);
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
 
 
 /* ── History Message Action Buttons ────────────── */

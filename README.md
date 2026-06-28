@@ -1,49 +1,45 @@
 # Mei (AI Assistant GNOME Extension)
+Mei is a modern GNOME Shell extension powered by LLMs that understands your intent, interacts with your system, and assists in accomplishing tasks seamlessly.
 
-Mei is a modern, feature-rich GNOME Shell extension that provides a quick-access panel popup for chatting with various AI models — both local and cloud-based.
+## Key Features
+- **Broad AI Support**: Seamless integration with local engines (Ollama, llama.cpp) and cloud APIs (OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter, DeepSeek).
+- **Dual Layouts**: Toggle between a compact quick-query popup and an expanded view with full chat history management.
+- **Native Markdown Rendering**: Responses are beautifully formatted with native GNOME widgets for code blocks, tables, lists, and syntax formatting.
+- **Deep System Integration**: Automatic GNOME dark/light mode syncing and responsive viewport constraints.
 
-## Features
-
-- **Quick-Access Panel Popup**: Immediate, one-click access to AI assistance directly from the GNOME Shell top panel.
-- **Local & Cloud Provider Support**: Native integration with local engines (Ollama, llama.cpp) and cloud-based APIs (OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter, DeepSeek, OpenCode) or custom endpoints.
-- **Dual Conversation Layouts**: Toggle between a compact popup for quick, ephemeral queries and a wider "Big Mode" that includes a nested view of your chat history.
-- **Dynamic Settings & Config Manager**: Tabbed preferences window with isolated configs (API keys, custom endpoints) and automatic model listings for each provider.
-- **Response Management**: Easily cancel active requests mid-generation or copy responses to your clipboard with a single click.
-
-## User Experience (UX) Enhancements
-
-- **Markdown Formatting**: Renders rich formatting (headers, bold, italic, lists, code blocks, and blockquotes) inside responses using Pango markup.
-- **Responsive Viewport Scrolling**: Smart height constraints tailored to the display resolution (`60vh` max for messages, `20vh` max for input) with automatic scroll-to-bottom logic on text updates.
-- **Custom Caret & Input Blinking**: Highly responsive manual cursor blinking and arrow-key navigation inside the text entry.
-- **System Theme Integration**: Automatic, real-time styling sync with your preferred GNOME dark/light mode desktop settings.
-- **State Indicators**: Visual feedback through inline button loaders and glowing panel labels when processing a prompt.
-
-## Requirements
-
-- GNOME Shell 45+
-- Node.js & npm (for building from source)
-- An AI backend (e.g., [Ollama](https://ollama.com) running locally, or a cloud provider API key)
+## Dependencies
+Before building, ensure you have the following installed on your system:
+- **GNOME Shell 45+**
+- **Node.js & npm** (for building from source)
+- **glib2.0-bin** or **glib2** (for `glib-compile-schemas` used in the build process)
+- **mutter-dev** or **mutter-bin-dev** (optional, required only for testing in a nested session)
 
 ## Build & Install
 
 ```sh
+# Clone the repository
+git clone https://github.com/AndysTMC/Mei.git
+cd Mei
+
+# Install dependencies and build
 npm install
 npm run build
+
+# Install the extension to your local GNOME extensions directory
 npm run install:ext
 ```
 
-Then restart GNOME Shell:
-- **X11**: `Alt+F2` → type `r` → Enter
+After installing, restart GNOME Shell:
+- **X11**: Press `Alt+F2`, type `r`, and press `Enter`
 - **Wayland**: Log out and log back in
 
-Enable the extension:
+Finally, enable the extension:
 ```sh
 gnome-extensions enable mei@andystmc.com
 ```
 
-## Configuration
-
-Open settings via the ⚙ icon in the popup, or run:
+## Configuration & Usage
+To select your preferred AI provider and enter API keys, open the extension settings via the ⚙ (gear) icon in the chat popup, or run:
 ```sh
 gnome-extensions prefs mei@andystmc.com
 ```
@@ -51,18 +47,11 @@ gnome-extensions prefs mei@andystmc.com
 ## Development
 
 ```sh
-npm run typecheck   # Type-check without emitting
-npm run build       # Full build to dist/
+npm run typecheck   # Type-check TypeScript files without emitting
+npm run build       # Full build to the dist/ directory
 ```
 
-The extension UUID is `mei@andystmc.com`.
-
-### Testing in a Nested Session
-
-To debug or test the extension in an isolated nested session, you can run:
+To test the extension in an isolated nested session (requires `mutter` development packages):
 ```sh
 dbus-run-session gnome-shell --nested --wayland
 ```
-
-> [!NOTE]
-> Running a nested GNOME Shell instance requires `mutter-bin-dev` (or the equivalent mutter binaries/development package on your distribution). Without it, the nested Wayland DBus session command will fail to instantiate the shell environment.
