@@ -13,17 +13,37 @@ import Gtk from 'gi://Gtk';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
+import {
+    DEEPSEEK_REASONING_EFFORT_LABELS,
+    DEEPSEEK_THINKING_LABELS,
+    getDeepSeekReasoningEffort,
+    getDeepSeekThinking,
+    getOpenCodeMode,
+    getProviderIdsForType,
+    getProviderLabel,
+    getProviderType,
+    OPEN_CODE_MODE_LABELS,
+    PROVIDER_TYPE_IDS,
+    PROVIDER_TYPE_LABELS,
+    type DeepSeekReasoningEffort,
+    type DeepSeekThinking,
+    type OpenCodeMode,
+} from './providers/catalog.js';
+import { fetchProviderModels } from './providers/modelList.js';
+import type { ProviderId } from './providers/types.js';
 
 const LOG_DIR = GLib.get_user_state_dir() + '/mei';
 const LOG_FILE = LOG_DIR + '/logs.txt';
 
-type ProviderType = 'local' | 'cloud' | 'custom';
-type ProviderConfigKey = 'url' | 'modelName' | 'apiKey';
+type ProviderConfigKey = 'url' | 'modelName' | 'apiKey' | 'mode' | 'thinking' | 'reasoningEffort';
 
 interface StoredProviderConfig {
     url: string;
     modelName: string;
     apiKey: string;
+    mode: string;
+    thinking: string;
+    reasoningEffort: string;
 }
 
 type ProviderConfigs = Record<string, StoredProviderConfig>;
@@ -90,8 +110,8 @@ export default class MeiPreferences extends ExtensionPreferences {
         providerPrefPage.add(providerTypeGroup);
 
         const providerTypeModel = new Gtk.StringList();
-        const typeIds: ProviderType[] = ['local', 'cloud', 'custom'];
-        const typeLabels = ['Local', 'Cloud', 'Custom'];
+        const typeIds = PROVIDER_TYPE_IDS;
+        const typeLabels = typeIds.map(id => PROVIDER_TYPE_LABELS[id]);
         for (const label of typeLabels) {
             providerTypeModel.append(label);
         }
@@ -132,28 +152,19 @@ export default class MeiPreferences extends ExtensionPreferences {
 
         function updateProviderList() {
             const pType = getProviderType(settings.get_string('provider-type'));
-            
+
             providerModel.splice(0, providerModel.get_n_items(), []); // Clear
-            
-            if (pType === 'local') {
-                activeProviderIds = ['ollama', 'llamacpp'];
-                providerModel.splice(0, 0, ['Ollama', 'llama.cpp']);
-                providerGroup.set_visible(true);
-            } else if (pType === 'cloud') {
-                activeProviderIds = ['openai', 'anthropic', 'gemini', 'groq', 'mistral', 'openrouter', 'deepseek', 'opencode'];
-                providerModel.splice(0, 0, ['OpenAI', 'Anthropic', 'Gemini', 'Groq', 'Mistral', 'OpenRouter', 'DeepSeek', 'OpenCode']);
-                providerGroup.set_visible(true);
-            } else {
-                activeProviderIds = ['custom'];
-                providerGroup.set_visible(false); // Hide the provider selection row entirely for custom
-            }
+
+            activeProviderIds = getProviderIdsForType(pType);
+            providerModel.splice(0, 0, activeProviderIds.map(id => getProviderLabel(id)));
+            providerGroup.set_visible(pType !== 'custom');
 
             let currentProvider = settings.get_string('provider');
             if (!activeProviderIds.includes(currentProvider)) {
                 currentProvider = activeProviderIds[0];
                 settings.set_string('provider', currentProvider);
             }
-            
+
             const idx = activeProviderIds.indexOf(currentProvider);
             if (idx >= 0) {
                 providerComboRow.set_selected(idx);
@@ -168,7 +179,7 @@ export default class MeiPreferences extends ExtensionPreferences {
                 settings.set_string('provider', activeProviderIds[idx]);
             }
         });
-        
+
         updateProviderList();
 
         const connectionGroup = new Adw.PreferencesGroup({
@@ -196,6 +207,62 @@ export default class MeiPreferences extends ExtensionPreferences {
             configs[provider][key] = value;
             saveProviderConfigs(configs);
         }
+
+        const providerModeGroup = new Adw.PreferencesGroup({
+            title: 'Provider Options',
+        });
+        providerPrefPage.add(providerModeGroup);
+
+        const openCodeModeModel = new Gtk.StringList();
+        const openCodeModeIds: OpenCodeMode[] = ['go', 'zen'];
+        openCodeModeModel.splice(0, 0, openCodeModeIds.map(id => OPEN_CODE_MODE_LABELS[id]));
+        const openCodeModeRow = new Adw.ComboRow({
+            title: 'OpenCode Mode',
+            subtitle: 'Go uses the OpenCode subscription model pool; Zen uses the Zen API model pool.',
+            model: openCodeModeModel,
+        });
+        openCodeModeRow.connect('notify::selected', () => {
+            const idx = openCodeModeRow.get_selected();
+            if (idx >= 0 && idx < openCodeModeIds.length) {
+                updateCurrentProviderConfig('mode', openCodeModeIds[idx]);
+                currentFetchProvider = '';
+                currentFetchKey = '';
+                currentFetchMode = '';
+                queueUpdateModels();
+            }
+        });
+        providerModeGroup.add(openCodeModeRow);
+
+        const deepSeekThinkingModel = new Gtk.StringList();
+        const deepSeekThinkingIds: DeepSeekThinking[] = ['default', 'enabled', 'disabled'];
+        deepSeekThinkingModel.splice(0, 0, deepSeekThinkingIds.map(id => DEEPSEEK_THINKING_LABELS[id]));
+        const deepSeekThinkingRow = new Adw.ComboRow({
+            title: 'DeepSeek Thinking',
+            subtitle: 'Controls the documented DeepSeek thinking mode for supported models.',
+            model: deepSeekThinkingModel,
+        });
+        deepSeekThinkingRow.connect('notify::selected', () => {
+            const idx = deepSeekThinkingRow.get_selected();
+            if (idx >= 0 && idx < deepSeekThinkingIds.length) {
+                updateCurrentProviderConfig('thinking', deepSeekThinkingIds[idx]);
+            }
+        });
+        providerModeGroup.add(deepSeekThinkingRow);
+
+        const deepSeekEffortModel = new Gtk.StringList();
+        const deepSeekEffortIds: DeepSeekReasoningEffort[] = ['high', 'max'];
+        deepSeekEffortModel.splice(0, 0, deepSeekEffortIds.map(id => DEEPSEEK_REASONING_EFFORT_LABELS[id]));
+        const deepSeekEffortRow = new Adw.ComboRow({
+            title: 'DeepSeek Reasoning Effort',
+            model: deepSeekEffortModel,
+        });
+        deepSeekEffortRow.connect('notify::selected', () => {
+            const idx = deepSeekEffortRow.get_selected();
+            if (idx >= 0 && idx < deepSeekEffortIds.length) {
+                updateCurrentProviderConfig('reasoningEffort', deepSeekEffortIds[idx]);
+            }
+        });
+        providerModeGroup.add(deepSeekEffortRow);
 
         const modelEntryRow = new Adw.EntryRow({ title: 'Model' });
         modelEntryRow.connect('notify::text', () => {
@@ -234,54 +301,24 @@ export default class MeiPreferences extends ExtensionPreferences {
         const session = new Soup.Session({ timeout: 5 });
         let modelFetchCancellable: Gio.Cancellable | null = null;
 
-        async function fetchModels(provider: string, apiKey: string, cancellable: Gio.Cancellable): Promise<string[]> {
-            let url = '';
-            let headers: Record<string, string> = {};
-            let isGemini = false;
-
-            switch (provider) {
-                case 'openai': url = 'https://api.openai.com/v1/models'; headers['Authorization'] = `Bearer ${apiKey}`; break;
-                case 'groq': url = 'https://api.groq.com/openai/v1/models'; headers['Authorization'] = `Bearer ${apiKey}`; break;
-                case 'mistral': url = 'https://api.mistral.ai/v1/models'; headers['Authorization'] = `Bearer ${apiKey}`; break;
-                case 'openrouter': url = 'https://openrouter.ai/api/v1/models'; headers['Authorization'] = `Bearer ${apiKey}`; break;
-                case 'deepseek': url = 'https://api.deepseek.com/models'; headers['Authorization'] = `Bearer ${apiKey}`; break;
-                case 'opencode': url = 'https://opencode.ai/zen/go/v1/models'; headers['Authorization'] = `Bearer ${apiKey}`; break;
-                case 'anthropic': 
-                    url = 'https://api.anthropic.com/v1/models';
-                    headers['x-api-key'] = apiKey;
-                    headers['anthropic-version'] = '2023-06-01';
-                    break;
-                case 'gemini':
-                    url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
-                    isGemini = true;
-                    break;
-                default:
-                    return [];
-            }
-
-            const msg = Soup.Message.new('GET', url);
-            if (!msg) throw new Error('Invalid URL');
-
-            for (const [key, value] of Object.entries(headers)) {
-                msg.get_request_headers().append(key, value);
-            }
-
-            const bytes = await session.send_and_read_async(
-                msg,
-                GLib.PRIORITY_DEFAULT,
+        async function fetchModels(provider: string, config: StoredProviderConfig, cancellable: Gio.Cancellable): Promise<string[]> {
+            const result = await fetchProviderModels(
+                session,
+                provider as ProviderId,
+                {
+                    url: config.url || '',
+                    apiKey: config.apiKey || '',
+                    mode: config.mode || '',
+                },
                 cancellable
             );
-            const data = bytes.get_data();
-            const text = data ? new TextDecoder().decode(data) : '';
-            if (msg.get_status() >= 400) {
-                throw new Error(`HTTP ${msg.get_status()}`);
-            }
-            return parseModelList(text, isGemini);
+            return result.models;
         }
 
         let fetchTimeout = 0;
         let currentFetchProvider = '';
         let currentFetchKey = '';
+        let currentFetchMode = '';
         let modelFetchSeq = 0;
 
         function queueUpdateModels() {
@@ -310,10 +347,17 @@ export default class MeiPreferences extends ExtensionPreferences {
                 spinner.set_visible(false);
                 currentFetchProvider = '';
                 currentFetchKey = '';
+                currentFetchMode = '';
                 return;
             }
 
-            if (provider === currentFetchProvider && apiKey === currentFetchKey && modelStringList.get_n_items() > 0) {
+            const providerMode = config.mode || '';
+            if (
+                provider === currentFetchProvider &&
+                apiKey === currentFetchKey &&
+                providerMode === currentFetchMode &&
+                modelStringList.get_n_items() > 0
+            ) {
                 modelStatusRow.set_visible(false);
                 modelComboRow.set_visible(true);
                 return;
@@ -329,7 +373,7 @@ export default class MeiPreferences extends ExtensionPreferences {
             spinner.set_visible(true);
 
             try {
-                const models = await fetchModels(provider, apiKey, modelFetchCancellable);
+                const models = await fetchModels(provider, config, modelFetchCancellable);
                 if (
                     destroyed ||
                     fetchSeq !== modelFetchSeq ||
@@ -345,9 +389,10 @@ export default class MeiPreferences extends ExtensionPreferences {
                 }
                 currentFetchProvider = provider;
                 currentFetchKey = apiKey;
+                currentFetchMode = providerMode;
 
                 modelStringList.splice(0, modelStringList.get_n_items(), models);
-                
+
                 const currentModel = config.modelName || '';
                 let idx = models.indexOf(currentModel);
                 if (idx === -1) {
@@ -376,6 +421,7 @@ export default class MeiPreferences extends ExtensionPreferences {
                 modelStatusRow.set_subtitle('API Key required or network error.');
                 currentFetchProvider = '';
                 currentFetchKey = '';
+                currentFetchMode = '';
                 spinner.stop();
                 spinner.set_visible(false);
             }
@@ -384,13 +430,26 @@ export default class MeiPreferences extends ExtensionPreferences {
         function updateVisibility() {
             const pType = getProviderType(settings.get_string('provider-type'));
             const provider = settings.get_string('provider');
-            
+
             const config = getCurrentProviderConfig();
             if (modelEntryRow.get_text() !== (config.modelName || '')) modelEntryRow.set_text(config.modelName || '');
             if (urlRow.get_text() !== (config.url || '')) urlRow.set_text(config.url || '');
             if (apiKeyRow.get_text() !== (config.apiKey || '')) apiKeyRow.set_text(config.apiKey || '');
-            
+
+            const openCodeModeIdx = openCodeModeIds.indexOf(getOpenCodeMode(config.mode));
+            if (openCodeModeRow.get_selected() !== openCodeModeIdx) openCodeModeRow.set_selected(openCodeModeIdx);
+
+            const deepSeekThinkingIdx = deepSeekThinkingIds.indexOf(getDeepSeekThinking(config.thinking));
+            if (deepSeekThinkingRow.get_selected() !== deepSeekThinkingIdx) deepSeekThinkingRow.set_selected(deepSeekThinkingIdx);
+
+            const deepSeekEffortIdx = deepSeekEffortIds.indexOf(getDeepSeekReasoningEffort(config.reasoningEffort));
+            if (deepSeekEffortRow.get_selected() !== deepSeekEffortIdx) deepSeekEffortRow.set_selected(deepSeekEffortIdx);
+
             urlRow.set_visible(pType === 'custom');
+            providerModeGroup.set_visible(provider === 'opencode' || provider === 'deepseek');
+            openCodeModeRow.set_visible(provider === 'opencode');
+            deepSeekThinkingRow.set_visible(provider === 'deepseek');
+            deepSeekEffortRow.set_visible(provider === 'deepseek' && getDeepSeekThinking(config.thinking) === 'enabled');
 
             if (pType === 'local' || pType === 'custom') {
                 modelEntryRow.set_visible(true);
@@ -407,7 +466,12 @@ export default class MeiPreferences extends ExtensionPreferences {
                 spinner.set_visible(false);
             } else {
                 modelEntryRow.set_visible(false);
-                if (provider === currentFetchProvider && getCurrentProviderConfig().apiKey === currentFetchKey && modelStringList.get_n_items() > 0) {
+                if (
+                    provider === currentFetchProvider &&
+                    getCurrentProviderConfig().apiKey === currentFetchKey &&
+                    (getCurrentProviderConfig().mode || '') === currentFetchMode &&
+                    modelStringList.get_n_items() > 0
+                ) {
                     modelComboRow.set_visible(true);
                     modelStatusRow.set_visible(false);
                 } else {
@@ -418,6 +482,7 @@ export default class MeiPreferences extends ExtensionPreferences {
 
         settingsSignalIds.push(settings.connect('changed::provider', updateVisibility));
         settingsSignalIds.push(settings.connect('changed::provider-type', updateVisibility));
+        settingsSignalIds.push(settings.connect('changed::provider-configs', updateVisibility));
         updateVisibility();
 
         const providerSubpage = new Adw.NavigationPage({
@@ -568,7 +633,7 @@ export default class MeiPreferences extends ExtensionPreferences {
             try {
                 const file = Gio.File.new_for_path(LOG_FILE);
                 if (!file.query_exists(null)) return;
-                
+
                 if (currentFilter === 'All') {
                     const out = file.replace(null, false, Gio.FileCreateFlags.NONE, null);
                     out.close(null);
@@ -596,16 +661,16 @@ export default class MeiPreferences extends ExtensionPreferences {
                 const levelStr = `[${currentFilter.toUpperCase()}]`;
                 visibleLines = logLines.filter(line => line.includes(levelStr));
             }
-            
+
             const reversedLines = [...visibleLines].reverse();
             const newText = reversedLines.join('\n');
-            
+
             const currentText = buffer.get_text(
                 buffer.get_start_iter(),
                 buffer.get_end_iter(),
                 false
             );
-            
+
             if (newText === currentText) {
                 return; // No change
             }
@@ -646,11 +711,7 @@ export default class MeiPreferences extends ExtensionPreferences {
 }
 
 function createEmptyProviderConfig(): StoredProviderConfig {
-    return { url: '', modelName: '', apiKey: '' };
-}
-
-function getProviderType(value: string): ProviderType {
-    return value === 'local' || value === 'custom' ? value : 'cloud';
+    return { url: '', modelName: '', apiKey: '', mode: '', thinking: '', reasoningEffort: '' };
 }
 
 function parseProviderConfigs(json: string): ProviderConfigs {
@@ -668,29 +729,13 @@ function parseProviderConfigs(json: string): ProviderConfigs {
                 url: typeof source.url === 'string' ? source.url : '',
                 modelName: typeof source.modelName === 'string' ? source.modelName : '',
                 apiKey: typeof source.apiKey === 'string' ? source.apiKey : '',
+                mode: typeof source.mode === 'string' ? source.mode : '',
+                thinking: typeof source.thinking === 'string' ? source.thinking : '',
+                reasoningEffort: typeof source.reasoningEffort === 'string' ? source.reasoningEffort : '',
             };
         }
         return configs;
     } catch {
         return {};
     }
-}
-
-function parseModelList(text: string, isGemini: boolean): string[] {
-    const parsed = JSON.parse(text) as unknown;
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        return [];
-    }
-
-    const root = parsed as Record<string, unknown>;
-    const items = isGemini ? root.models : root.data;
-    if (!Array.isArray(items)) return [];
-
-    return items.flatMap(item => {
-        if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
-        const model = item as Record<string, unknown>;
-        const value = isGemini ? model.name : model.id ?? model.display_name;
-        if (typeof value !== 'string' || value.length === 0) return [];
-        return isGemini ? value.replace('models/', '') : value;
-    });
 }

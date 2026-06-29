@@ -29,8 +29,7 @@ export type MessageBlock =
     | HorizontalRuleBlock
     | FootnoteBlock
     | CitationBlock
-    | MathBlock
-    | ErrorFallbackBlock;
+    | MathBlock;
 
 export interface MessageModel {
     role: MessageRole;
@@ -109,11 +108,6 @@ export interface MathBlock extends BaseBlock {
     type: 'mathBlock';
     content: string;
     isStreaming: boolean;
-}
-
-export interface ErrorFallbackBlock extends BaseBlock {
-    type: 'errorFallback';
-    text: string;
 }
 
 export interface MessageRendererOptions {
@@ -219,21 +213,6 @@ export function createMessageActor(
             actor.destroy();
         },
     };
-}
-
-export function updateStreamingMessageActor(
-    rendered: RenderedMessageActor,
-    markdown: string,
-    options: Partial<MessageRendererOptions> = {}
-): void {
-    rendered.update(markdown, {
-        ...options,
-        streaming: true,
-    });
-}
-
-export function destroyMessageActor(rendered: RenderedMessageActor): void {
-    rendered.destroy();
 }
 
 function stabilizeMarkdown(markdown: string, streaming: boolean): { text: string; streaming: boolean } {
@@ -463,8 +442,6 @@ function renderBlock(block: MessageBlock, options: MessageRendererOptions): St.W
             return renderCopyableTextBlock(`[${block.id}] ${block.text}`, block.source, 'mei-md-citation', 'Copy citation');
         case 'mathBlock':
             return renderCopyableTextBlock(block.content, block.content, 'mei-md-math', 'Copy math');
-        case 'errorFallback':
-            return makePlainLabel(block.text, 'mei-md-paragraph');
     }
 }
 
@@ -827,8 +804,6 @@ function blocksToPlainText(blocks: MessageBlock[]): string {
                 return block.content;
             case 'horizontalRule':
                 return '---';
-            case 'errorFallback':
-                return block.text;
         }
     }).join('\n\n');
 }
@@ -937,10 +912,7 @@ function sanitizeUrl(url: string): string | null {
     }
 }
 
-function formatCodeForDisplay(block: CodeBlock['code'], options: MessageRendererOptions): string {
-    const code = block.length > MAX_CODE_CHARS
-        ? `${block.slice(0, MAX_CODE_CHARS)}\n\n... truncated for popup performance ...`
-        : block;
+function formatCodeForDisplay(code: string, options: MessageRendererOptions): string {
     if (!options.showLineNumbers) return code;
     return code.split('\n').map((line, index) => `${String(index + 1).padStart(4, ' ')}  ${line}`).join('\n');
 }

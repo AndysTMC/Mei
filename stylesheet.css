@@ -2,9 +2,12 @@
 .mei-panel-button {
     background-color: transparent;
     border: none;
-    padding: 0 6px;
+    padding: 0 8px;
     margin: 0 4px;
-    border-radius: 8px;
+    border-radius: 999px;
+    min-height: 24px;
+    min-width: 46px;
+    text-align: center;
 }
 
 .mei-panel-button:hover {
@@ -21,10 +24,13 @@
 .mei-stop-hover-text {
     font-family: sans-serif;
     font-size: 14px;
+    font-weight: bold;
     color: black;
     background-color: rgba(255, 255, 255, 0.95);
-    border-radius: 6px;
-    min-width: 34px;
+    border-radius: 999px;
+    min-width: 30px;
+    min-height: 20px;
+    padding: 0 6px;
     text-align: center;
 }
 
@@ -50,7 +56,7 @@
 }
 
 .mei-top-bar {
-    margin-top: 10px; 
+    margin-top: 10px;
     margin-left: 10px;
     margin-right: 10px;
     margin-bottom: 10px;
@@ -71,7 +77,8 @@
 }
 
 /* ── Scroll area ─────────────────────────────────── */
-.mei-scroll {
+.mei-scroll,
+.mei-settings-scroll {
     margin-bottom: 6px;
 }
 
@@ -82,11 +89,13 @@
 }
 
 .mei-scroll StScrollBar,
+.mei-settings-scroll StScrollBar,
 .mei-input-scroll StScrollBar {
     width: 6px;
 }
 
 .mei-scroll StScrollBar StBin#vhandle,
+.mei-settings-scroll StScrollBar StBin#vhandle,
 .mei-input-scroll StScrollBar StBin#vhandle {
     width: 4px;
     background-color: rgba(128, 128, 128, 0.5);
@@ -94,6 +103,7 @@
 }
 
 .mei-scroll StScrollBar StBin#trough,
+.mei-settings-scroll StScrollBar StBin#trough,
 .mei-input-scroll StScrollBar StBin#trough {
     background-color: transparent;
 }
@@ -440,4 +450,165 @@
     font-size: 13px;
     margin-top: 20px;
     opacity: 0.7;
+}
+
+/* ── Settings View ───────────────────────────────── */
+.mei-settings-list {
+    margin-left: 10px;
+    margin-right: 10px;
+    margin-bottom: 10px;
+    spacing: 8px;
+}
+
+.mei-settings-section-title {
+    font-size: 10px;
+    font-weight: bold;
+    margin-top: 6px;
+}
+
+.mei-settings-row {
+    spacing: 8px;
+}
+
+.mei-settings-label {
+    font-size: 12px;
+    font-weight: bold;
+    min-width: 76px;
+}
+
+.mei-settings-value-btn,
+.mei-settings-chip {
+    border: none;
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 11px;
+}
+
+.mei-settings-value-btn {
+    min-width: 112px;
+    text-align: center;
+}
+
+.mei-settings-segment-row {
+    spacing: 5px;
+}
+
+.mei-settings-chip.selected {
+    font-weight: bold;
+}
+
+.mei-settings-entry {
+    border: none;
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 12px;
+    min-width: 190px;
+}
+
+.mei-settings-save-field-btn {
+    border: none;
+    border-radius: 8px;
+    padding: 4px;
+    width: 26px;
+    height: 26px;
+}
+
+.mei-settings-nav-row {
+    border: none;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.mei-settings-nav-content {
+    spacing: 10px;
+}
+
+.mei-settings-nav-label {
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.mei-settings-status {
+    font-size: 11px;
+    opacity: 170;
+}
+
+.mei-settings-actions-row {
+    spacing: 8px;
+}
+
+.mei-settings-fetch-row {
+    spacing: 8px;
+}
+
+.mei-log-page-label {
+    font-size: 11px;
+    opacity: 170;
+}
+
+.mei-model-dropdown {
+    border-radius: 8px;
+    padding: 4px;
+    spacing: 3px;
+}
+
+.mei-model-option {
+    border: none;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 11px;
+    text-align: left;
+}
+
+.mei-model-option.selected {
+    font-weight: bold;
+}
+
+.mei-log-scroll {
+    border-radius: 8px;
+}
+
+.mei-log-box {
+    spacing: 0;
+}
+
+.mei-log-text {
+    border-radius: 8px;
+    padding: 8px;
+    font-family: monospace;
+    font-size: 10px;
+}
+
+/* ── Streaming / Thinking ─────────────────────────── */
+.mei-streaming-bubble,
+.mei-thinking-block {
+    spacing: 6px;
+    padding: 8px 2px;
+}
+
+.mei-thinking-header {
+    spacing: 6px;
+}
+
+.mei-thinking-title,
+.mei-thinking-block-title {
+    font-size: 12px;
+    font-weight: bold;
+    opacity: 190;
+}
+
+.mei-thinking-toggle {
+    border: none;
+    border-radius: 6px;
+    padding: 0 6px;
+    font-size: 11px;
+}
+
+.mei-thinking-details {
+    font-size: 12px;
+    opacity: 150;
+}
+
+.mei-streaming-answer {
+    spacing: 8px;
 }

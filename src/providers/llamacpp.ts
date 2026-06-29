@@ -10,9 +10,9 @@
 import Soup from 'gi://Soup?version=3.0';
 import Gio from 'gi://Gio';
 
-import { postJson } from '../utils/http.js';
+import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag } from '../utils/logger.js';
-import { getStringAtPath, type ChatMessage, type Provider, type ProviderConfig } from './types.js';
+import { getStringAtPath, parseJsonObject, toApiMessages, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions } from './types.js';
 
 export class LlamaCppProvider implements Provider {
     readonly name = 'llama.cpp';
@@ -31,14 +31,36 @@ export class LlamaCppProvider implements Provider {
 
     async sendMessage(
         messages: ChatMessage[],
-        cancellable: Gio.Cancellable
-    ): Promise<string> {
+        cancellable: Gio.Cancellable,
+        options: SendMessageOptions = {}
+    ): Promise<ChatResponse> {
         const body = {
             model: this._model,
-            messages,
+            messages: toApiMessages(messages),
         };
 
         Logger.debug(Tag.Provider, `${this.name} sending ${messages.length} message(s)`);
+
+        if (options.stream) {
+            let content = '';
+            const streamBody = { ...body, stream: true };
+            await postJsonSse(
+                this._session,
+                this._url,
+                streamBody,
+                {},
+                cancellable,
+                data => {
+                    const parsed = parseJsonObject(data);
+                    if (!parsed) return;
+                    const contentDelta = getStringAtPath(parsed, ['choices', 0, 'delta', 'content']) ?? '';
+                    if (!contentDelta) return;
+                    content += contentDelta;
+                    options.onUpdate?.({ contentDelta });
+                }
+            );
+            return { content: content.trim() || '(no response)' };
+        }
 
         const json = await postJson(
             this._session,
@@ -48,8 +70,8 @@ export class LlamaCppProvider implements Provider {
             cancellable
         );
 
-        const reply = getStringAtPath(json, ['choices', 0, 'message', 'content'])?.trim() || '(no response)';
-        Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(reply, 500)}`);
-        return reply;
+        const content = getStringAtPath(json, ['choices', 0, 'message', 'content'])?.trim() || '(no response)';
+        Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
+        return { content };
     }
 }

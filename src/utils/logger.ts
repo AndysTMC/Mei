@@ -38,13 +38,6 @@ export type TagName = (typeof Tag)[keyof typeof Tag];
 
 /* ── Helpers ──────────────────────────────────────── */
 
-const LEVEL_LABELS: Record<LogLevel, string> = {
-    [LogLevel.DEBUG]: 'DEBUG',
-    [LogLevel.INFO]:  'INFO',
-    [LogLevel.WARN]:  'WARN',
-    [LogLevel.ERROR]: 'ERROR',
-};
-
 /** Truncate a string to `max` chars, appending `…` if clipped. */
 function truncate(s: string, max: number): string {
     if (s.length <= max) return s;
@@ -69,11 +62,11 @@ function writeToFile(level: string, tag: string, msg: string): void {
         }
         const file = Gio.File.new_for_path(LOG_FILE);
         const out = file.append_to(Gio.FileCreateFlags.NONE, null);
-        
+
         const now = new Date();
         const timestamp = now.toISOString();
         const line = `[${timestamp}] [${level}] [${tag}] ${msg}\n`;
-        
+
         out.write_all(new TextEncoder().encode(line), null);
         out.close(null);
     } catch (e) {
@@ -87,7 +80,7 @@ export class Logger {
     /** Minimum level to log. Set to DEBUG to capture everything to file. */
     static minLevel: LogLevel = LogLevel.DEBUG;
 
-    /* ── Timing (dev-only) ────────────────────────── */
+    /* ── Timing ───────────────────────────────────── */
 
     private static _timers: Map<string, number> = new Map();
 
@@ -135,7 +128,7 @@ export class Logger {
         const suffix = err instanceof Error ? `: ${err.message}` : '';
         const fullMsg = `${msg}${suffix}`;
         writeToFile('ERROR', tag, fullMsg);
-        
+
         console.error(`[Mei:ERROR] [${tag}] ${fullMsg}`);
         if (__DEV__ && err instanceof Error && err.stack) {
             console.error(err.stack);

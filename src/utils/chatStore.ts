@@ -132,5 +132,6 @@ function isChatMessage(value: unknown): value is ChatMessage {
     return (candidate.role === 'user' ||
         candidate.role === 'assistant' ||
         candidate.role === 'system') &&
-        typeof candidate.content === 'string';
+        typeof candidate.content === 'string' &&
+        (candidate.thinking === undefined || typeof candidate.thinking === 'string');
 }

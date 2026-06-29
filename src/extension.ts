@@ -17,7 +17,7 @@ import { ThemeManager } from './utils/theme.js';
 import { Logger, Tag } from './utils/logger.js';
 import { ChatStore, ChatSession } from './utils/chatStore.js';
 
-import type { Provider, ProviderConfig, ProviderId, ChatMessage } from './providers/types.js';
+import type { Provider, ProviderConfig, ProviderId, ChatMessage, StreamUpdate } from './providers/types.js';
 import { OllamaProvider } from './providers/ollama.js';
 import { LlamaCppProvider } from './providers/llamacpp.js';
 import { OpenAIProvider, GroqProvider, MistralProvider, OpenRouterProvider, DeepSeekProvider, CustomProvider, OpenCodeProvider } from './providers/openai.js';
@@ -28,6 +28,9 @@ type StoredProviderConfig = {
     url?: string;
     modelName?: string;
     apiKey?: string;
+    mode?: string;
+    thinking?: string;
+    reasoningEffort?: string;
 };
 
 export default class MeiExtension extends Extension {
@@ -64,16 +67,12 @@ export default class MeiExtension extends Extension {
         this._indicator = new MeiIndicator();
         this._indicator.onClicked = () => this._popup?.toggle();
         this._indicator.onStopRequested = () => {
-            if (this._cancellable) {
-                this._cancellable.cancel();
-                Logger.info(Tag.Extension, 'Request cancelled by user');
-            }
-            this._indicator?.stopGlint();
+            this._onCancel();
             this._popup?.open();
         };
 
         /* ── Chat popup ───────────────────────────────── */
-        this._popup = new ChatPopup(this._indicator.actor, this._themeManager);
+        this._popup = new ChatPopup(this._indicator.actor, this._themeManager, this._settings);
         this._popup.onSend = (text: string) => this._onSend(text);
         this._popup.onCancel = () => this._onCancel();
         this._popup.onOpenSettings = () => this.openPreferences();
@@ -86,9 +85,7 @@ export default class MeiExtension extends Extension {
             if (isExpanded) {
                 this._popup?.showHistory(this._messages);
             } else {
-                const assistantMsgs = this._messages.filter(m => m.role === 'assistant');
-                const lastReply = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].content : '';
-                this._popup?.showMessage('assistant', lastReply);
+                this._popup?.showMessage('assistant', getLastAssistantContent(this._messages));
             }
         };
 
@@ -150,6 +147,9 @@ export default class MeiExtension extends Extension {
             url: providerConfig.url || '',
             model: providerConfig.modelName || '',
             apiKey: providerConfig.apiKey || '',
+            mode: providerConfig.mode || '',
+            thinking: providerConfig.thinking || '',
+            reasoningEffort: providerConfig.reasoningEffort || '',
         };
 
         switch (providerId) {
@@ -234,6 +234,7 @@ export default class MeiExtension extends Extension {
             Logger.info(Tag.Extension, 'Request cancelled by user via stop button');
         }
         this._indicator?.stopGlint();
+        this._popup?.setLoading(false);
     }
 
     private _onHistoryRequested(): void {
@@ -298,14 +299,33 @@ export default class MeiExtension extends Extension {
         this._popup?.setLoading(true);
 
         try {
+            let streamedContent = '';
+            let streamedThinking = '';
+            const shouldStream = Boolean(this._popup?.isExpanded);
             const reply = await provider.sendMessage(
                 this._messages,
-                cancellable
+                cancellable,
+                shouldStream
+                    ? {
+                        stream: true,
+                        onUpdate: (update: StreamUpdate) => {
+                            if (cancellable.is_cancelled()) return;
+                            streamedContent += update.contentDelta || '';
+                            streamedThinking += update.thinkingDelta || '';
+                            this._popup?.showStreamingResponse(streamedContent, streamedThinking);
+                        },
+                    }
+                    : undefined
             );
 
             this._popup?.setLoading(false);
 
-            this._messages.push({ role: 'assistant', content: reply });
+            if (cancellable.is_cancelled()) {
+                Logger.warn(Tag.Extension, `Discarding cancelled ${provider.name} response`);
+                return;
+            }
+
+            this._messages.push({ role: 'assistant', content: reply.content, thinking: reply.thinking });
             this._saveCurrentSession();
             this._messagesBackup = null;
             this._indicator?.stopGlint();
@@ -313,10 +333,10 @@ export default class MeiExtension extends Extension {
             if (this._popup?.isExpanded) {
                 this._popup.showHistory(this._messages);
             } else {
-                this._popup?.showMessage('assistant', reply);
+                this._popup?.showMessage('assistant', reply.content);
                 this._popup?.open();
             }
-            Logger.info(Tag.Extension, `Response received (${reply.length} chars)`);
+            Logger.info(Tag.Extension, `Response received (${reply.content.length} chars)`);
         } catch (e: unknown) {
             this._popup?.setLoading(false);
 
@@ -360,13 +380,11 @@ export default class MeiExtension extends Extension {
                     }
                 }
                 this._saveCurrentSession();
-                
+
                 if (this._popup?.isExpanded) {
                     this._popup.showHistory(this._messages);
                 } else {
-                    const assistantMsgs = this._messages.filter(m => m.role === 'assistant');
-                    const lastReply = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].content : '';
-                    this._popup?.showMessage('assistant', lastReply);
+                    this._popup?.showMessage('assistant', getLastAssistantContent(this._messages));
                 }
             }
         } finally {
@@ -396,9 +414,7 @@ export default class MeiExtension extends Extension {
         if (this._popup?.isExpanded) {
             this._popup.showHistory(this._messages);
         } else {
-            const assistantMsgs = this._messages.filter(m => m.role === 'assistant');
-            const lastReply = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].content : '';
-            this._popup?.showMessage('assistant', lastReply);
+            this._popup?.showMessage('assistant', getLastAssistantContent(this._messages));
         }
 
         this._indicator?.startGlint();
@@ -420,9 +436,21 @@ function parseProviderConfigs(json: string): Record<string, StoredProviderConfig
             url: typeof source.url === 'string' ? source.url : '',
             modelName: typeof source.modelName === 'string' ? source.modelName : '',
             apiKey: typeof source.apiKey === 'string' ? source.apiKey : '',
+            mode: typeof source.mode === 'string' ? source.mode : '',
+            thinking: typeof source.thinking === 'string' ? source.thinking : '',
+            reasoningEffort: typeof source.reasoningEffort === 'string' ? source.reasoningEffort : '',
         };
     }
     return configs;
+}
+
+function getLastAssistantContent(messages: ChatMessage[]): string {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') {
+            return messages[i].content;
+        }
+    }
+    return '';
 }
 
 function getErrorMessage(error: unknown): string {

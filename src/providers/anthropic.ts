@@ -10,9 +10,9 @@
 import Soup from 'gi://Soup?version=3.0';
 import Gio from 'gi://Gio';
 
-import { postJson } from '../utils/http.js';
+import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import { getStringAtPath, type ChatMessage, type Provider, type ProviderConfig } from './types.js';
+import { getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions } from './types.js';
 
 export class AnthropicProvider implements Provider {
     readonly name = 'Anthropic';
@@ -33,8 +33,9 @@ export class AnthropicProvider implements Provider {
 
     async sendMessage(
         messages: ChatMessage[],
-        cancellable: Gio.Cancellable
-    ): Promise<string> {
+        cancellable: Gio.Cancellable,
+        options: SendMessageOptions = {}
+    ): Promise<ChatResponse> {
         // Anthropic requires system messages to be passed separately,
         // not in the messages array.
         let systemPrompt: string | undefined;
@@ -68,6 +69,37 @@ export class AnthropicProvider implements Provider {
             'anthropic-version': '2023-06-01',
         };
 
+        if (options.stream) {
+            let content = '';
+            let thinking = '';
+            await postJsonSse(
+                this._session,
+                this._url,
+                { ...body, stream: true },
+                headers,
+                cancellable,
+                data => {
+                    const parsed = parseJsonObject(data);
+                    if (!parsed) return;
+                    const deltaType = getStringAtPath(parsed, ['delta', 'type']);
+                    const contentDelta = deltaType === 'text_delta'
+                        ? getStringAtPath(parsed, ['delta', 'text']) ?? ''
+                        : '';
+                    const thinkingDelta = deltaType === 'thinking_delta'
+                        ? getStringAtPath(parsed, ['delta', 'thinking']) ?? ''
+                        : '';
+                    if (!contentDelta && !thinkingDelta) return;
+                    content += contentDelta;
+                    thinking += thinkingDelta;
+                    options.onUpdate?.({ contentDelta, thinkingDelta });
+                }
+            );
+            return {
+                content: content.trim() || '(no response)',
+                thinking: thinking.trim() || undefined,
+            };
+        }
+
         const json = await postJson(
             this._session,
             this._url,
@@ -76,8 +108,30 @@ export class AnthropicProvider implements Provider {
             cancellable
         );
 
-        const reply = getStringAtPath(json, ['content', 0, 'text'])?.trim() || '(no response)';
-        Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(reply, 500)}`);
-        return reply;
+        const { content, thinking } = parseAnthropicContent(json);
+        Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
+        return { content, thinking };
     }
+}
+
+function parseAnthropicContent(json: unknown): ChatResponse {
+    if (typeof json !== 'object' || json === null || Array.isArray(json)) {
+        return { content: '(no response)' };
+    }
+    const contentBlocks = (json as Record<string, unknown>).content;
+    if (!Array.isArray(contentBlocks)) return { content: '(no response)' };
+
+    let content = '';
+    let thinking = '';
+    for (const block of contentBlocks) {
+        if (typeof block !== 'object' || block === null || Array.isArray(block)) continue;
+        const item = block as Record<string, unknown>;
+        if (item.type === 'text' && typeof item.text === 'string') content += item.text;
+        if (item.type === 'thinking' && typeof item.thinking === 'string') thinking += item.thinking;
+    }
+
+    return {
+        content: content.trim() || '(no response)',
+        thinking: thinking.trim() || undefined,
+    };
 }

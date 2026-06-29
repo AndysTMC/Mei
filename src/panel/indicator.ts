@@ -38,7 +38,9 @@ export class MeiIndicator {
     constructor() {
         this._label = new St.Label({
             style_class: 'mei-panel-label',
+            x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
+            x_expand: true,
         });
 
         if (__DEV__) {
