@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import { getStringAtPath, parseJsonObject, toApiMessages, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions } from './types.js';
+import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, toApiMessages, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
 import {
     getDeepSeekReasoningEffort,
     getDeepSeekThinking,
@@ -25,9 +25,9 @@ export class OpenAICompatibleProvider implements Provider {
     readonly defaultUrl: string;
 
     private _session: Soup.Session;
-    private _url: string;
+    protected _url: string;
     protected _model: string;
-    private _apiKey: string;
+    protected _apiKey: string;
 
     constructor(
         session: Soup.Session,
@@ -53,9 +53,7 @@ export class OpenAICompatibleProvider implements Provider {
 
         Logger.debug(Tag.Provider, `${this.name} sending ${messages.length} message(s)`);
 
-        const headers: Record<string, string> = {
-            'Authorization': `Bearer ${this._apiKey}`,
-        };
+        const headers = this._buildHeaders();
 
         // OpenRouter requires an extra header for origin/referer optionally, but we can just use Bearer.
 
@@ -78,7 +76,7 @@ export class OpenAICompatibleProvider implements Provider {
             ['choices', 0, 'message', 'thinking'],
         ])?.trim();
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
-        return { content, thinking };
+        return { content, thinking, usage: parseOpenAIUsage(json) };
     }
 
     protected _buildBody(messages: ChatMessage[]): Record<string, unknown> {
@@ -86,6 +84,10 @@ export class OpenAICompatibleProvider implements Provider {
             model: this._model,
             messages: toApiMessages(messages),
         };
+    }
+
+    protected _buildHeaders(): Record<string, string> {
+        return this._apiKey ? { Authorization: `Bearer ${this._apiKey}` } : {};
     }
 
     private async _sendStreaming(
@@ -96,6 +98,7 @@ export class OpenAICompatibleProvider implements Provider {
     ): Promise<ChatResponse> {
         let content = '';
         let thinking = '';
+        let usage: TokenUsage | undefined;
         const streamBody = { ...body, stream: true };
 
         await postJsonSse(
@@ -107,6 +110,7 @@ export class OpenAICompatibleProvider implements Provider {
             data => {
                 const parsed = parseJsonObject(data);
                 if (!parsed) return;
+                usage = parseOpenAIUsage(parsed) ?? usage;
                 const contentDelta = getStringAtPath(parsed, ['choices', 0, 'delta', 'content']) ?? '';
                 const thinkingDelta = getFirstStringAtPaths(parsed, [
                     ['choices', 0, 'delta', 'reasoning_content'],
@@ -123,6 +127,7 @@ export class OpenAICompatibleProvider implements Provider {
         return {
             content: content.trim() || '(no response)',
             thinking: thinking.trim() || undefined,
+            usage,
         };
     }
 }
@@ -173,9 +178,29 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
     }
 }
 
+export class GitHubCopilotProvider extends OpenAICompatibleProvider {
+    constructor(session: Soup.Session, config: ProviderConfig) {
+        super(session, config, 'GitHub Copilot', 'https://models.github.ai/inference/chat/completions');
+    }
+
+    protected _buildHeaders(): Record<string, string> {
+        return {
+            ...super._buildHeaders(),
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2026-03-10',
+        };
+    }
+}
+
 export class CustomProvider extends OpenAICompatibleProvider {
     constructor(session: Soup.Session, config: ProviderConfig) {
         super(session, config, 'Custom', config.url || 'http://127.0.0.1:8080/v1/chat/completions');
+    }
+}
+
+export class LMStudioProvider extends OpenAICompatibleProvider {
+    constructor(session: Soup.Session, config: ProviderConfig) {
+        super(session, config, 'LM Studio', 'http://127.0.0.1:1234/v1/chat/completions');
     }
 }
 
@@ -184,6 +209,14 @@ export class OpenCodeProvider extends OpenAICompatibleProvider {
         const mode = getOpenCodeMode(config.mode);
         super(session, config, `OpenCode ${mode === 'zen' ? 'Zen' : 'Go'}`, getOpenCodeChatCompletionsUrl(mode));
     }
+}
+
+function parseOpenAIUsage(root: unknown): TokenUsage | undefined {
+    return createTokenUsage(
+        getNumberAtPath(root, ['usage', 'prompt_tokens']) ?? getNumberAtPath(root, ['usage', 'input_tokens']),
+        getNumberAtPath(root, ['usage', 'completion_tokens']) ?? getNumberAtPath(root, ['usage', 'output_tokens']),
+        getNumberAtPath(root, ['usage', 'total_tokens'])
+    );
 }
 
 function getFirstStringAtPaths(root: unknown, paths: readonly (readonly (string | number)[])[]): string | null {

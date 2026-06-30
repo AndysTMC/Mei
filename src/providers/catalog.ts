@@ -20,6 +20,7 @@ export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
 export const PROVIDER_LABELS: Record<ProviderId, string> = {
     ollama: 'Ollama',
     llamacpp: 'llama.cpp',
+    lmstudio: 'LM Studio',
     openai: 'OpenAI',
     anthropic: 'Anthropic',
     gemini: 'Gemini',
@@ -29,10 +30,11 @@ export const PROVIDER_LABELS: Record<ProviderId, string> = {
     deepseek: 'DeepSeek',
     custom: 'Custom',
     opencode: 'OpenCode',
+    githubcopilot: 'GitHub Copilot',
 };
 
 export const PROVIDER_TYPE_IDS: ProviderType[] = ['local', 'cloud', 'custom'];
-export const LOCAL_PROVIDER_IDS: ProviderId[] = ['ollama', 'llamacpp'];
+export const LOCAL_PROVIDER_IDS: ProviderId[] = ['ollama', 'llamacpp', 'lmstudio'];
 export const CLOUD_PROVIDER_IDS: ProviderId[] = [
     'openai',
     'anthropic',
@@ -42,6 +44,7 @@ export const CLOUD_PROVIDER_IDS: ProviderId[] = [
     'openrouter',
     'deepseek',
     'opencode',
+    'githubcopilot',
 ];
 export const CUSTOM_PROVIDER_IDS: ProviderId[] = ['custom'];
 

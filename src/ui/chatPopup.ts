@@ -44,7 +44,7 @@ import {
     type ProviderType,
 } from '../providers/catalog.js';
 import { fetchProviderModels } from '../providers/modelList.js';
-import type { ProviderId } from '../providers/types.js';
+import type { ChatMessageMetadata, ProviderId, TokenUsage } from '../providers/types.js';
 
 const CHAT_WIDTH = 350;
 const SETTINGS_WIDTH = 650;
@@ -59,6 +59,7 @@ const LOG_LINE_HEIGHT = 13;
 const LOG_LINES_PER_PAGE = 100;
 type ProviderConfigKey = 'url' | 'modelName' | 'apiKey' | 'mode' | 'thinking' | 'reasoningEffort';
 type InputScrollTarget = 'none' | 'top' | 'cursor' | 'bottom';
+type HistoryScrollTarget = 'top' | 'bottom';
 type SettingsScreen = 'main' | 'providers' | 'logs';
 type LogFilter = 'All' | 'Info' | 'Debug' | 'Warn' | 'Error';
 const INPUT_SCROLL_PRIORITY: Record<InputScrollTarget, number> = {
@@ -112,6 +113,7 @@ export class ChatPopup {
 
     private _copyTimeoutId: number = 0;
     private _historyScrollTimeoutId: number = 0;
+    private _historyScrollTarget: HistoryScrollTarget = 'bottom';
     private _inputLayoutTimeoutId: number = 0;
     private _inputScrollTimeoutId: number = 0;
     private _transientSourceIds: Set<number> = new Set();
@@ -471,7 +473,10 @@ export class ChatPopup {
             if (key === Clutter.KEY_Return || key === Clutter.KEY_KP_Enter) {
                 const state = event.get_state();
                 if ((state & Clutter.ModifierType.SHIFT_MASK) === 0) {
-                    this._handleSend();
+                    this._addOneShotIdle(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                        this._handleSend();
+                        return GLib.SOURCE_REMOVE;
+                    });
                     return Clutter.EVENT_STOP;
                 }
             }
@@ -754,6 +759,7 @@ export class ChatPopup {
 
         this._messageBox.add_child(rendered.actor);
         this._scrollView.visible = true;
+        this._queueHistoryScrollToTop();
     }
 
     private _animateHeightChange(changeFn: () => void): void {
@@ -800,7 +806,7 @@ export class ChatPopup {
     /**
      * Display the full chat history in the scroll area.
      */
-    showHistory(messages: { role: string, content: string, thinking?: string }[]): void {
+    showHistory(messages: { role: string, content: string, thinking?: string, metadata?: ChatMessageMetadata }[]): void {
         this._messageBox.destroy_all_children();
 
         for (let i = 0; i < messages.length; i++) {
@@ -828,6 +834,10 @@ export class ChatPopup {
 
             msgContainer.add_child(rendered.actor);
 
+            const infoPanel = role === 'assistant'
+                ? this._createMessageInfoPanel(msg.metadata)
+                : null;
+
             // Action buttons bar below each message
             const actionBar = new St.BoxLayout({
                 style_class: 'mei-action-bar',
@@ -838,6 +848,8 @@ export class ChatPopup {
             const copyIcon = new St.Icon({
                 icon_name: 'edit-copy-symbolic',
                 icon_size: 12,
+                x_align: Clutter.ActorAlign.CENTER,
+                y_align: Clutter.ActorAlign.CENTER,
             });
             const copyBtn = new St.Button({
                 style_class: 'mei-action-btn',
@@ -867,6 +879,8 @@ export class ChatPopup {
                 const reloadIcon = new St.Icon({
                     icon_name: 'view-refresh-symbolic',
                     icon_size: 12,
+                    x_align: Clutter.ActorAlign.CENTER,
+                    y_align: Clutter.ActorAlign.CENTER,
                 });
                 const reloadBtn = new St.Button({
                     style_class: 'mei-action-btn',
@@ -882,9 +896,34 @@ export class ChatPopup {
                 });
                 actionBar.add_child(reloadBtn);
                 this._addButtonClickScaleEffect(reloadBtn);
+
+                const infoGlyph = new St.Label({
+                    text: 'i',
+                    style_class: 'mei-info-glyph',
+                    x_align: Clutter.ActorAlign.CENTER,
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+                const infoBtn = new St.Button({
+                    style_class: 'mei-action-btn mei-info-btn',
+                    can_focus: true,
+                    reactive: true,
+                    track_hover: true,
+                    accessible_name: 'Show response information',
+                    accessible_role: Atk.Role.PUSH_BUTTON,
+                    child: infoGlyph,
+                });
+                infoBtn.connect('clicked', () => {
+                    if (!infoPanel) return;
+                    this._toggleMessageInfoPanel(infoPanel, infoBtn);
+                });
+                actionBar.add_child(infoBtn);
+                this._addButtonClickScaleEffect(infoBtn);
             }
 
             msgContainer.add_child(actionBar);
+            if (infoPanel) {
+                msgContainer.add_child(infoPanel);
+            }
             this._messageBox.add_child(msgContainer);
         }
 
@@ -893,6 +932,97 @@ export class ChatPopup {
         this._hasMessages = messages.length > 0;
 
         this._queueHistoryScrollToBottom();
+    }
+
+    private _createMessageInfoPanel(metadata: ChatMessageMetadata | undefined): St.BoxLayout {
+        const panel = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            visible: false,
+            style_class: 'mei-message-info-panel',
+        });
+        this._styleMessageInfoPanel(panel);
+        panel.add_child(new St.Label({
+            text: 'Response Information',
+            x_expand: true,
+            style_class: 'mei-message-info-title',
+        }));
+
+        if (!metadata) {
+            this._addMessageInfoRow(panel, 'Status', 'Unavailable for this response');
+            return panel;
+        }
+
+        const provider = [
+            metadata.providerLabel || metadata.providerId || 'Unavailable',
+            metadata.providerType ? `(${metadata.providerType})` : '',
+        ].filter(Boolean).join(' ');
+
+        this._addMessageInfoRow(panel, 'Provider', provider);
+        this._addMessageInfoRow(panel, 'Model', metadata.model || 'Unavailable');
+        this._addMessageInfoRow(panel, 'Time', formatDuration(metadata.durationMs));
+        this._addMessageInfoRow(panel, 'Tokens', formatTokens(metadata.tokens));
+
+        return panel;
+    }
+
+    private _toggleMessageInfoPanel(panel: St.BoxLayout, button: St.Button): void {
+        const visible = !panel.visible;
+        button.accessible_name = visible ? 'Hide response information' : 'Show response information';
+        if (visible) {
+            button.add_style_class_name('selected');
+        } else {
+            button.remove_style_class_name('selected');
+        }
+
+        this._animateHeightChange(() => {
+            panel.remove_all_transitions();
+            if (visible) {
+                panel.opacity = 0;
+                panel.visible = true;
+                panel.ease({
+                    opacity: 255,
+                    duration: 120,
+                    mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                });
+            } else {
+                panel.visible = false;
+                panel.opacity = 255;
+            }
+        });
+    }
+
+    private _addMessageInfoRow(panel: St.BoxLayout, label: string, value: string): void {
+        const row = new St.BoxLayout({
+            x_expand: true,
+            style_class: 'mei-message-info-row',
+        });
+
+        const keyLabel = new St.Label({
+            text: label,
+            style_class: 'mei-message-info-key',
+            y_align: Clutter.ActorAlign.START,
+        });
+        row.add_child(keyLabel);
+
+        const valueLabel = new St.Label({
+            text: value,
+            x_expand: true,
+            style_class: 'mei-message-info-value',
+        });
+        valueLabel.clutter_text.set_line_wrap(true);
+        valueLabel.clutter_text.set_line_wrap_mode(0);
+        valueLabel.clutter_text.set_ellipsize(0);
+        row.add_child(valueLabel);
+
+        panel.add_child(row);
+    }
+
+    private _styleMessageInfoPanel(panel: St.Widget): void {
+        const isDark = this._themeManager.isDark;
+        const fg = isDark ? '#ffffff' : '#000000';
+        const bg = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+        panel.set_style(`background-color: ${bg}; color: ${fg};`);
     }
 
     private _createThinkingBlock(thinking: string): St.BoxLayout {
@@ -2539,21 +2669,31 @@ export class ChatPopup {
         adj.set_value(Math.max(lower, Math.min(value, maxValue)));
     }
 
-    private _queueHistoryScrollToBottom(): void {
-        if (this._historyScrollTimeoutId !== 0) {
-            GLib.source_remove(this._historyScrollTimeoutId);
-            this._historyScrollTimeoutId = 0;
-        }
+    private _queueHistoryScrollToTop(): void {
+        this._queueHistoryScroll('top');
+    }
 
-        this._historyScrollTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+    private _queueHistoryScrollToBottom(): void {
+        this._queueHistoryScroll('bottom');
+    }
+
+    private _queueHistoryScroll(target: HistoryScrollTarget): void {
+        this._historyScrollTarget = target;
+        if (this._historyScrollTimeoutId !== 0) return;
+
+        this._historyScrollTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 33, () => {
             if (this._destroyed) {
                 this._historyScrollTimeoutId = 0;
                 return GLib.SOURCE_REMOVE;
             }
             this._historyScrollTimeoutId = 0;
             const adj = this._scrollView.get_vadjustment();
-            const maxValue = Math.max(adj.get_lower(), adj.get_upper() - adj.get_page_size());
-            adj.set_value(maxValue);
+            if (this._historyScrollTarget === 'top') {
+                adj.set_value(adj.get_lower());
+            } else {
+                const maxValue = Math.max(adj.get_lower(), adj.get_upper() - adj.get_page_size());
+                adj.set_value(maxValue);
+            }
             return GLib.SOURCE_REMOVE;
         });
     }
@@ -2587,6 +2727,7 @@ export class ChatPopup {
 
         this._applyErrorTheme();
         this._applyHistoryTheme();
+        this._applyMessageInfoTheme();
         this._applySettingsTheme();
     }
 
@@ -2623,6 +2764,21 @@ export class ChatPopup {
                 }
             }
         }
+    }
+
+    private _applyMessageInfoTheme(): void {
+        if (!this._messageBox) return;
+
+        const visit = (actor: Clutter.Actor): void => {
+            if (actor instanceof St.Widget && actor.has_style_class_name('mei-message-info-panel')) {
+                this._styleMessageInfoPanel(actor);
+            }
+            for (const child of actor.get_children()) {
+                visit(child);
+            }
+        };
+
+        visit(this._messageBox);
     }
 
     private _applySettingsTheme(): void {
@@ -2841,6 +2997,32 @@ export class ChatPopup {
 
 function isRenderableRole(role: string): role is MessageRole {
     return role === 'user' || role === 'assistant';
+}
+
+function formatDuration(durationMs: number | undefined): string {
+    if (typeof durationMs !== 'number' || !Number.isFinite(durationMs)) {
+        return 'Unavailable';
+    }
+    if (durationMs < 1000) {
+        return `${Math.round(durationMs)} ms`;
+    }
+    return `${(durationMs / 1000).toFixed(1)} s`;
+}
+
+function formatTokens(tokens: TokenUsage | undefined): string {
+    if (!tokens) return 'Unavailable';
+
+    const parts: string[] = [];
+    if (typeof tokens.totalTokens === 'number') {
+        parts.push(`${tokens.totalTokens} total`);
+    }
+    if (typeof tokens.inputTokens === 'number') {
+        parts.push(`${tokens.inputTokens} in`);
+    }
+    if (typeof tokens.outputTokens === 'number') {
+        parts.push(`${tokens.outputTokens} out`);
+    }
+    return parts.length > 0 ? parts.join(' · ') : 'Unavailable';
 }
 
 function createEmptyProviderConfig(): StoredProviderConfig {

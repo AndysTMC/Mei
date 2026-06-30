@@ -11,11 +11,13 @@ export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
     content: string;
     thinking?: string;
+    metadata?: ChatMessageMetadata;
 }
 
 export interface ChatResponse {
     content: string;
     thinking?: string;
+    usage?: TokenUsage;
 }
 
 export interface StreamUpdate {
@@ -26,6 +28,22 @@ export interface StreamUpdate {
 export interface SendMessageOptions {
     stream?: boolean;
     onUpdate?: (update: StreamUpdate) => void;
+}
+
+export interface TokenUsage {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+}
+
+export interface ChatMessageMetadata {
+    providerId?: ProviderId;
+    providerLabel?: string;
+    providerType?: string;
+    model?: string;
+    endpoint?: string;
+    durationMs?: number;
+    tokens?: TokenUsage;
 }
 
 /** Configuration for initializing a provider. */
@@ -59,7 +77,7 @@ export interface Provider {
 }
 
 /** Supported provider identifiers. */
-export type ProviderId = 'ollama' | 'llamacpp' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'mistral' | 'openrouter' | 'deepseek' | 'custom' | 'opencode';
+export type ProviderId = 'ollama' | 'llamacpp' | 'lmstudio' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'mistral' | 'openrouter' | 'deepseek' | 'custom' | 'opencode' | 'githubcopilot';
 
 export function getStringAtPath(
     root: unknown,
@@ -80,8 +98,44 @@ export function getStringAtPath(
     return typeof current === 'string' ? current : null;
 }
 
+export function getNumberAtPath(
+    root: unknown,
+    path: readonly (string | number)[]
+): number | null {
+    let current = root;
+
+    for (const segment of path) {
+        if (typeof segment === 'number') {
+            if (!Array.isArray(current)) return null;
+            current = current[segment];
+        } else {
+            if (typeof current !== 'object' || current === null || Array.isArray(current)) return null;
+            current = (current as Record<string, unknown>)[segment];
+        }
+    }
+
+    return typeof current === 'number' && Number.isFinite(current) ? current : null;
+}
+
 export function toApiMessages(messages: ChatMessage[]): Array<{ role: ChatMessage['role']; content: string }> {
     return messages.map(({ role, content }) => ({ role, content }));
+}
+
+export function createTokenUsage(
+    inputTokens?: number | null,
+    outputTokens?: number | null,
+    totalTokens?: number | null
+): TokenUsage | undefined {
+    const usage: TokenUsage = {};
+    if (typeof inputTokens === 'number') usage.inputTokens = inputTokens;
+    if (typeof outputTokens === 'number') usage.outputTokens = outputTokens;
+    if (typeof totalTokens === 'number') {
+        usage.totalTokens = totalTokens;
+    } else if (typeof inputTokens === 'number' && typeof outputTokens === 'number') {
+        usage.totalTokens = inputTokens + outputTokens;
+    }
+
+    return Object.keys(usage).length > 0 ? usage : undefined;
 }
 
 export function parseJsonObject(text: string): JsonObject | null {

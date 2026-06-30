@@ -59,15 +59,7 @@ export class ChatStore {
             const bytes = new TextEncoder().encode(json);
 
             this._saveChain = this._saveChain
-                .then(async () => {
-                    await file.replace_contents_async(
-                        bytes,
-                        null,
-                        false,
-                        Gio.FileCreateFlags.REPLACE_DESTINATION,
-                        null
-                    );
-                })
+                .then(() => replaceFileContentsAsync(file, bytes))
                 .catch(err => {
                     Logger.error(Tag.Extension, 'Failed to save chat history', err);
                 });
@@ -133,5 +125,47 @@ function isChatMessage(value: unknown): value is ChatMessage {
         candidate.role === 'assistant' ||
         candidate.role === 'system') &&
         typeof candidate.content === 'string' &&
-        (candidate.thinking === undefined || typeof candidate.thinking === 'string');
+        (candidate.thinking === undefined || typeof candidate.thinking === 'string') &&
+        (candidate.metadata === undefined || isChatMetadata(candidate.metadata));
+}
+
+function isChatMetadata(value: unknown): boolean {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    const metadata = value as Record<string, unknown>;
+    return (metadata.providerId === undefined || typeof metadata.providerId === 'string') &&
+        (metadata.providerLabel === undefined || typeof metadata.providerLabel === 'string') &&
+        (metadata.providerType === undefined || typeof metadata.providerType === 'string') &&
+        (metadata.model === undefined || typeof metadata.model === 'string') &&
+        (metadata.endpoint === undefined || typeof metadata.endpoint === 'string') &&
+        (metadata.durationMs === undefined || typeof metadata.durationMs === 'number') &&
+        (metadata.tokens === undefined || isTokenUsage(metadata.tokens));
+}
+
+function isTokenUsage(value: unknown): boolean {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    const tokens = value as Record<string, unknown>;
+    return (tokens.inputTokens === undefined || typeof tokens.inputTokens === 'number') &&
+        (tokens.outputTokens === undefined || typeof tokens.outputTokens === 'number') &&
+        (tokens.totalTokens === undefined || typeof tokens.totalTokens === 'number');
+}
+
+function replaceFileContentsAsync(file: Gio.File, bytes: Uint8Array): Promise<void> {
+    return new Promise((resolve, reject) => {
+        file.replace_contents_async(
+            bytes,
+            null,
+            false,
+            Gio.FileCreateFlags.REPLACE_DESTINATION,
+            null,
+            (source, result) => {
+                try {
+                    const sourceFile = source ?? file;
+                    sourceFile.replace_contents_finish(result);
+                    resolve();
+                } catch (e) {
+                    reject(e);
+                }
+            }
+        );
+    });
 }

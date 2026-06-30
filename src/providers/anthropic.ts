@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import { getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions } from './types.js';
+import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
 
 export class AnthropicProvider implements Provider {
     readonly name = 'Anthropic';
@@ -72,6 +72,7 @@ export class AnthropicProvider implements Provider {
         if (options.stream) {
             let content = '';
             let thinking = '';
+            let usage: TokenUsage | undefined;
             await postJsonSse(
                 this._session,
                 this._url,
@@ -81,6 +82,7 @@ export class AnthropicProvider implements Provider {
                 data => {
                     const parsed = parseJsonObject(data);
                     if (!parsed) return;
+                    usage = parseAnthropicUsage(parsed) ?? usage;
                     const deltaType = getStringAtPath(parsed, ['delta', 'type']);
                     const contentDelta = deltaType === 'text_delta'
                         ? getStringAtPath(parsed, ['delta', 'text']) ?? ''
@@ -97,6 +99,7 @@ export class AnthropicProvider implements Provider {
             return {
                 content: content.trim() || '(no response)',
                 thinking: thinking.trim() || undefined,
+                usage,
             };
         }
 
@@ -110,7 +113,7 @@ export class AnthropicProvider implements Provider {
 
         const { content, thinking } = parseAnthropicContent(json);
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
-        return { content, thinking };
+        return { content, thinking, usage: parseAnthropicUsage(json) };
     }
 }
 
@@ -134,4 +137,12 @@ function parseAnthropicContent(json: unknown): ChatResponse {
         content: content.trim() || '(no response)',
         thinking: thinking.trim() || undefined,
     };
+}
+
+function parseAnthropicUsage(root: unknown): TokenUsage | undefined {
+    return createTokenUsage(
+        getNumberAtPath(root, ['usage', 'input_tokens']),
+        getNumberAtPath(root, ['usage', 'output_tokens']),
+        null
+    );
 }

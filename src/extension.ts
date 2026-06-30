@@ -17,12 +17,13 @@ import { ThemeManager } from './utils/theme.js';
 import { Logger, Tag } from './utils/logger.js';
 import { ChatStore, ChatSession } from './utils/chatStore.js';
 
-import type { Provider, ProviderConfig, ProviderId, ChatMessage, StreamUpdate } from './providers/types.js';
+import type { ChatMessage, ChatMessageMetadata, Provider, ProviderConfig, ProviderId, StreamUpdate } from './providers/types.js';
 import { OllamaProvider } from './providers/ollama.js';
 import { LlamaCppProvider } from './providers/llamacpp.js';
-import { OpenAIProvider, GroqProvider, MistralProvider, OpenRouterProvider, DeepSeekProvider, CustomProvider, OpenCodeProvider } from './providers/openai.js';
+import { OpenAIProvider, GroqProvider, MistralProvider, OpenRouterProvider, DeepSeekProvider, CustomProvider, OpenCodeProvider, GitHubCopilotProvider, LMStudioProvider } from './providers/openai.js';
 import { AnthropicProvider } from './providers/anthropic.js';
 import { GeminiProvider } from './providers/gemini.js';
+import { getProviderLabel, getProviderType, PROVIDER_TYPE_LABELS } from './providers/catalog.js';
 
 type StoredProviderConfig = {
     url?: string;
@@ -44,6 +45,7 @@ export default class MeiExtension extends Extension {
     private _settings: Gio.Settings | null = null;
     private _settingsSignalId: number = 0;
     private _provider: Provider | null = null;
+    private _providerMetadata: ChatMessageMetadata | null = null;
     private _chatStore: ChatStore | null = null;
     private _chatSessionId: string | null = null;
 
@@ -123,6 +125,7 @@ export default class MeiExtension extends Extension {
         }
         this._settings = null;
         this._provider = null;
+        this._providerMetadata = null;
         this._messages = [];
         this._chatStore = null;
         this._chatSessionId = null;
@@ -152,31 +155,59 @@ export default class MeiExtension extends Extension {
             reasoningEffort: providerConfig.reasoningEffort || '',
         };
 
+        let provider: Provider;
         switch (providerId) {
             case 'llamacpp':
-                return new LlamaCppProvider(session, config);
+                provider = new LlamaCppProvider(session, config);
+                break;
+            case 'lmstudio':
+                provider = new LMStudioProvider(session, config);
+                break;
             case 'openai':
-                return new OpenAIProvider(session, config);
+                provider = new OpenAIProvider(session, config);
+                break;
             case 'groq':
-                return new GroqProvider(session, config);
+                provider = new GroqProvider(session, config);
+                break;
             case 'mistral':
-                return new MistralProvider(session, config);
+                provider = new MistralProvider(session, config);
+                break;
             case 'openrouter':
-                return new OpenRouterProvider(session, config);
+                provider = new OpenRouterProvider(session, config);
+                break;
             case 'deepseek':
-                return new DeepSeekProvider(session, config);
+                provider = new DeepSeekProvider(session, config);
+                break;
             case 'custom':
-                return new CustomProvider(session, config);
+                provider = new CustomProvider(session, config);
+                break;
             case 'opencode':
-                return new OpenCodeProvider(session, config);
+                provider = new OpenCodeProvider(session, config);
+                break;
+            case 'githubcopilot':
+                provider = new GitHubCopilotProvider(session, config);
+                break;
             case 'anthropic':
-                return new AnthropicProvider(session, config);
+                provider = new AnthropicProvider(session, config);
+                break;
             case 'gemini':
-                return new GeminiProvider(session, config);
+                provider = new GeminiProvider(session, config);
+                break;
             case 'ollama':
             default:
-                return new OllamaProvider(session, config);
+                provider = new OllamaProvider(session, config);
+                break;
         }
+
+        const providerType = getProviderType(this._settings!.get_string('provider-type'));
+        this._providerMetadata = {
+            providerId,
+            providerLabel: getProviderLabel(providerId),
+            providerType: PROVIDER_TYPE_LABELS[providerType],
+            model: config.model,
+            endpoint: sanitizeEndpoint(config.url || provider.defaultUrl),
+        };
+        return provider;
     }
 
     /* ── Chat logic ───────────────────────────────────── */
@@ -294,6 +325,7 @@ export default class MeiExtension extends Extension {
         const provider = this._provider;
         const cancellable = new Gio.Cancellable();
         this._cancellable = cancellable;
+        const startedAt = Date.now();
         Logger.info(Tag.Extension, `Fetching response from ${provider.name}`);
 
         this._popup?.setLoading(true);
@@ -325,7 +357,16 @@ export default class MeiExtension extends Extension {
                 return;
             }
 
-            this._messages.push({ role: 'assistant', content: reply.content, thinking: reply.thinking });
+            this._messages.push({
+                role: 'assistant',
+                content: reply.content,
+                thinking: reply.thinking,
+                metadata: {
+                    ...(this._providerMetadata ?? {}),
+                    durationMs: Date.now() - startedAt,
+                    tokens: reply.usage,
+                },
+            });
             this._saveCurrentSession();
             this._messagesBackup = null;
             this._indicator?.stopGlint();
@@ -451,6 +492,17 @@ function getLastAssistantContent(messages: ChatMessage[]): string {
         }
     }
     return '';
+}
+
+function sanitizeEndpoint(url: string): string {
+    const trimmed = url.trim();
+    if (!trimmed) return '';
+
+    const match = trimmed.match(/^([a-z][a-z0-9+.-]*:\/\/[^/?#]+)([^?#]*)/i);
+    if (match) {
+        return `${match[1]}${match[2] || ''}`;
+    }
+    return trimmed.split(/[?#]/)[0];
 }
 
 function getErrorMessage(error: unknown): string {

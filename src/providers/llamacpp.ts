@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag } from '../utils/logger.js';
-import { getStringAtPath, parseJsonObject, toApiMessages, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions } from './types.js';
+import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, toApiMessages, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
 
 export class LlamaCppProvider implements Provider {
     readonly name = 'llama.cpp';
@@ -43,6 +43,7 @@ export class LlamaCppProvider implements Provider {
 
         if (options.stream) {
             let content = '';
+            let usage: TokenUsage | undefined;
             const streamBody = { ...body, stream: true };
             await postJsonSse(
                 this._session,
@@ -53,13 +54,14 @@ export class LlamaCppProvider implements Provider {
                 data => {
                     const parsed = parseJsonObject(data);
                     if (!parsed) return;
+                    usage = parseOpenAIStyleUsage(parsed) ?? usage;
                     const contentDelta = getStringAtPath(parsed, ['choices', 0, 'delta', 'content']) ?? '';
                     if (!contentDelta) return;
                     content += contentDelta;
                     options.onUpdate?.({ contentDelta });
                 }
             );
-            return { content: content.trim() || '(no response)' };
+            return { content: content.trim() || '(no response)', usage };
         }
 
         const json = await postJson(
@@ -72,6 +74,14 @@ export class LlamaCppProvider implements Provider {
 
         const content = getStringAtPath(json, ['choices', 0, 'message', 'content'])?.trim() || '(no response)';
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
-        return { content };
+        return { content, usage: parseOpenAIStyleUsage(json) };
     }
+}
+
+function parseOpenAIStyleUsage(root: unknown): TokenUsage | undefined {
+    return createTokenUsage(
+        getNumberAtPath(root, ['usage', 'prompt_tokens']) ?? getNumberAtPath(root, ['usage', 'input_tokens']),
+        getNumberAtPath(root, ['usage', 'completion_tokens']) ?? getNumberAtPath(root, ['usage', 'output_tokens']),
+        getNumberAtPath(root, ['usage', 'total_tokens'])
+    );
 }

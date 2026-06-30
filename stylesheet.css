@@ -20,18 +20,20 @@
     cursor: default;
 }
 
-/* ── Stop Button Text (on Hover) ─────────────────── */
-.mei-stop-hover-text {
-    font-family: sans-serif;
-    font-size: 14px;
-    font-weight: bold;
-    color: black;
+/* ── Stop Button Pill (on Hover) ─────────────────── */
+.mei-stop-pill {
     background-color: rgba(255, 255, 255, 0.95);
     border-radius: 999px;
-    min-width: 30px;
+    min-width: 34px;
     min-height: 20px;
-    padding: 0 6px;
-    text-align: center;
+    padding: 0 7px;
+}
+
+.mei-stop-square {
+    background-color: black;
+    border-radius: 2px;
+    width: 8px;
+    height: 8px;
 }
 
 .mei-panel-label {
@@ -345,14 +347,56 @@
 .mei-action-btn {
     background-color: transparent;
     border: none;
-    padding: 4px;
+    padding: 0;
     border-radius: 4px;
     opacity: 180;
+    width: 22px;
+    height: 22px;
 }
 
 .mei-action-btn:hover {
     opacity: 255;
     background-color: rgba(128, 128, 128, 0.15);
+}
+
+.mei-action-btn.selected {
+    opacity: 255;
+    background-color: rgba(128, 128, 128, 0.22);
+}
+
+.mei-info-glyph {
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.mei-message-info-panel {
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-top: 0;
+    margin-bottom: 4px;
+    spacing: 4px;
+}
+
+.mei-message-info-title {
+    font-size: 11px;
+    font-weight: bold;
+    margin-bottom: 2px;
+}
+
+.mei-message-info-row {
+    spacing: 8px;
+}
+
+.mei-message-info-key {
+    font-size: 10px;
+    font-weight: bold;
+    min-width: 54px;
+    opacity: 190;
+}
+
+.mei-message-info-value {
+    font-size: 10px;
+    opacity: 210;
 }
 
 /* ── Menu & Popup Items ─────────────────────────── */

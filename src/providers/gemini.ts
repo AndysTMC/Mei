@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import { getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions } from './types.js';
+import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
 
 export class GeminiProvider implements Provider {
     readonly name = 'Gemini';
@@ -63,6 +63,7 @@ export class GeminiProvider implements Provider {
 
         if (options.stream) {
             let content = '';
+            let usage: TokenUsage | undefined;
             const streamUrl = `${this._baseUrl}/models/${this._model}:streamGenerateContent?alt=sse&key=${this._apiKey}`;
             await postJsonSse(
                 this._session,
@@ -73,13 +74,14 @@ export class GeminiProvider implements Provider {
                 data => {
                     const parsed = parseJsonObject(data);
                     if (!parsed) return;
+                    usage = parseGeminiUsage(parsed) ?? usage;
                     const contentDelta = getStringAtPath(parsed, ['candidates', 0, 'content', 'parts', 0, 'text']) ?? '';
                     if (!contentDelta) return;
                     content += contentDelta;
                     options.onUpdate?.({ contentDelta });
                 }
             );
-            return { content: content.trim() || '(no response)' };
+            return { content: content.trim() || '(no response)', usage };
         }
 
         const json = await postJson(
@@ -93,6 +95,14 @@ export class GeminiProvider implements Provider {
         const content = getStringAtPath(json, ['candidates', 0, 'content', 'parts', 0, 'text'])?.trim() ||
             '(no response)';
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
-        return { content };
+        return { content, usage: parseGeminiUsage(json) };
     }
+}
+
+function parseGeminiUsage(root: unknown): TokenUsage | undefined {
+    return createTokenUsage(
+        getNumberAtPath(root, ['usageMetadata', 'promptTokenCount']),
+        getNumberAtPath(root, ['usageMetadata', 'candidatesTokenCount']),
+        getNumberAtPath(root, ['usageMetadata', 'totalTokenCount'])
+    );
 }

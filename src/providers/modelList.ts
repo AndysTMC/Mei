@@ -61,7 +61,7 @@ export async function fetchProviderModels(
     };
 }
 
-type ModelEndpointKind = 'openai' | 'gemini' | 'ollama';
+type ModelEndpointKind = 'openai' | 'gemini' | 'ollama' | 'github';
 
 interface ModelEndpoint {
     url: string;
@@ -90,6 +90,14 @@ function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelE
                 kind: 'openai',
                 openCodeMode: null,
             };
+        case 'lmstudio':
+            return {
+                url: replacePath(config.url || 'http://127.0.0.1:1234/v1/chat/completions', '/v1/models'),
+                headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+                requiresApiKey: false,
+                kind: 'openai',
+                openCodeMode: null,
+            };
         case 'openai':
             return bearerEndpoint('https://api.openai.com/v1/models', apiKey);
         case 'groq':
@@ -107,6 +115,18 @@ function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelE
                 openCodeMode: mode,
             };
         }
+        case 'githubcopilot':
+            return {
+                url: 'https://models.github.ai/catalog/models',
+                headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                    Accept: 'application/vnd.github+json',
+                    'X-GitHub-Api-Version': '2026-03-10',
+                },
+                requiresApiKey: true,
+                kind: 'github',
+                openCodeMode: null,
+            };
         case 'anthropic':
             return {
                 url: 'https://api.anthropic.com/v1/models',
@@ -154,16 +174,18 @@ function bearerEndpoint(url: string, apiKey: string): ModelEndpoint {
 
 function parseModelList(text: string, kind: ModelEndpointKind, openCodeMode: OpenCodeMode | null): string[] {
     const parsed = JSON.parse(text) as unknown;
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    if (typeof parsed !== 'object' || parsed === null || (Array.isArray(parsed) && kind !== 'github')) {
         return [];
     }
 
-    const root = parsed as Record<string, unknown>;
-    const items = kind === 'gemini'
-        ? root.models
-        : kind === 'ollama'
+    const root = Array.isArray(parsed) ? {} : parsed as Record<string, unknown>;
+    const items = kind === 'github'
+        ? Array.isArray(parsed) ? parsed : root.models ?? root.data
+        : kind === 'gemini'
             ? root.models
-            : root.data;
+            : kind === 'ollama'
+                ? root.models
+                : root.data;
     if (!Array.isArray(items)) return [];
 
     return items.flatMap(item => {

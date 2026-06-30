@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonLines } from '../utils/http.js';
 import { Logger, Tag } from '../utils/logger.js';
-import { getStringAtPath, parseJsonObject, toApiMessages, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions } from './types.js';
+import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, toApiMessages, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
 
 export class OllamaProvider implements Provider {
     readonly name = 'Ollama';
@@ -52,6 +52,7 @@ export class OllamaProvider implements Provider {
         if (options.stream) {
             let content = '';
             let thinking = '';
+            let usage: TokenUsage | undefined;
             await postJsonLines(
                 this._session,
                 this._url,
@@ -61,6 +62,7 @@ export class OllamaProvider implements Provider {
                 line => {
                     const parsed = parseJsonObject(line);
                     if (!parsed) return;
+                    usage = parseOllamaUsage(parsed) ?? usage;
                     const contentDelta = getStringAtPath(parsed, ['message', 'content']) ?? '';
                     const thinkingDelta = getStringAtPath(parsed, ['message', 'thinking']) ?? '';
                     if (!contentDelta && !thinkingDelta) return;
@@ -72,6 +74,7 @@ export class OllamaProvider implements Provider {
             return {
                 content: content.trim() || '(no response)',
                 thinking: thinking.trim() || undefined,
+                usage,
             };
         }
 
@@ -86,6 +89,14 @@ export class OllamaProvider implements Provider {
         const content = getStringAtPath(json, ['message', 'content'])?.trim() || '(no response)';
         const thinking = getStringAtPath(json, ['message', 'thinking'])?.trim();
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
-        return { content, thinking };
+        return { content, thinking, usage: parseOllamaUsage(json) };
     }
+}
+
+function parseOllamaUsage(root: unknown): TokenUsage | undefined {
+    return createTokenUsage(
+        getNumberAtPath(root, ['prompt_eval_count']),
+        getNumberAtPath(root, ['eval_count']),
+        null
+    );
 }
