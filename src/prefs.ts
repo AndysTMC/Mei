@@ -4,7 +4,7 @@
  * This runs in a separate process from GNOME Shell.
  * NO access to St, Clutter, or Main — only GTK4 and Adw.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import Adw from 'gi://Adw';
@@ -31,22 +31,19 @@ import {
 } from './providers/catalog.js';
 import { fetchProviderModels } from './providers/modelList.js';
 import type { ProviderId } from './providers/types.js';
-
-const LOG_DIR = GLib.get_user_state_dir() + '/mei';
-const LOG_FILE = LOG_DIR + '/logs.txt';
-
-type ProviderConfigKey = 'url' | 'modelName' | 'apiKey' | 'mode' | 'thinking' | 'reasoningEffort';
-
-interface StoredProviderConfig {
-    url: string;
-    modelName: string;
-    apiKey: string;
-    mode: string;
-    thinking: string;
-    reasoningEffort: string;
-}
-
-type ProviderConfigs = Record<string, StoredProviderConfig>;
+import {
+    createEmptyProviderConfig,
+    parseProviderConfigs,
+    type ProviderConfigKey,
+    type ProviderConfigs,
+    type StoredProviderConfig,
+} from './providers/configStore.js';
+import {
+    migratePlaintextApiKeys,
+    resolveStoredProviderConfig,
+    updateStoredProviderApiKey,
+} from './providers/apiKeys.js';
+import { LOG_FILE, replaceLogFileTextAsync } from './utils/logFile.js';
 
 export default class MeiPreferences extends ExtensionPreferences {
     async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
@@ -188,25 +185,92 @@ export default class MeiPreferences extends ExtensionPreferences {
         });
         providerPrefPage.add(connectionGroup);
 
+        let providerConfigSaveTimeout = 0;
+        let pendingProviderConfigs: ProviderConfigs | null = null;
+        const apiKeyCache = new Map<string, string>();
+
         function getProviderConfigs(): ProviderConfigs {
+            if (pendingProviderConfigs) return pendingProviderConfigs;
             const jsonStr = settings.get_string('provider-configs') || '{}';
             return parseProviderConfigs(jsonStr);
         }
-        function saveProviderConfigs(configs: ProviderConfigs): void {
+
+        function saveProviderConfigsNow(configs: ProviderConfigs): void {
             settings.set_string('provider-configs', JSON.stringify(configs));
+            pendingProviderConfigs = null;
         }
+
+        function queueSaveProviderConfigs(configs: ProviderConfigs): void {
+            pendingProviderConfigs = configs;
+            if (providerConfigSaveTimeout) {
+                GLib.source_remove(providerConfigSaveTimeout);
+            }
+            providerConfigSaveTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
+                providerConfigSaveTimeout = 0;
+                if (pendingProviderConfigs && !destroyed) {
+                    saveProviderConfigsNow(pendingProviderConfigs);
+                }
+                return GLib.SOURCE_REMOVE;
+            });
+        }
+
+        function flushProviderConfigSave(): void {
+            if (providerConfigSaveTimeout) {
+                GLib.source_remove(providerConfigSaveTimeout);
+                providerConfigSaveTimeout = 0;
+            }
+            if (pendingProviderConfigs) {
+                saveProviderConfigsNow(pendingProviderConfigs);
+            }
+        }
+
         function getCurrentProviderConfig(): StoredProviderConfig {
             const provider = settings.get_string('provider');
             const configs = getProviderConfigs();
             return configs[provider] || createEmptyProviderConfig();
         }
-        function updateCurrentProviderConfig(key: ProviderConfigKey, value: string): void {
+
+        function getCurrentApiKeySnapshot(provider: string): string {
+            const config = getProviderConfigs()[provider] || createEmptyProviderConfig();
+            return config.apiKey || apiKeyCache.get(provider) || '';
+        }
+        async function migrateProviderConfigsToSecret(): Promise<void> {
+            const result = await migratePlaintextApiKeys(getProviderConfigs());
+            if (destroyed) return;
+            if (result.changed) {
+                saveProviderConfigsNow(result.configs);
+            }
+        }
+
+        async function getResolvedProviderConfig(provider: string, config: StoredProviderConfig): Promise<StoredProviderConfig> {
+            if (config.apiKey) return config;
+            const cachedKey = apiKeyCache.get(provider);
+            if (cachedKey) return { ...config, apiKey: cachedKey };
+
+            const resolved = await resolveStoredProviderConfig(provider, config);
+            if (resolved.apiKey) apiKeyCache.set(provider, resolved.apiKey);
+            return resolved;
+        }
+
+        async function updateCurrentProviderConfig(key: ProviderConfigKey, value: string): Promise<void> {
             const provider = settings.get_string('provider');
             const configs = getProviderConfigs();
             if (!configs[provider]) configs[provider] = createEmptyProviderConfig();
-            configs[provider][key] = value;
-            saveProviderConfigs(configs);
+            if (key === 'apiKey') {
+                configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
+                if (value.trim()) {
+                    apiKeyCache.set(provider, value.trim());
+                } else {
+                    apiKeyCache.delete(provider);
+                }
+            } else {
+                configs[provider][key] = value;
+            }
+            if (destroyed) return;
+            queueSaveProviderConfigs(configs);
         }
+
+        void migrateProviderConfigsToSecret();
 
         const providerModeGroup = new Adw.PreferencesGroup({
             title: 'Provider Options',
@@ -224,7 +288,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         openCodeModeRow.connect('notify::selected', () => {
             const idx = openCodeModeRow.get_selected();
             if (idx >= 0 && idx < openCodeModeIds.length) {
-                updateCurrentProviderConfig('mode', openCodeModeIds[idx]);
+                void updateCurrentProviderConfig('mode', openCodeModeIds[idx]);
                 currentFetchProvider = '';
                 currentFetchKey = '';
                 currentFetchMode = '';
@@ -244,7 +308,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         deepSeekThinkingRow.connect('notify::selected', () => {
             const idx = deepSeekThinkingRow.get_selected();
             if (idx >= 0 && idx < deepSeekThinkingIds.length) {
-                updateCurrentProviderConfig('thinking', deepSeekThinkingIds[idx]);
+                void updateCurrentProviderConfig('thinking', deepSeekThinkingIds[idx]);
             }
         });
         providerModeGroup.add(deepSeekThinkingRow);
@@ -259,14 +323,14 @@ export default class MeiPreferences extends ExtensionPreferences {
         deepSeekEffortRow.connect('notify::selected', () => {
             const idx = deepSeekEffortRow.get_selected();
             if (idx >= 0 && idx < deepSeekEffortIds.length) {
-                updateCurrentProviderConfig('reasoningEffort', deepSeekEffortIds[idx]);
+                void updateCurrentProviderConfig('reasoningEffort', deepSeekEffortIds[idx]);
             }
         });
         providerModeGroup.add(deepSeekEffortRow);
 
         const modelEntryRow = new Adw.EntryRow({ title: 'Model' });
         modelEntryRow.connect('notify::text', () => {
-            updateCurrentProviderConfig('modelName', modelEntryRow.get_text());
+            void updateCurrentProviderConfig('modelName', modelEntryRow.get_text());
         });
         connectionGroup.add(modelEntryRow);
 
@@ -275,7 +339,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         modelComboRow.connect('notify::selected', () => {
             const idx = modelComboRow.get_selected();
             if (idx >= 0 && idx < modelStringList.get_n_items()) {
-                updateCurrentProviderConfig('modelName', modelStringList.get_string(idx)!);
+                void updateCurrentProviderConfig('modelName', modelStringList.get_string(idx)!);
             }
         });
         connectionGroup.add(modelComboRow);
@@ -287,13 +351,13 @@ export default class MeiPreferences extends ExtensionPreferences {
 
         const urlRow = new Adw.EntryRow({ title: 'Endpoint URL (optional)' });
         urlRow.connect('notify::text', () => {
-            updateCurrentProviderConfig('url', urlRow.get_text());
+            void updateCurrentProviderConfig('url', urlRow.get_text());
         });
         connectionGroup.add(urlRow);
 
         const apiKeyRow = new Adw.PasswordEntryRow({ title: 'API Key' });
         apiKeyRow.connect('notify::text', () => {
-            updateCurrentProviderConfig('apiKey', apiKeyRow.get_text());
+            void updateCurrentProviderConfig('apiKey', apiKeyRow.get_text());
             if (getProviderType(settings.get_string('provider-type')) === 'cloud') queueUpdateModels();
         });
         connectionGroup.add(apiKeyRow);
@@ -337,7 +401,9 @@ export default class MeiPreferences extends ExtensionPreferences {
             if (destroyed) return;
             const provider = settings.get_string('provider');
             const config = getCurrentProviderConfig();
-            const apiKey = config.apiKey || '';
+            const resolvedConfig = await getResolvedProviderConfig(provider, config);
+            if (destroyed || provider !== settings.get_string('provider')) return;
+            const apiKey = resolvedConfig.apiKey || '';
 
             if (apiKey.length === 0) {
                 modelComboRow.set_visible(false);
@@ -373,12 +439,12 @@ export default class MeiPreferences extends ExtensionPreferences {
             spinner.set_visible(true);
 
             try {
-                const models = await fetchModels(provider, config, modelFetchCancellable);
+                const models = await fetchModels(provider, resolvedConfig, modelFetchCancellable);
                 if (
                     destroyed ||
                     fetchSeq !== modelFetchSeq ||
                     provider !== settings.get_string('provider') ||
-                    apiKey !== (getCurrentProviderConfig().apiKey || '') ||
+                    apiKey !== getCurrentApiKeySnapshot(provider) ||
                     settings.get_string('provider-type') !== 'cloud'
                 ) {
                     return;
@@ -397,7 +463,7 @@ export default class MeiPreferences extends ExtensionPreferences {
                 let idx = models.indexOf(currentModel);
                 if (idx === -1) {
                     idx = 0;
-                    updateCurrentProviderConfig('modelName', models[0]);
+                    void updateCurrentProviderConfig('modelName', models[0]);
                 }
                 modelComboRow.set_selected(idx);
 
@@ -410,7 +476,7 @@ export default class MeiPreferences extends ExtensionPreferences {
                     destroyed ||
                     fetchSeq !== modelFetchSeq ||
                     provider !== settings.get_string('provider') ||
-                    apiKey !== (getCurrentProviderConfig().apiKey || '') ||
+                    apiKey !== getCurrentApiKeySnapshot(provider) ||
                     settings.get_string('provider-type') !== 'cloud'
                 ) {
                     return;
@@ -468,7 +534,7 @@ export default class MeiPreferences extends ExtensionPreferences {
                 modelEntryRow.set_visible(false);
                 if (
                     provider === currentFetchProvider &&
-                    getCurrentProviderConfig().apiKey === currentFetchKey &&
+                    getCurrentApiKeySnapshot(provider) === currentFetchKey &&
                     (getCurrentProviderConfig().mode || '') === currentFetchMode &&
                     modelStringList.get_n_items() > 0
                 ) {
@@ -635,19 +701,17 @@ export default class MeiPreferences extends ExtensionPreferences {
                 if (!file.query_exists(null)) return;
 
                 if (currentFilter === 'All') {
-                    const out = file.replace(null, false, Gio.FileCreateFlags.NONE, null);
-                    out.close(null);
+                    void replaceLogFileTextAsync('').catch(e => {
+                        buffer.set_text(`Failed to clear logs: ${e}`, -1);
+                    });
                     logLines = [];
                 } else {
                     const levelStr = `[${currentFilter.toUpperCase()}]`;
                     logLines = logLines.filter(line => !line.includes(levelStr));
                     const newText = logLines.join('\n') + (logLines.length ? '\n' : '');
-                    if (newText.length === 0) {
-                        const out = file.replace(null, false, Gio.FileCreateFlags.NONE, null);
-                        out.close(null);
-                    } else {
-                        file.replace_contents(new TextEncoder().encode(newText), null, false, Gio.FileCreateFlags.NONE, null);
-                    }
+                    void replaceLogFileTextAsync(newText).catch(e => {
+                        buffer.set_text(`Failed to clear logs: ${e}`, -1);
+                    });
                 }
                 updateView();
             } catch (e) {
@@ -692,6 +756,7 @@ export default class MeiPreferences extends ExtensionPreferences {
                 GLib.source_remove(fetchTimeout);
                 fetchTimeout = 0;
             }
+            flushProviderConfigSave();
             destroyed = true;
             modelFetchSeq++;
             modelFetchCancellable?.cancel();
@@ -707,35 +772,5 @@ export default class MeiPreferences extends ExtensionPreferences {
             }
             settingsSignalIds.length = 0;
         });
-    }
-}
-
-function createEmptyProviderConfig(): StoredProviderConfig {
-    return { url: '', modelName: '', apiKey: '', mode: '', thinking: '', reasoningEffort: '' };
-}
-
-function parseProviderConfigs(json: string): ProviderConfigs {
-    try {
-        const parsed = JSON.parse(json || '{}') as unknown;
-        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-            return {};
-        }
-
-        const configs: ProviderConfigs = {};
-        for (const [provider, value] of Object.entries(parsed)) {
-            if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
-            const source = value as Record<string, unknown>;
-            configs[provider] = {
-                url: typeof source.url === 'string' ? source.url : '',
-                modelName: typeof source.modelName === 'string' ? source.modelName : '',
-                apiKey: typeof source.apiKey === 'string' ? source.apiKey : '',
-                mode: typeof source.mode === 'string' ? source.mode : '',
-                thinking: typeof source.thinking === 'string' ? source.thinking : '',
-                reasoningEffort: typeof source.reasoningEffort === 'string' ? source.reasoningEffort : '',
-            };
-        }
-        return configs;
-    } catch {
-        return {};
     }
 }

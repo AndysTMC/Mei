@@ -1,3 +1,7 @@
+/**
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
 import Gio from 'gi://Gio';
 import St from 'gi://St';
 

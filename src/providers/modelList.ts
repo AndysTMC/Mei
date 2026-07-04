@@ -1,7 +1,7 @@
 /**
  * Provider model-list fetching utilities.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import Soup from 'gi://Soup?version=3.0';
@@ -85,7 +85,7 @@ function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelE
         case 'llamacpp':
             return {
                 url: replacePath(config.url || 'http://127.0.0.1:8080/v1/chat/completions', '/v1/models'),
-                headers: {},
+                headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
                 requiresApiKey: false,
                 kind: 'openai',
                 openCodeMode: null,
@@ -140,8 +140,8 @@ function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelE
             };
         case 'gemini':
             return {
-                url: `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-                headers: {},
+                url: `${stripTrailingSlash(config.url || 'https://generativelanguage.googleapis.com/v1beta')}/models`,
+                headers: { 'x-goog-api-key': apiKey },
                 requiresApiKey: true,
                 kind: 'gemini',
                 openCodeMode: null,
@@ -220,4 +220,8 @@ function replacePath(url: string, path: string): string {
         return url;
     }
     return `${match[1]}${path}`;
+}
+
+function stripTrailingSlash(url: string): string {
+    return url.replace(/\/+$/, '');
 }

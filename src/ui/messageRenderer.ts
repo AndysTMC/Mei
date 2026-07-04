@@ -4,7 +4,7 @@
  * The renderer owns parsing/sanitization and produces St actors that the
  * existing popup can place in its message area.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import Atk from 'gi://Atk';
@@ -14,6 +14,14 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
+
+import {
+    extractLinks as extractTextLinks,
+    inlineMarkup as inlineTextMarkup,
+    sanitizeUrl as sanitizeTextUrl,
+    stripPangoTags,
+    type LinkTarget,
+} from './messageText.js';
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
@@ -60,6 +68,8 @@ export interface CodeBlock extends BaseBlock {
     type: 'codeBlock';
     language: string;
     code: string;
+    fullCode?: string;
+    originalCharCount?: number;
     isStreaming: boolean;
     isDiagramSource: boolean;
 }
@@ -131,14 +141,9 @@ const COMPACT_TABLE_CONTENT_WIDTH = 300;
 const EXPANDED_TABLE_CONTENT_WIDTH = 610;
 const MAX_LINK_ACTIONS = 4;
 const MAX_CODE_CHARS = 30000;
-const URL_PROTOCOL_RE = /^(https?:|mailto:)/i;
+const MAX_PARSE_CACHE_ENTRIES = 100;
 const SELECTION_COLOR = makeColor('#cfc4a6cc');
 const SELECTED_TEXT_COLOR = makeColor('#171717ff');
-
-interface LinkTarget {
-    label: string;
-    url: string;
-}
 
 const parseCache = new Map<string, MessageModel>();
 
@@ -170,8 +175,11 @@ export function renderMessageBlocks(
     };
 
     if (cacheKey) {
-        if (parseCache.size > 100) {
-            parseCache.clear();
+        if (parseCache.size >= MAX_PARSE_CACHE_ENTRIES) {
+            const oldestKey = parseCache.keys().next().value;
+            if (oldestKey) {
+                parseCache.delete(oldestKey);
+            }
         }
         parseCache.set(cacheKey, model);
     }
@@ -466,6 +474,9 @@ function renderParagraphBlock(block: ParagraphBlock): St.Widget {
         actions.add_child(makeOpenLinkButton(link, links.length > 1 ? index : null));
         actions.add_child(makeCopyButton(link.url, links.length > 1 ? `Copy link ${index + 1}` : 'Copy link'));
     });
+    if (links.length > MAX_LINK_ACTIONS) {
+        actions.add_child(makePlainLabel(`+${links.length - MAX_LINK_ACTIONS} more`, 'mei-md-link-overflow'));
+    }
     wrapper.add_child(actions);
     return wrapper;
 }
@@ -483,12 +494,18 @@ function renderCodeBlock(block: CodeBlock, options: MessageRendererOptions): St.
     const language = block.isDiagramSource
         ? 'diagram source'
         : block.language || 'code';
+    const copyText = block.fullCode ?? block.code;
+    const truncated = typeof block.originalCharCount === 'number';
     header.add_child(new St.Label({
-        text: block.isStreaming ? `${language} (generating)` : language,
+        text: block.isStreaming
+            ? `${language} (generating)`
+            : truncated
+                ? `${language} (${block.originalCharCount} chars, preview)`
+                : language,
         style_class: 'mei-md-code-language',
         x_expand: true,
     }));
-    header.add_child(makeCopyButton(block.code, 'Copy code', 'Copy'));
+    header.add_child(makeCopyButton(copyText, truncated ? 'Copy full code' : 'Copy code', 'Copy'));
     wrapper.add_child(header);
 
     const codeBox = new St.BoxLayout({
@@ -756,7 +773,9 @@ function sanitizeBlocks(blocks: MessageBlock[], options: MessageRendererOptions)
         if (block.type === 'codeBlock' && block.code.length > MAX_CODE_CHARS) {
             return [{
                 ...block,
-                code: `${block.code.slice(0, MAX_CODE_CHARS)}\n\n... truncated for popup performance ...`,
+                fullCode: block.code,
+                originalCharCount: block.code.length,
+                code: `${block.code.slice(0, MAX_CODE_CHARS)}\n\n... preview truncated for popup performance; Copy keeps the full code ...`,
             }];
         }
         return [block];
@@ -809,76 +828,19 @@ function blocksToPlainText(blocks: MessageBlock[]): string {
 }
 
 function inlineMarkup(text: string): string {
-    let result = escapePangoText(decodeEntities(text));
-    const inlineCodes: string[] = [];
-    const escapedCharacters: string[] = [];
-
-    result = result.replace(/`([^`]+)`/g, (_match, code: string) => {
-        inlineCodes.push(`<tt>${code}</tt>`);
-        return makeInlineCodeToken(inlineCodes.length - 1);
-    });
-
-    result = result.replace(/\\([\\`*_[\]()#+\-.!|>~])/g, (_match, character: string) => {
-        escapedCharacters.push(character);
-        return makeEscapedCharacterToken(escapedCharacters.length - 1);
-    });
-
-    result = result.replace(/\*\*([^\n]+?)\*\*/g, '<b>$1</b>');
-    result = result.replace(/~~([^\n]+?)~~/g, '<s>$1</s>');
-    result = result.replace(/\*([^*\n]+)\*/g, '<i>$1</i>');
-    result = result.replace(/_([^_\n]+)_/g, '<i>$1</i>');
-
-    result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, url: string) => {
-        const sanitized = sanitizeUrl(url);
-        const safeLabel = label.trim() || sanitized || 'link';
-        if (!sanitized) return safeLabel;
-        return `<span underline="single">${safeLabel}</span>`;
-    });
-
-    result = result.replace(/&lt;(https?:\/\/[^&\s]+)&gt;/g, '<span underline="single">$1</span>');
-    result = result.replace(/&lt;(mailto:[^&\s]+)&gt;/gi, '<span underline="single">$1</span>');
-
-    return result
-        .replace(/@@MEIESC(\d+)@@/g, (_match, index: string) => escapedCharacters[Number.parseInt(index, 10)] ?? '')
-        .replace(/@@MEIINLINE(\d+)@@/g, (_match, index: string) => inlineCodes[Number.parseInt(index, 10)] ?? '');
+    return inlineTextMarkup(text, sanitizeUrl);
 }
 
 function extractLinks(text: string): LinkTarget[] {
-    const links = new Map<string, LinkTarget>();
-    const addLink = (label: string, url: string): void => {
-        const sanitized = sanitizeUrl(url);
-        if (!sanitized || links.has(sanitized)) return;
-        links.set(sanitized, {
-            label: label.trim() || sanitized,
-            url: sanitized,
-        });
-    };
-
-    for (const match of text.matchAll(/(?<!!)\[([^\]\n]+)\]\(([^)\s]+)\)/g)) {
-        addLink(match[1], match[2]);
-    }
-    for (const match of text.matchAll(/<((?:https?:\/\/|mailto:)[^>\s]+)>/gi)) {
-        addLink(match[1], match[1]);
-    }
-    for (const match of text.matchAll(/\bhttps?:\/\/[^\s<>)\]]+/gi)) {
-        addLink(match[0], match[0]);
-    }
-
-    return [...links.values()];
+    return extractTextLinks(text, sanitizeUrl);
 }
 
 function openExternalLink(url: string): void {
-    void Gio.app_info_launch_default_for_uri_async(url, null, null).catch((error: unknown) => {
+    const sanitized = sanitizeUrl(url);
+    if (!sanitized) return;
+    void Gio.app_info_launch_default_for_uri_async(sanitized, null, null).catch((error: unknown) => {
         console.warn(`[Mei] Failed to open link: ${error instanceof Error ? error.message : String(error)}`);
     });
-}
-
-function makeInlineCodeToken(index: number): string {
-    return `@@MEIINLINE${index}@@`;
-}
-
-function makeEscapedCharacterToken(index: number): string {
-    return `@@MEIESC${index}@@`;
 }
 
 function getTableCellWidth(columnCount: number, options: MessageRendererOptions): number {
@@ -892,24 +854,15 @@ function toPangoAlignment(alignment: InlineAlignment): Pango.Alignment {
     return Pango.Alignment.LEFT;
 }
 
-function decodeEntities(text: string): string {
-    return text
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
-}
-
 function sanitizeUrl(url: string): string | null {
-    const trimmed = decodeEntities(url).trim();
-    if (!URL_PROTOCOL_RE.test(trimmed)) return null;
-    try {
-        GLib.Uri.parse(trimmed, GLib.UriFlags.NONE);
-        return trimmed;
-    } catch {
-        return null;
-    }
+    return sanitizeTextUrl(url, value => {
+        try {
+            GLib.Uri.parse(value, GLib.UriFlags.NONE);
+            return true;
+        } catch {
+            return false;
+        }
+    });
 }
 
 function formatCodeForDisplay(code: string, options: MessageRendererOptions): string {
@@ -994,17 +947,6 @@ function tableToCsv(headers: string[], rows: string[][]): string {
 function csvCell(value: string): string {
     const escaped = value.replace(/"/g, '""');
     return /[",\n]/.test(value) ? `"${escaped}"` : escaped;
-}
-
-function escapePangoText(text: string): string {
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
-
-function stripPangoTags(markup: string): string {
-    return markup.replace(/<[^>]+>/g, '');
 }
 
 function escapeRegExp(text: string): string {

@@ -10,7 +10,7 @@
  *   │ [Ask] button                    │
  *   └─────────────────────────────────│
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import St from 'gi://St';
@@ -24,6 +24,17 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
 
 import { createMessageActor, type MessageRole } from './messageRenderer.js';
+import { createMessageInfoPanel, styleMessageInfoPanel } from './messageInfoPanel.js';
+import { renderHistoryList, styleHistoryList, type ChatSummary } from './historyListView.js';
+import { PopupLogPanel } from './popupLogPanel.js';
+import {
+    addSettingsEntryRow,
+    addSettingsNavRow,
+    addSettingsSection,
+    addSettingsSegmentRow,
+    addSettingsStatusRow,
+    createSettingsRow,
+} from './popupSettingsWidgets.js';
 import { ThemeManager, type ThemedWidgets } from '../utils/theme.js';
 import { Logger, Tag } from '../utils/logger.js';
 import {
@@ -44,44 +55,33 @@ import {
     type ProviderType,
 } from '../providers/catalog.js';
 import { fetchProviderModels } from '../providers/modelList.js';
-import type { ChatMessageMetadata, ProviderId, TokenUsage } from '../providers/types.js';
+import type { ChatMessageMetadata, ProviderId } from '../providers/types.js';
+import {
+    createEmptyProviderConfig,
+    parseProviderConfigs,
+    type ProviderConfigKey,
+    type StoredProviderConfig,
+} from '../providers/configStore.js';
+import {
+    migratePlaintextApiKeys,
+    resolveStoredProviderConfig,
+    updateStoredProviderApiKey,
+} from '../providers/apiKeys.js';
 
 const CHAT_WIDTH = 350;
 const SETTINGS_WIDTH = 650;
 const SETTINGS_HEIGHT = 650;
 const SETTINGS_SCROLL_MAX_HEIGHT = SETTINGS_HEIGHT - 52;
 const INPUT_MIN_HEIGHT = 22;
-const LOG_DIR = GLib.get_user_state_dir() + '/mei';
-const LOG_FILE = LOG_DIR + '/logs.txt';
-const LOG_MAX_LINES = 5000;
-const LOG_VIEW_HEIGHT = 430;
-const LOG_LINE_HEIGHT = 13;
-const LOG_LINES_PER_PAGE = 100;
-type ProviderConfigKey = 'url' | 'modelName' | 'apiKey' | 'mode' | 'thinking' | 'reasoningEffort';
 type InputScrollTarget = 'none' | 'top' | 'cursor' | 'bottom';
 type HistoryScrollTarget = 'top' | 'bottom';
 type SettingsScreen = 'main' | 'providers' | 'logs';
-type LogFilter = 'All' | 'Info' | 'Debug' | 'Warn' | 'Error';
 const INPUT_SCROLL_PRIORITY: Record<InputScrollTarget, number> = {
     none: 0,
     top: 1,
     cursor: 2,
     bottom: 3,
 };
-
-export interface ChatSummary {
-    id: string;
-    title: string;
-}
-
-interface StoredProviderConfig {
-    url: string;
-    modelName: string;
-    apiKey: string;
-    mode: string;
-    thinking: string;
-    reasoningEffort: string;
-}
 
 export class ChatPopup {
     private _menu: PopupMenu.PopupMenu;
@@ -151,6 +151,7 @@ export class ChatPopup {
     private _refreshingSettingsView: boolean = false;
     private _settingsEntryActors: Partial<Record<ProviderConfigKey, St.Entry | St.PasswordEntry>> = {};
     private _providerDraft: { provider: ProviderId; config: StoredProviderConfig } | null = null;
+    private _apiKeyCache = new Map<string, string>();
     private _settingsSaveStatus = '';
     private _settingsScreen: SettingsScreen = 'main';
     private _settingsForcedWide: boolean = false;
@@ -163,9 +164,7 @@ export class ChatPopup {
     private _modelDropdownOpen = false;
     private _providerDropdownOpen = false;
     private _modelOptions: string[] = [];
-    private _logFilter: LogFilter = 'All';
-    private _logLines: string[] = [];
-    private _logPage = 0;
+    private _logPanel = new PopupLogPanel();
 
     private _hasMessages: boolean = false;
     private _isHistoryView: boolean = false;
@@ -182,6 +181,9 @@ export class ChatPopup {
 
     /** Called when the popup is expanded or restored. */
     onToggleExpand: ((isExpanded: boolean) => void) | null = null;
+
+    /** Called whenever the popup menu is opened or closed. */
+    onOpenStateChanged: ((isOpen: boolean) => void) | null = null;
 
     /** Called when the user clicks the reload icon on an AI response. */
     onReload: ((index: number) => void) | null = null;
@@ -202,6 +204,7 @@ export class ChatPopup {
         this._themeManager = themeManager;
         this._settings = settings;
         this._modelFetchSession = new Soup.Session({ timeout: 10 });
+        this._migratePlaintextProviderKeys();
 
         const monitor = Main.layoutManager.primaryMonitor;
         const screenHeight = monitor ? monitor.height : 1080;
@@ -233,6 +236,7 @@ export class ChatPopup {
                 this._stopCursorBlink();
                 this._resetCopyState();
             }
+            this.onOpenStateChanged?.(isOpen);
             return undefined;
         });
 
@@ -717,6 +721,10 @@ export class ChatPopup {
         return this._isExpanded;
     }
 
+    get isOpen(): boolean {
+        return this._menu.isOpen;
+    }
+
     open(): void {
         this._menu.open();
     }
@@ -807,6 +815,9 @@ export class ChatPopup {
      * Display the full chat history in the scroll area.
      */
     showHistory(messages: { role: string, content: string, thinking?: string, metadata?: ChatMessageMetadata }[]): void {
+        if (this._isLoading) {
+            this._removeLoadingBubble();
+        }
         this._messageBox.destroy_all_children();
 
         for (let i = 0; i < messages.length; i++) {
@@ -835,7 +846,7 @@ export class ChatPopup {
             msgContainer.add_child(rendered.actor);
 
             const infoPanel = role === 'assistant'
-                ? this._createMessageInfoPanel(msg.metadata)
+                ? createMessageInfoPanel(msg.metadata, this._themeManager.isDark)
                 : null;
 
             // Action buttons bar below each message
@@ -927,43 +938,15 @@ export class ChatPopup {
             this._messageBox.add_child(msgContainer);
         }
 
-        this._scrollView.visible = messages.length > 0;
-        this._copyBtn.visible = false;
-        this._hasMessages = messages.length > 0;
-
-        this._queueHistoryScrollToBottom();
-    }
-
-    private _createMessageInfoPanel(metadata: ChatMessageMetadata | undefined): St.BoxLayout {
-        const panel = new St.BoxLayout({
-            vertical: true,
-            x_expand: true,
-            visible: false,
-            style_class: 'mei-message-info-panel',
-        });
-        this._styleMessageInfoPanel(panel);
-        panel.add_child(new St.Label({
-            text: 'Response Information',
-            x_expand: true,
-            style_class: 'mei-message-info-title',
-        }));
-
-        if (!metadata) {
-            this._addMessageInfoRow(panel, 'Status', 'Unavailable for this response');
-            return panel;
+        if (this._isLoading) {
+            this._attachLoadingBubbleForCurrentMode();
         }
 
-        const provider = [
-            metadata.providerLabel || metadata.providerId || 'Unavailable',
-            metadata.providerType ? `(${metadata.providerType})` : '',
-        ].filter(Boolean).join(' ');
+        this._scrollView.visible = messages.length > 0 || this._isLoading;
+        this._copyBtn.visible = false;
+        this._hasMessages = messages.length > 0 || this._isLoading;
 
-        this._addMessageInfoRow(panel, 'Provider', provider);
-        this._addMessageInfoRow(panel, 'Model', metadata.model || 'Unavailable');
-        this._addMessageInfoRow(panel, 'Time', formatDuration(metadata.durationMs));
-        this._addMessageInfoRow(panel, 'Tokens', formatTokens(metadata.tokens));
-
-        return panel;
+        this._queueHistoryScrollToBottom();
     }
 
     private _toggleMessageInfoPanel(panel: St.BoxLayout, button: St.Button): void {
@@ -992,37 +975,8 @@ export class ChatPopup {
         });
     }
 
-    private _addMessageInfoRow(panel: St.BoxLayout, label: string, value: string): void {
-        const row = new St.BoxLayout({
-            x_expand: true,
-            style_class: 'mei-message-info-row',
-        });
-
-        const keyLabel = new St.Label({
-            text: label,
-            style_class: 'mei-message-info-key',
-            y_align: Clutter.ActorAlign.START,
-        });
-        row.add_child(keyLabel);
-
-        const valueLabel = new St.Label({
-            text: value,
-            x_expand: true,
-            style_class: 'mei-message-info-value',
-        });
-        valueLabel.clutter_text.set_line_wrap(true);
-        valueLabel.clutter_text.set_line_wrap_mode(0);
-        valueLabel.clutter_text.set_ellipsize(0);
-        row.add_child(valueLabel);
-
-        panel.add_child(row);
-    }
-
     private _styleMessageInfoPanel(panel: St.Widget): void {
-        const isDark = this._themeManager.isDark;
-        const fg = isDark ? '#ffffff' : '#000000';
-        const bg = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
-        panel.set_style(`background-color: ${bg}; color: ${fg};`);
+        styleMessageInfoPanel(panel, this._themeManager.isDark);
     }
 
     private _createThinkingBlock(thinking: string): St.BoxLayout {
@@ -1077,6 +1031,9 @@ export class ChatPopup {
     }
 
     toggleExpand(): void {
+        const fromWidth = Math.max(1, this._container.get_width() || (this._isExpanded ? SETTINGS_WIDTH : CHAT_WIDTH));
+        const fromHeight = Math.max(1, this._container.get_height() || this._targetHeightForView(this._activeView(), fromWidth));
+
         this._isExpanded = !this._isExpanded;
 
         if (this._isExpanded) {
@@ -1084,6 +1041,7 @@ export class ChatPopup {
         } else {
             this._container.remove_style_class_name('expanded');
         }
+        this._syncAskButtonState();
 
         // Toggle button visibility based on mode
         this._clearBtn.visible = !this._isExpanded;
@@ -1107,7 +1065,7 @@ export class ChatPopup {
             mode: Clutter.AnimationMode.EASE_OUT_QUAD,
             onComplete: () => {
                 if (this._destroyed) return;
-                const targetWidth = this._isExpanded ? 650 : CHAT_WIDTH;
+                const targetWidth = this._isExpanded ? SETTINGS_WIDTH : CHAT_WIDTH;
 
                 // Update settings/expand icon and copy button visibility
                 this._expandIcon.icon_name = this._isExpanded
@@ -1120,58 +1078,118 @@ export class ChatPopup {
                 // Notify extension to refresh rendering (via onToggleExpand)
                 this.onToggleExpand?.(this._isExpanded);
 
-                // 2. Animate the container size
-                this._container.ease({
-                    width: targetWidth,
-                    duration: 200,
-                    mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                    onComplete: () => {
-                        if (this._destroyed) return;
-                        this._queueInputLayoutUpdate('cursor');
+                this._container.set_width(fromWidth);
+                this._container.set_height(fromHeight);
 
-                        // 3. Fade the content back in
-                        this._contentBox.ease({
-                            opacity: 255,
-                            duration: 150,
-                            mode: Clutter.AnimationMode.EASE_IN_QUAD,
-                        });
-                    }
+                this._addOneShotIdle(GLib.PRIORITY_DEFAULT, () => {
+                    if (this._destroyed) return GLib.SOURCE_REMOVE;
+
+                    // 2. Animate the container size after refreshed content has a layout.
+                    this._container.ease({
+                        width: targetWidth,
+                        height: this._targetHeightForView(this._activeView(), targetWidth),
+                        duration: 220,
+                        mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+                        onComplete: () => {
+                            if (this._destroyed) return;
+                            this._container.set_height(-1);
+                            this._queueInputLayoutUpdate('cursor');
+
+                            // 3. Fade the content back in
+                            this._contentBox.ease({
+                                opacity: 255,
+                                duration: 150,
+                                mode: Clutter.AnimationMode.EASE_IN_QUAD,
+                            });
+                        }
+                    });
+                    return GLib.SOURCE_REMOVE;
                 });
             }
         });
+    }
+
+    private _syncAskButtonState(): void {
+        if (this._isLoading && !this._isExpanded) {
+            this._askBtn.set_label('Stop');
+            this._askBtn.accessible_name = 'Stop response';
+            this._askBtn.add_style_class_name('loading');
+            this._askBtn.reactive = true;
+            return;
+        }
+
+        this._askBtn.remove_style_class_name('loading');
+        this._askBtn.set_label('Ask');
+        this._askBtn.accessible_name = this._isLoading ? 'Response in progress' : 'Send message';
+        this._askBtn.reactive = !this._isLoading;
+    }
+
+    private _resetStreamingBubbleActors(): void {
+        this._thinkingDetailsLabel = undefined;
+        this._thinkingHeader = undefined;
+        this._thinkingTitleLabel = undefined;
+        this._thinkingToggleBtn = undefined;
+        this._streamingAnswerBox = undefined;
+    }
+
+    private _returnSpinnerToContentBox(): void {
+        const spinnerParent = this._spinner.get_parent();
+        if (spinnerParent === this._contentBox) return;
+
+        if (spinnerParent) {
+            if (spinnerParent instanceof St.Button) {
+                spinnerParent.set_child(null);
+            } else {
+                spinnerParent.remove_child(this._spinner);
+            }
+        }
+        this._contentBox.add_child(this._spinner);
+    }
+
+    private _removeLoadingBubble(): void {
+        this._returnSpinnerToContentBox();
+        if (this._loadingBubble) {
+            const bubbleParent = this._loadingBubble.get_parent();
+            if (bubbleParent) {
+                bubbleParent.remove_child(this._loadingBubble);
+            }
+            this._loadingBubble.destroy();
+            this._loadingBubble = undefined;
+        }
+        this._resetStreamingBubbleActors();
+    }
+
+    private _attachLoadingBubbleForCurrentMode(): void {
+        this._removeLoadingBubble();
+        this._loadingBubble = this._isExpanded
+            ? this._createExpandedLoadingBubble()
+            : new St.BoxLayout({
+                style_class: 'mei-bubble-ai',
+                x_align: Clutter.ActorAlign.START,
+                x_expand: false,
+            });
+
+        if (!this._isExpanded) {
+            this._reparentSpinner(this._loadingBubble);
+        }
+
+        this._spinner.play();
+        this._spinner.visible = true;
+        this._messageBox.add_child(this._loadingBubble);
+        this._scrollView.visible = true;
+        this._hasMessages = true;
     }
 
     /** Sets the loading state of the ask button. */
     setLoading(loading: boolean): void {
         if (this._isLoading === loading) return;
         this._isLoading = loading;
+        this._syncAskButtonState();
 
         if (loading) {
             this._thinkingExpanded = true;
             this._thinkingAutoCollapsed = false;
-            // 1. Change Ask Button to Stop Button
-            this._askBtn.set_label('Stop');
-            this._askBtn.accessible_name = 'Stop response';
-            this._askBtn.add_style_class_name('loading');
-            this._askBtn.reactive = true; // MUST BE REACTIVE to be clickable!
-
-            // 2. Add AI loading bubble to message box
-            this._loadingBubble = this._isExpanded
-                ? this._createExpandedLoadingBubble()
-                : new St.BoxLayout({
-                    style_class: 'mei-bubble-ai',
-                    x_align: Clutter.ActorAlign.START,
-                    x_expand: false,
-                });
-
-            if (!this._isExpanded) {
-                this._reparentSpinner(this._loadingBubble);
-            }
-            this._spinner.play();
-            this._spinner.visible = true;
-            this._messageBox.add_child(this._loadingBubble);
-            this._scrollView.visible = true;
-            this._hasMessages = true;
+            this._attachLoadingBubbleForCurrentMode();
 
             // Auto-scroll to bottom
             this._addOneShotIdle(GLib.PRIORITY_DEFAULT, () => {
@@ -1181,44 +1199,14 @@ export class ChatPopup {
                 return GLib.SOURCE_REMOVE;
             });
         } else {
-            this._askBtn.remove_style_class_name('loading');
-            this._askBtn.set_label('Ask');
-            this._askBtn.accessible_name = 'Send message';
-            this._askBtn.reactive = true;
-
             // Workaround for Clutter hover/scale sticking when child is replaced during interaction
             this._askBtn.scale_x = 1.0;
             this._askBtn.scale_y = 1.0;
             this._askBtn.sync_hover();
 
-            // Safely clean up spinner — detach from whatever parent it's in
             this._spinner.stop();
             this._spinner.visible = false;
-            const spinnerParent = this._spinner.get_parent();
-            if (spinnerParent) {
-                if (spinnerParent instanceof St.Button) {
-                    spinnerParent.set_child(null);
-                } else {
-                    spinnerParent.remove_child(this._spinner);
-                }
-            }
-            this._contentBox.add_child(this._spinner);
-
-            // Safely clean up loading bubble — it may already be destroyed
-            // by showHistory/clearMessages calling destroy_all_children()
-            if (this._loadingBubble) {
-                const bubbleParent = this._loadingBubble.get_parent();
-                if (bubbleParent) {
-                    bubbleParent.remove_child(this._loadingBubble);
-                    this._loadingBubble.destroy();
-                }
-                this._loadingBubble = undefined;
-            }
-            this._thinkingDetailsLabel = undefined;
-            this._thinkingHeader = undefined;
-            this._thinkingTitleLabel = undefined;
-            this._thinkingToggleBtn = undefined;
-            this._streamingAnswerBox = undefined;
+            this._removeLoadingBubble();
             this._thinkingAutoCollapsed = false;
         }
     }
@@ -1309,6 +1297,8 @@ export class ChatPopup {
     showStreamingResponse(content: string, thinking: string): void {
         if (!this._isExpanded || !this._loadingBubble) return;
 
+        const adjustment = this._scrollView.get_vadjustment();
+        const scrollValue = adjustment.get_value();
         const hasThinking = thinking.trim().length > 0;
         const hasContent = content.trim().length > 0;
 
@@ -1344,7 +1334,13 @@ export class ChatPopup {
             }
         }
 
-        this._queueHistoryScrollToBottom();
+        this._addOneShotIdle(GLib.PRIORITY_DEFAULT, () => {
+            if (this._destroyed) return GLib.SOURCE_REMOVE;
+            const lower = adjustment.get_lower();
+            const maxValue = Math.max(lower, adjustment.get_upper() - adjustment.get_page_size());
+            adjustment.set_value(Math.max(lower, Math.min(scrollValue, maxValue)));
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     /* ── Error pill ──────────────────────────────────── */
@@ -1505,71 +1501,14 @@ export class ChatPopup {
      * Fades out the chat view and fades in the history list.
      */
     showHistoryList(items: ChatSummary[]): void {
-        // Populate list
-        this._historyListBox.destroy_all_children();
-
-        if (items.length === 0) {
-            const emptyLabel = new St.Label({
-                text: 'No saved chats',
-                style_class: 'mei-history-empty',
-                x_align: Clutter.ActorAlign.CENTER,
-                y_align: Clutter.ActorAlign.CENTER,
-            });
-            this._historyListBox.add_child(emptyLabel);
-        } else {
-            for (const item of items) {
-                const row = new St.BoxLayout({
-                    x_expand: true,
-                    style_class: 'mei-history-item-row',
-                });
-
-                const titleBtn = new St.Button({
-                    label: item.title || 'Untitled',
-                    style_class: 'mei-history-title-btn',
-                    x_expand: true,
-                    x_align: Clutter.ActorAlign.FILL,
-                    can_focus: true,
-                    reactive: true,
-                    track_hover: true,
-                    accessible_name: `Load chat: ${item.title || 'Untitled'}`,
-                    accessible_role: Atk.Role.PUSH_BUTTON,
-                });
-                titleBtn.connect('clicked', () => {
-                    this.hideHistoryList();
-                    this.onLoadChat?.(item.id);
-                });
-                row.add_child(titleBtn);
-                this._addButtonClickScaleEffect(titleBtn);
-
-                const deleteBtn = new St.Button({
-                    style_class: 'mei-history-delete-btn',
-                    can_focus: true,
-                    reactive: true,
-                    track_hover: true,
-                    accessible_name: `Delete chat: ${item.title || 'Untitled'}`,
-                    accessible_role: Atk.Role.PUSH_BUTTON,
-                    child: new St.Icon({
-                        icon_name: 'user-trash-symbolic',
-                        icon_size: 14,
-                    }),
-                });
-                deleteBtn.connect('clicked', () => {
-                    row.ease({
-                        opacity: 0,
-                        duration: 150,
-                        mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-                        onComplete: () => {
-                            row.destroy();
-                        },
-                    });
-                    this.onDeleteChat?.(item.id);
-                });
-                row.add_child(deleteBtn);
-                this._addButtonClickScaleEffect(deleteBtn);
-
-                this._historyListBox.add_child(row);
-            }
-        }
+        renderHistoryList(this._historyListBox, items, {
+            addButtonClickScaleEffect: button => this._addButtonClickScaleEffect(button),
+            addOneShotTimeout: (priority, interval, callback) => this._addOneShotTimeout(priority, interval, callback),
+            removeSource: sourceId => this._removeSource(sourceId),
+            hideHistoryList: () => this.hideHistoryList(),
+            onLoadChat: id => this.onLoadChat?.(id),
+            onDeleteChat: id => this.onDeleteChat?.(id),
+        });
 
         this._applyHistoryTheme();
 
@@ -1645,7 +1584,7 @@ export class ChatPopup {
             });
             this._addSettingsNavRow('Manage Logs', 'format-justify-left-symbolic', () => {
                 this._settingsScreen = 'logs';
-                this._loadLogs();
+                this._logPanel.load();
                 this._refreshSettingsViewAnimated();
             });
             this._updateSettingsScrollHeight();
@@ -1655,7 +1594,10 @@ export class ChatPopup {
         }
 
         if (this._settingsScreen === 'logs') {
-            this._renderLogsScreen();
+            this._logPanel.render(this._settingsListBox, {
+                refresh: () => this._refreshSettingsView(),
+                addButtonClickScaleEffect: button => this._addButtonClickScaleEffect(button),
+            });
             this._updateSettingsScrollHeight();
             this._applySettingsTheme();
             this._refreshingSettingsView = false;
@@ -1690,7 +1632,7 @@ export class ChatPopup {
                 modeIds,
                 getOpenCodeMode(config.mode),
                 id => OPEN_CODE_MODE_LABELS[id],
-                id => this._updateCurrentProviderConfig('mode', id)
+                id => void this._updateCurrentProviderConfig('mode', id)
             );
         }
 
@@ -1702,7 +1644,7 @@ export class ChatPopup {
                 thinkingIds,
                 thinking,
                 id => DEEPSEEK_THINKING_LABELS[id],
-                id => this._updateCurrentProviderConfig('thinking', id)
+                id => void this._updateCurrentProviderConfig('thinking', id)
             );
 
             if (thinking === 'enabled') {
@@ -1712,7 +1654,7 @@ export class ChatPopup {
                     effortIds,
                     getDeepSeekReasoningEffort(config.reasoningEffort),
                     id => DEEPSEEK_REASONING_EFFORT_LABELS[id],
-                    id => this._updateCurrentProviderConfig('reasoningEffort', id)
+                    id => void this._updateCurrentProviderConfig('reasoningEffort', id)
                 );
             }
         }
@@ -1817,255 +1759,13 @@ export class ChatPopup {
     }
 
     private _addSettingsSection(title: string): void {
-        const label = new St.Label({
-            text: title,
-            style_class: 'mei-settings-section-title',
-            x_expand: true,
-        });
-        this._settingsListBox.add_child(label);
+        addSettingsSection(this._settingsListBox, title);
     }
 
     private _addSettingsNavRow(title: string, iconName: string, onClick: () => void): void {
-        const button = new St.Button({
-            style_class: 'mei-settings-nav-row',
-            can_focus: true,
-            reactive: true,
-            track_hover: true,
-            accessible_name: title,
-            accessible_role: Atk.Role.PUSH_BUTTON,
+        addSettingsNavRow(this._settingsListBox, title, iconName, onClick, {
+            addButtonClickScaleEffect: button => this._addButtonClickScaleEffect(button),
         });
-
-        const row = new St.BoxLayout({
-            x_expand: true,
-            style_class: 'mei-settings-nav-content',
-        });
-        row.add_child(new St.Icon({ icon_name: iconName, icon_size: 16 }));
-        row.add_child(new St.Label({
-            text: title,
-            x_expand: true,
-            y_align: Clutter.ActorAlign.CENTER,
-            style_class: 'mei-settings-nav-label',
-        }));
-        row.add_child(new St.Icon({ icon_name: 'go-next-symbolic', icon_size: 14 }));
-        button.set_child(row);
-        button.connect('clicked', onClick);
-        this._settingsListBox.add_child(button);
-        this._addButtonClickScaleEffect(button);
-    }
-
-    private _renderLogsScreen(): void {
-        const filterRow = new St.BoxLayout({
-            x_expand: true,
-            style_class: 'mei-settings-segment-row',
-        });
-        const filters: LogFilter[] = ['All', 'Info', 'Debug', 'Warn', 'Error'];
-        for (const filter of filters) {
-            const button = new St.Button({
-                label: filter,
-                style_class: filter === this._logFilter ? 'mei-settings-chip selected' : 'mei-settings-chip',
-                can_focus: true,
-                reactive: true,
-                track_hover: true,
-                accessible_name: `Show ${filter} logs`,
-                accessible_role: Atk.Role.PUSH_BUTTON,
-            });
-            button.connect('clicked', () => {
-                this._logFilter = filter;
-                this._logPage = 0;
-                this._refreshSettingsView();
-            });
-            filterRow.add_child(button);
-            this._addButtonClickScaleEffect(button);
-        }
-        this._settingsListBox.add_child(filterRow);
-
-        const actionRow = new St.BoxLayout({
-            x_expand: true,
-            style_class: 'mei-settings-actions-row',
-        });
-        this._addLogActionButton(actionRow, 'view-refresh-symbolic', 'Refresh logs', () => {
-            this._loadLogs();
-            this._refreshSettingsView();
-        });
-        this._addLogActionButton(actionRow, 'edit-copy-symbolic', 'Copy visible logs', () => this._copyVisibleLogs());
-        this._addLogActionButton(actionRow, 'user-trash-symbolic', 'Clear visible logs', () => {
-            this._clearVisibleLogs();
-            this._refreshSettingsView();
-        });
-        this._addLogPagerControls(actionRow);
-        this._settingsListBox.add_child(actionRow);
-
-        const visibleLines = this._getVisibleLogLines();
-        const pageLines = this._getPagedLogLines(visibleLines);
-        const text = pageLines.length > 0
-            ? pageLines.slice().reverse().join('\n')
-            : `No ${this._logFilter === 'All' ? '' : this._logFilter.toLowerCase() + ' '}logs found`;
-        const logHeight = Math.min(
-            LOG_VIEW_HEIGHT,
-            Math.max(64, (Math.max(pageLines.length, 1) * LOG_LINE_HEIGHT) + 24)
-        );
-        const logLabel = new St.Label({
-            text,
-            x_expand: true,
-            style_class: 'mei-log-text',
-        });
-        logLabel.clutter_text.set_line_wrap(true);
-        logLabel.clutter_text.set_line_wrap_mode(0);
-        logLabel.clutter_text.set_ellipsize(0);
-
-        const logScroll = new St.ScrollView({
-            x_expand: true,
-            style_class: 'mei-log-scroll',
-            overlay_scrollbars: true,
-        });
-        logScroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
-        logScroll.set_style(`height: ${logHeight}px; max-height: ${LOG_VIEW_HEIGHT}px;`);
-        const logBox = new St.BoxLayout({
-            vertical: true,
-            x_expand: true,
-            style_class: 'mei-log-box',
-        });
-        logBox.add_child(logLabel);
-        logScroll.set_child(logBox);
-        this._settingsListBox.add_child(logScroll);
-    }
-
-    private _addLogActionButton(
-        row: St.BoxLayout,
-        iconName: string,
-        accessibleName: string,
-        onClick: () => void,
-        enabled: boolean = true
-    ): void {
-        const button = new St.Button({
-            style_class: 'mei-icon-btn',
-            can_focus: true,
-            reactive: enabled,
-            track_hover: true,
-            accessible_name: accessibleName,
-            accessible_role: Atk.Role.PUSH_BUTTON,
-            child: new St.Icon({
-                icon_name: iconName,
-                icon_size: 14,
-            }),
-        });
-        button.opacity = enabled ? 255 : 90;
-        button.connect('clicked', onClick);
-        row.add_child(button);
-        this._addButtonClickScaleEffect(button);
-    }
-
-    private _addLogPagerControls(row: St.BoxLayout): void {
-        const visibleLines = this._getVisibleLogLines();
-        const totalPages = this._getLogPageCount(visibleLines);
-        this._logPage = Math.min(this._logPage, totalPages - 1);
-
-        this._addLogActionButton(row, 'go-previous-symbolic', 'Previous log page', () => {
-            this._logPage = Math.max(0, this._logPage - 1);
-            this._refreshSettingsView();
-        }, this._logPage > 0);
-
-        const label = new St.Label({
-            text: `${this._logPage + 1}/${totalPages}`,
-            style_class: 'mei-log-page-label',
-            y_align: Clutter.ActorAlign.CENTER,
-        });
-        row.add_child(label);
-
-        this._addLogActionButton(row, 'go-next-symbolic', 'Next log page', () => {
-            this._logPage = Math.min(totalPages - 1, this._logPage + 1);
-            this._refreshSettingsView();
-        }, this._logPage < totalPages - 1);
-    }
-
-    private _loadLogs(): void {
-        try {
-            const file = Gio.File.new_for_path(LOG_FILE);
-            if (!file.query_exists(null)) {
-                this._logLines = [];
-                return;
-            }
-            const [ok, contents] = file.load_contents(null);
-            if (!ok || !contents) {
-                this._logLines = [];
-                return;
-            }
-            const rawLines = new TextDecoder().decode(contents).split('\n');
-            const lines = rawLines
-                .map(line => line.trimEnd())
-                .filter(line => line.trim().length > 0);
-            this._logLines = this._trimLogLines(lines, file, rawLines.length !== lines.length);
-            this._logPage = Math.min(this._logPage, this._getLogPageCount(this._getVisibleLogLines()) - 1);
-        } catch (e) {
-            this._logLines = [`[ERROR] Failed to load logs: ${e}`];
-        }
-    }
-
-    private _trimLogLines(lines: string[], file: Gio.File, forceWrite: boolean = false): string[] {
-        if (lines.length <= LOG_MAX_LINES && !forceWrite) return lines;
-
-        const trimmed = lines.slice(-LOG_MAX_LINES);
-        try {
-            const nextText = trimmed.length > 0 ? trimmed.join('\n') + '\n' : '';
-            file.replace_contents(new TextEncoder().encode(nextText), null, false, Gio.FileCreateFlags.NONE, null);
-        } catch (e) {
-            Logger.warn(Tag.UI, `Failed to trim logs: ${e}`);
-        }
-        return trimmed;
-    }
-
-    private _getVisibleLogLines(): string[] {
-        if (this._logFilter === 'All') return this._logLines;
-        const level = `[${this._logFilter.toUpperCase()}]`;
-        return this._logLines.filter(line => line.includes(level));
-    }
-
-    private _getVisibleLogIndexes(): number[] {
-        if (this._logFilter === 'All') return this._logLines.map((_line, index) => index);
-        const level = `[${this._logFilter.toUpperCase()}]`;
-        return this._logLines.flatMap((line, index) => line.includes(level) ? [index] : []);
-    }
-
-    private _getLogPageCount(lines: string[]): number {
-        return Math.max(1, Math.ceil(lines.length / LOG_LINES_PER_PAGE));
-    }
-
-    private _getLogPageBounds(length: number): [number, number] {
-        const totalPages = Math.max(1, Math.ceil(length / LOG_LINES_PER_PAGE));
-        this._logPage = Math.min(Math.max(0, this._logPage), totalPages - 1);
-        const newestEnd = length - (this._logPage * LOG_LINES_PER_PAGE);
-        const newestStart = Math.max(0, newestEnd - LOG_LINES_PER_PAGE);
-        return [newestStart, newestEnd];
-    }
-
-    private _getPagedLogLines(lines: string[]): string[] {
-        const [newestStart, newestEnd] = this._getLogPageBounds(lines.length);
-        return lines.slice(newestStart, newestEnd);
-    }
-
-    private _copyVisibleLogs(): void {
-        const lines = this._getPagedLogLines(this._getVisibleLogLines());
-        St.Clipboard.get_default().set_text(
-            St.ClipboardType.CLIPBOARD,
-            lines.slice().reverse().join('\n')
-        );
-    }
-
-    private _clearVisibleLogs(): void {
-        try {
-            const file = Gio.File.new_for_path(LOG_FILE);
-            if (!file.query_exists(null)) return;
-
-            const visibleIndexes = this._getVisibleLogIndexes();
-            const [pageStart, pageEnd] = this._getLogPageBounds(visibleIndexes.length);
-            const pageIndexes = new Set(visibleIndexes.slice(pageStart, pageEnd));
-            this._logLines = this._logLines.filter((_line, index) => !pageIndexes.has(index));
-            const nextText = this._logLines.join('\n') + (this._logLines.length > 0 ? '\n' : '');
-            file.replace_contents(new TextEncoder().encode(nextText), null, false, Gio.FileCreateFlags.NONE, null);
-            this._logPage = Math.min(this._logPage, this._getLogPageCount(this._getVisibleLogLines()) - 1);
-        } catch (e) {
-            this._logLines = [`[ERROR] Failed to clear logs: ${e}`];
-        }
     }
 
     private _addProviderDropdownRow(selectedProvider: ProviderId, providers: readonly ProviderId[]): void {
@@ -2168,14 +1868,7 @@ export class ChatPopup {
     }
 
     private _addSettingsStatusRow(text: string): void {
-        const label = new St.Label({
-            text,
-            x_expand: true,
-            style_class: 'mei-settings-status',
-        });
-        label.clutter_text.set_line_wrap(true);
-        label.clutter_text.set_line_wrap_mode(0);
-        this._settingsListBox.add_child(label);
+        addSettingsStatusRow(this._settingsListBox, text);
     }
 
     private _addFetchModelsRow(provider: ProviderId, config: StoredProviderConfig): void {
@@ -2199,7 +1892,7 @@ export class ChatPopup {
             this._settingsSaveStatus = '';
             const draft = this._readProviderConfigDraft(config);
             this._providerDraft = { provider, config: draft };
-            this._queueProviderModelFetch(provider, draft, true);
+            void this._queueProviderModelFetch(provider, draft, true);
         });
         row.add_child(fetchBtn);
         this._addButtonClickScaleEffect(fetchBtn);
@@ -2214,30 +1907,9 @@ export class ChatPopup {
         getLabel: (id: T) => string,
         onSelect: (id: T) => void
     ): void {
-        const row = this._createSettingsRow(labelText);
-        const segments = new St.BoxLayout({
-            style_class: 'mei-settings-segment-row',
-            x_align: Clutter.ActorAlign.END,
+        addSettingsSegmentRow(this._settingsListBox, labelText, ids, activeId, getLabel, onSelect, {
+            addButtonClickScaleEffect: button => this._addButtonClickScaleEffect(button),
         });
-
-        for (const id of ids) {
-            const selected = id === activeId;
-            const button = new St.Button({
-                label: getLabel(id),
-                style_class: selected ? 'mei-settings-chip selected' : 'mei-settings-chip',
-                can_focus: true,
-                reactive: true,
-                track_hover: true,
-                accessible_name: `${labelText}: ${getLabel(id)}`,
-                accessible_role: Atk.Role.PUSH_BUTTON,
-            });
-            button.connect('clicked', () => onSelect(id));
-            segments.add_child(button);
-            this._addButtonClickScaleEffect(button);
-        }
-
-        row.add_child(segments);
-        this._settingsListBox.add_child(row);
     }
 
     private _addSettingsEntryRow(
@@ -2247,80 +1919,22 @@ export class ChatPopup {
         hintText: string,
         isSecret: boolean = false
     ): void {
-        const row = this._createSettingsRow(labelText);
-        const initialValue = value;
-        const entry = isSecret
-            ? new St.PasswordEntry({
-                text: value,
-                hint_text: hintText,
-                show_peek_icon: true,
-                can_focus: true,
-                x_expand: true,
-                style_class: 'mei-settings-entry',
-                accessible_name: labelText,
-            })
-            : new St.Entry({
-                text: value,
-                hint_text: hintText,
-                can_focus: true,
-                x_expand: true,
-                style_class: 'mei-settings-entry',
-                accessible_name: labelText,
-            });
-
-        entry.clutter_text.set_single_line_mode(true);
+        const entry = addSettingsEntryRow(
+            this._settingsListBox,
+            labelText,
+            value,
+            key,
+            hintText,
+            isSecret,
+            () => this._refreshingSettingsView,
+            (savedKey, savedValue, savedLabel) => void this._saveCurrentProviderField(savedKey, savedValue, savedLabel),
+            { addButtonClickScaleEffect: button => this._addButtonClickScaleEffect(button) }
+        );
         this._settingsEntryActors[key] = entry;
-
-        row.add_child(entry);
-
-        const saveBtn = new St.Button({
-            style_class: 'mei-settings-save-field-btn',
-            can_focus: true,
-            reactive: false,
-            track_hover: true,
-            accessible_name: `Save ${labelText}`,
-            accessible_role: Atk.Role.PUSH_BUTTON,
-            child: new St.Icon({
-                icon_name: 'object-select-symbolic',
-                icon_size: 13,
-            }),
-        });
-        saveBtn.opacity = 90;
-        saveBtn.connect('clicked', () => {
-            if (!saveBtn.reactive) return;
-            this._saveCurrentProviderField(key, entry.get_text(), labelText);
-        });
-        entry.clutter_text.connect('text-changed', () => {
-            if (this._refreshingSettingsView) return;
-            const dirty = entry.get_text() !== initialValue;
-            saveBtn.reactive = dirty;
-            saveBtn.opacity = dirty ? 255 : 90;
-        });
-        row.add_child(saveBtn);
-        this._addButtonClickScaleEffect(saveBtn);
-
-        this._settingsListBox.add_child(row);
     }
 
     private _createSettingsRow(labelText: string): St.BoxLayout {
-        const row = new St.BoxLayout({
-            x_expand: true,
-            style_class: 'mei-settings-row',
-        });
-
-        const label = new St.Label({
-            text: labelText,
-            style_class: 'mei-settings-label',
-            y_align: Clutter.ActorAlign.CENTER,
-        });
-        row.add_child(label);
-
-        const spacer = new St.Widget({
-            x_expand: true,
-        });
-        row.add_child(spacer);
-
-        return row;
+        return createSettingsRow(labelText);
     }
 
     private _setProviderType(providerType: ProviderType): void {
@@ -2358,29 +1972,7 @@ export class ChatPopup {
     private _getProviderConfigs(): Record<string, StoredProviderConfig> {
         const settings = this._settings;
         if (!settings) return {};
-        try {
-            const parsed = JSON.parse(settings.get_string('provider-configs') || '{}') as unknown;
-            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-                return {};
-            }
-
-            const configs: Record<string, StoredProviderConfig> = {};
-            for (const [provider, value] of Object.entries(parsed)) {
-                if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
-                const source = value as Record<string, unknown>;
-                configs[provider] = {
-                    url: typeof source.url === 'string' ? source.url : '',
-                    modelName: typeof source.modelName === 'string' ? source.modelName : '',
-                    apiKey: typeof source.apiKey === 'string' ? source.apiKey : '',
-                    mode: typeof source.mode === 'string' ? source.mode : '',
-                    thinking: typeof source.thinking === 'string' ? source.thinking : '',
-                    reasoningEffort: typeof source.reasoningEffort === 'string' ? source.reasoningEffort : '',
-                };
-            }
-            return configs;
-        } catch {
-            return {};
-        }
+        return parseProviderConfigs(settings.get_string('provider-configs') || '{}');
     }
 
     private _getCurrentProviderConfig(): StoredProviderConfig {
@@ -2394,13 +1986,33 @@ export class ChatPopup {
             url: this._settingsEntryActors.url?.get_text() ?? fallback.url,
             modelName: this._settingsEntryActors.modelName?.get_text() ?? fallback.modelName,
             apiKey: this._settingsEntryActors.apiKey?.get_text() ?? fallback.apiKey,
+            apiKeyStorage: fallback.apiKeyStorage,
             mode: fallback.mode,
             thinking: fallback.thinking,
             reasoningEffort: fallback.reasoningEffort,
         };
     }
 
-    private _saveCurrentProviderField(key: ProviderConfigKey, value: string, labelText: string): void {
+    private async _migratePlaintextProviderKeys(): Promise<void> {
+        const settings = this._settings;
+        if (!settings) return;
+
+        const result = await migratePlaintextApiKeys(this._getProviderConfigs());
+        if (this._destroyed || !result.changed) return;
+        settings.set_string('provider-configs', JSON.stringify(result.configs));
+    }
+
+    private async _resolveProviderConfig(provider: ProviderId, config: StoredProviderConfig): Promise<StoredProviderConfig> {
+        if (config.apiKey) return config;
+        const cachedKey = this._apiKeyCache.get(provider);
+        if (cachedKey) return { ...config, apiKey: cachedKey };
+
+        const resolved = await resolveStoredProviderConfig(provider, config);
+        if (resolved.apiKey) this._apiKeyCache.set(provider, resolved.apiKey);
+        return resolved;
+    }
+
+    private async _saveCurrentProviderField(key: ProviderConfigKey, value: string, labelText: string): Promise<void> {
         const settings = this._settings;
         if (!settings) return;
 
@@ -2412,10 +2024,22 @@ export class ChatPopup {
                 ? this._providerDraft.config
                 : savedConfig
         );
-        const nextSavedConfig = { ...savedConfig, [key]: value };
-        const nextDraftConfig = { ...visibleDraft, [key]: value };
+        const nextSavedConfig = key === 'apiKey'
+            ? await updateStoredProviderApiKey(provider, savedConfig, value)
+            : { ...savedConfig, [key]: value };
+        const nextDraftConfig = key === 'apiKey'
+            ? { ...visibleDraft, apiKey: value.trim(), apiKeyStorage: nextSavedConfig.apiKeyStorage }
+            : { ...visibleDraft, [key]: value };
+        if (this._destroyed) return;
         configs[provider] = nextSavedConfig;
         settings.set_string('provider-configs', JSON.stringify(configs));
+        if (key === 'apiKey') {
+            if (value.trim()) {
+                this._apiKeyCache.set(provider, value.trim());
+            } else {
+                this._apiKeyCache.delete(provider);
+            }
+        }
         this._providerDraft = { provider, config: nextDraftConfig };
         this._settingsSaveStatus = `Saved ${labelText}.`;
         this._modelFetchStatus = '';
@@ -2444,7 +2068,7 @@ export class ChatPopup {
         this._refreshSettingsView();
     }
 
-    private _updateCurrentProviderConfig(key: ProviderConfigKey, value: string, refreshView: boolean = true): void {
+    private async _updateCurrentProviderConfig(key: ProviderConfigKey, value: string, refreshView: boolean = true): Promise<void> {
         const settings = this._settings;
         if (!settings) return;
 
@@ -2454,7 +2078,17 @@ export class ChatPopup {
             configs[provider] = createEmptyProviderConfig();
         }
         if (configs[provider][key] === value) return;
-        configs[provider][key] = value;
+        if (key === 'apiKey') {
+            configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
+            if (value.trim()) {
+                this._apiKeyCache.set(provider, value.trim());
+            } else {
+                this._apiKeyCache.delete(provider);
+            }
+        } else {
+            configs[provider][key] = value;
+        }
+        if (this._destroyed) return;
         settings.set_string('provider-configs', JSON.stringify(configs));
 
         if (key === 'url' || key === 'apiKey' || key === 'mode') {
@@ -2468,8 +2102,11 @@ export class ChatPopup {
         }
     }
 
-    private _queueProviderModelFetch(provider: ProviderId, config: StoredProviderConfig, force: boolean = false): void {
-        const key = this._getModelFetchKey(provider, config);
+    private async _queueProviderModelFetch(provider: ProviderId, config: StoredProviderConfig, force: boolean = false): Promise<void> {
+        const resolvedConfig = await this._resolveProviderConfig(provider, config);
+        if (this._destroyed) return;
+
+        const key = this._getModelFetchKey(provider, resolvedConfig);
         if (!force && key === this._modelFetchKey) return;
 
         this._modelFetchKey = key;
@@ -2486,9 +2123,9 @@ export class ChatPopup {
             this._modelFetchSession,
             provider,
             {
-                url: config.url || '',
-                apiKey: config.apiKey || '',
-                mode: config.mode || '',
+                url: resolvedConfig.url || '',
+                apiKey: resolvedConfig.apiKey || '',
+                mode: resolvedConfig.mode || '',
             },
             cancellable
         )
@@ -2502,10 +2139,10 @@ export class ChatPopup {
                         ? 'No models returned; enter a model name manually.'
                         : '';
 
-                if (!config.modelName && result.models.length > 0) {
+                if (!resolvedConfig.modelName && result.models.length > 0) {
                     this._providerDraft = {
                         provider,
-                        config: { ...config, modelName: result.models[0] },
+                        config: { ...resolvedConfig, modelName: result.models[0] },
                     };
                 }
                 if (this._isSettingsView && this._settingsScreen === 'providers') {
@@ -2743,27 +2380,7 @@ export class ChatPopup {
 
     private _applyHistoryTheme(): void {
         if (!this._historyListBox) return;
-
-        const isDark = this._themeManager.isDark;
-        const fg = isDark ? '#ffffff' : '#000000';
-        const bg = 'rgba(128, 128, 128, 0.15)'; // Hover background color applied permanently
-        const iconColor = isDark ? '#a0a0a0' : '#666666';
-
-        for (const child of this._historyListBox.get_children()) {
-            if (child instanceof St.Label) {
-                // Empty label
-                child.set_style(`color: ${iconColor};`);
-            } else if (child instanceof St.BoxLayout) {
-                // History item row
-                const buttons = child.get_children();
-                if (buttons.length >= 2) {
-                    const titleBtn = buttons[0] as St.Button;
-                    const deleteBtn = buttons[1] as St.Button;
-                    titleBtn.set_style(`color: ${fg}; background-color: ${bg};`);
-                    deleteBtn.set_style(`color: ${iconColor}; background-color: ${bg};`);
-                }
-            }
-        }
+        styleHistoryList(this._historyListBox, this._themeManager.isDark);
     }
 
     private _applyMessageInfoTheme(): void {
@@ -2997,34 +2614,4 @@ export class ChatPopup {
 
 function isRenderableRole(role: string): role is MessageRole {
     return role === 'user' || role === 'assistant';
-}
-
-function formatDuration(durationMs: number | undefined): string {
-    if (typeof durationMs !== 'number' || !Number.isFinite(durationMs)) {
-        return 'Unavailable';
-    }
-    if (durationMs < 1000) {
-        return `${Math.round(durationMs)} ms`;
-    }
-    return `${(durationMs / 1000).toFixed(1)} s`;
-}
-
-function formatTokens(tokens: TokenUsage | undefined): string {
-    if (!tokens) return 'Unavailable';
-
-    const parts: string[] = [];
-    if (typeof tokens.totalTokens === 'number') {
-        parts.push(`${tokens.totalTokens} total`);
-    }
-    if (typeof tokens.inputTokens === 'number') {
-        parts.push(`${tokens.inputTokens} in`);
-    }
-    if (typeof tokens.outputTokens === 'number') {
-        parts.push(`${tokens.outputTokens} out`);
-    }
-    return parts.length > 0 ? parts.join(' · ') : 'Unavailable';
-}
-
-function createEmptyProviderConfig(): StoredProviderConfig {
-    return { url: '', modelName: '', apiKey: '', mode: '', thinking: '', reasoningEffort: '' };
 }

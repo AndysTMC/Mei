@@ -4,12 +4,13 @@
  * This is the main entry point. It wires up the panel indicator,
  * chat popup, theme manager, and the active AI provider.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import Soup from 'gi://Soup?version=3.0';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 
 import { MeiIndicator } from './panel/indicator.js';
 import { ChatPopup } from './ui/chatPopup.js';
@@ -24,15 +25,13 @@ import { OpenAIProvider, GroqProvider, MistralProvider, OpenRouterProvider, Deep
 import { AnthropicProvider } from './providers/anthropic.js';
 import { GeminiProvider } from './providers/gemini.js';
 import { getProviderLabel, getProviderType, PROVIDER_TYPE_LABELS } from './providers/catalog.js';
+import { migratePlaintextApiKeys, resolveStoredProviderConfig } from './providers/apiKeys.js';
+import { createEmptyProviderConfig, parseProviderConfigs, type StoredProviderConfig } from './providers/configStore.js';
 
-type StoredProviderConfig = {
-    url?: string;
-    modelName?: string;
-    apiKey?: string;
-    mode?: string;
-    thinking?: string;
-    reasoningEffort?: string;
-};
+interface ProviderBuildResult {
+    provider: Provider;
+    metadata: ChatMessageMetadata;
+}
 
 export default class MeiExtension extends Extension {
     private _indicator: MeiIndicator | null = null;
@@ -44,10 +43,14 @@ export default class MeiExtension extends Extension {
     private _messagesBackup: ChatMessage[] | null = null;
     private _settings: Gio.Settings | null = null;
     private _settingsSignalId: number = 0;
+    private _providerRefreshTimeoutId: number = 0;
+    private _providerRefreshSeq: number = 0;
+    private _providerReadyPromise: Promise<void> | null = null;
     private _provider: Provider | null = null;
     private _providerMetadata: ChatMessageMetadata | null = null;
     private _chatStore: ChatStore | null = null;
     private _chatSessionId: string | null = null;
+    private _isStreamingResponse = false;
 
     enable(): void {
         Logger.info(Tag.Extension, 'Enabling Mei extension');
@@ -63,7 +66,7 @@ export default class MeiExtension extends Extension {
         this._chatSessionId = null;
 
         /* ── Provider ───────────────────────────────────── */
-        this._provider = this._createProvider();
+        this._providerReadyPromise = this._refreshProviderNow();
 
         /* ── Panel indicator ────────────────────────────── */
         this._indicator = new MeiIndicator();
@@ -89,12 +92,15 @@ export default class MeiExtension extends Extension {
             } else {
                 this._popup?.showMessage('assistant', getLastAssistantContent(this._messages));
             }
+            this._syncIndicatorState();
         };
+        this._popup.onOpenStateChanged = () => this._syncIndicatorState();
+        this._syncIndicatorState();
 
         /* ── Re-create provider when settings change ──── */
         this._settingsSignalId = this._settings.connect('changed', (_settings: Gio.Settings, key: string) => {
             Logger.info(Tag.Extension, `Setting changed: ${key}`);
-            this._provider = this._createProvider();
+            this._queueProviderRefresh();
         });
 
         Logger.info(Tag.Extension, 'Mei extension enabled');
@@ -102,19 +108,24 @@ export default class MeiExtension extends Extension {
 
     disable(): void {
         Logger.info(Tag.Extension, 'Disabling Mei extension');
-        this._indicator?.destroy();
-        this._indicator = null;
-
-        this._popup?.destroy();
-        this._popup = null;
-
-        this._themeManager?.destroy();
-        this._themeManager = null;
+        const chatStore = this._chatStore;
 
         if (this._cancellable) {
             this._cancellable.cancel();
             this._cancellable = null;
         }
+        this._isStreamingResponse = false;
+        this._popup?.setLoading(false);
+        this._syncIndicatorState();
+
+        this._popup?.destroy();
+        this._popup = null;
+
+        this._indicator?.destroy();
+        this._indicator = null;
+
+        this._themeManager?.destroy();
+        this._themeManager = null;
 
         this._soupSession?.abort();
         this._soupSession = null;
@@ -123,18 +134,55 @@ export default class MeiExtension extends Extension {
             this._settings.disconnect(this._settingsSignalId);
             this._settingsSignalId = 0;
         }
+        if (this._providerRefreshTimeoutId !== 0) {
+            GLib.source_remove(this._providerRefreshTimeoutId);
+            this._providerRefreshTimeoutId = 0;
+        }
+        this._providerRefreshSeq++;
+        this._providerReadyPromise = null;
         this._settings = null;
         this._provider = null;
         this._providerMetadata = null;
         this._messages = [];
         this._chatStore = null;
         this._chatSessionId = null;
+        void chatStore?.flush().catch(e => {
+            Logger.error(Tag.Extension, 'Failed to flush chat history on disable', e);
+        });
         Logger.info(Tag.Extension, 'Mei extension disabled');
     }
 
     /* ── Provider factory ─────────────────────────────── */
 
-    private _createProvider(): Provider {
+    private _queueProviderRefresh(): void {
+        if (this._providerRefreshTimeoutId !== 0) {
+            GLib.source_remove(this._providerRefreshTimeoutId);
+        }
+
+        this._providerRefreshTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 250, () => {
+            this._providerRefreshTimeoutId = 0;
+            if (!this._settings || !this._soupSession) return GLib.SOURCE_REMOVE;
+            this._providerReadyPromise = this._refreshProviderNow();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    private async _refreshProviderNow(): Promise<void> {
+        const seq = ++this._providerRefreshSeq;
+        try {
+            const result = await this._createProvider();
+            if (seq !== this._providerRefreshSeq || !this._settings || !this._soupSession) return;
+            this._provider = result.provider;
+            this._providerMetadata = result.metadata;
+        } catch (e) {
+            if (seq !== this._providerRefreshSeq) return;
+            this._provider = null;
+            this._providerMetadata = null;
+            Logger.error(Tag.Extension, 'Failed to create provider', e);
+        }
+    }
+
+    private async _createProvider(): Promise<ProviderBuildResult> {
         const session = this._soupSession!;
         const providerId = this._settings!.get_string('provider') as ProviderId;
         const configsJson = this._settings!.get_string('provider-configs');
@@ -144,7 +192,15 @@ export default class MeiExtension extends Extension {
         } catch (e) {
             Logger.warn(Tag.Extension, `Failed to parse provider-configs: ${e}`);
         }
-        const providerConfig = parsedConfigs[providerId] || {};
+        const migrated = await migratePlaintextApiKeys(parsedConfigs);
+        if (migrated.changed && this._settings) {
+            this._settings.set_string('provider-configs', JSON.stringify(migrated.configs));
+        }
+
+        const providerConfig = await resolveStoredProviderConfig(
+            providerId,
+            migrated.configs[providerId] || createEmptyProviderConfig()
+        );
 
         const config: ProviderConfig = {
             url: providerConfig.url || '',
@@ -200,14 +256,14 @@ export default class MeiExtension extends Extension {
         }
 
         const providerType = getProviderType(this._settings!.get_string('provider-type'));
-        this._providerMetadata = {
+        const metadata: ChatMessageMetadata = {
             providerId,
             providerLabel: getProviderLabel(providerId),
             providerType: PROVIDER_TYPE_LABELS[providerType],
             model: config.model,
             endpoint: sanitizeEndpoint(config.url || provider.defaultUrl),
         };
-        return provider;
+        return { provider, metadata };
     }
 
     /* ── Chat logic ───────────────────────────────────── */
@@ -253,6 +309,10 @@ export default class MeiExtension extends Extension {
                 this._saveCurrentSession();
             }
         }
+        this._isStreamingResponse = false;
+        this._syncIndicatorState();
+        this._popup?.setLoading(false);
+        this._messagesBackup = null;
         this._messages = [];
         this._chatSessionId = null;
         this._popup?.clearMessages();
@@ -264,7 +324,8 @@ export default class MeiExtension extends Extension {
             this._cancellable.cancel();
             Logger.info(Tag.Extension, 'Request cancelled by user via stop button');
         }
-        this._indicator?.stopGlint();
+        this._isStreamingResponse = false;
+        this._syncIndicatorState();
         this._popup?.setLoading(false);
     }
 
@@ -280,9 +341,13 @@ export default class MeiExtension extends Extension {
         if (this._cancellable) {
             this._cancellable.cancel();
             this._cancellable = null;
+            this._isStreamingResponse = false;
+            this._syncIndicatorState();
+            this._popup?.setLoading(false);
         }
         const session = this._chatStore.getChat(id);
         if (session) {
+            this._messagesBackup = null;
             this._chatSessionId = session.id;
             this._messages = [...session.messages];
             this._popup?.showHistory(this._messages);
@@ -314,23 +379,30 @@ export default class MeiExtension extends Extension {
             this._popup?.clearMessages();
             this._popup?.close();
         }
-        this._indicator?.startGlint();
+        this._isStreamingResponse = true;
+        this._syncIndicatorState();
 
         this._fetchResponse();
     }
 
     private async _fetchResponse(): Promise<void> {
-        if (!this._soupSession || !this._provider) return;
+        if (!this._soupSession) return;
 
-        const provider = this._provider;
+        let provider = this._provider;
         const cancellable = new Gio.Cancellable();
         this._cancellable = cancellable;
+        this._isStreamingResponse = true;
+        this._syncIndicatorState();
         const startedAt = Date.now();
-        Logger.info(Tag.Extension, `Fetching response from ${provider.name}`);
 
         this._popup?.setLoading(true);
 
         try {
+            await this._providerReadyPromise;
+            provider = this._provider;
+            if (!provider) throw new Error('AI provider is not ready.');
+            Logger.info(Tag.Extension, `Fetching response from ${provider.name}`);
+
             let streamedContent = '';
             let streamedThinking = '';
             const shouldStream = Boolean(this._popup?.isExpanded);
@@ -350,12 +422,17 @@ export default class MeiExtension extends Extension {
                     : undefined
             );
 
-            this._popup?.setLoading(false);
-
             if (cancellable.is_cancelled()) {
+                if (this._cancellable !== cancellable) {
+                    Logger.warn(Tag.Extension, `Discarding stale cancelled ${provider.name} response`);
+                    return;
+                }
+                this._popup?.setLoading(false);
                 Logger.warn(Tag.Extension, `Discarding cancelled ${provider.name} response`);
                 return;
             }
+
+            this._popup?.setLoading(false);
 
             this._messages.push({
                 role: 'assistant',
@@ -369,7 +446,6 @@ export default class MeiExtension extends Extension {
             });
             this._saveCurrentSession();
             this._messagesBackup = null;
-            this._indicator?.stopGlint();
 
             if (this._popup?.isExpanded) {
                 this._popup.showHistory(this._messages);
@@ -379,11 +455,16 @@ export default class MeiExtension extends Extension {
             }
             Logger.info(Tag.Extension, `Response received (${reply.content.length} chars)`);
         } catch (e: unknown) {
+            if (cancellable.is_cancelled() && this._cancellable !== cancellable) {
+                Logger.warn(Tag.Extension, `Ignoring stale cancelled request to ${provider?.name ?? 'AI provider'}`);
+                return;
+            }
+
             this._popup?.setLoading(false);
 
             if (!cancellable.is_cancelled()) {
-                this._indicator?.stopGlint();
-                const errMsg = `⚠ Could not reach ${provider.name}. ${getErrorMessage(e)}`;
+                const providerName = provider?.name ?? 'AI provider';
+                const errMsg = `⚠ Could not reach ${providerName}. ${getErrorMessage(e)}`;
 
                 if (this._messagesBackup) {
                     this._messages = this._messagesBackup;
@@ -409,9 +490,9 @@ export default class MeiExtension extends Extension {
                     }
                     this._popup?.showError(errMsg);
                 }
-                Logger.error(Tag.Extension, `${provider.name} request failed`, e);
+                Logger.error(Tag.Extension, `${providerName} request failed`, e);
             } else {
-                Logger.warn(Tag.Extension, `Request to ${provider.name} was cancelled`);
+                Logger.warn(Tag.Extension, `Request to ${provider?.name ?? 'AI provider'} was cancelled`);
                 if (this._messagesBackup) {
                     this._messages = this._messagesBackup;
                     this._messagesBackup = null;
@@ -431,6 +512,8 @@ export default class MeiExtension extends Extension {
         } finally {
             if (this._cancellable === cancellable) {
                 this._cancellable = null;
+                this._isStreamingResponse = false;
+                this._syncIndicatorState();
             }
         }
     }
@@ -444,6 +527,9 @@ export default class MeiExtension extends Extension {
         if (this._cancellable) {
             this._cancellable.cancel();
             this._cancellable = null;
+            this._isStreamingResponse = false;
+            this._syncIndicatorState();
+            this._popup?.setLoading(false);
         }
 
         Logger.debug(Tag.Extension, `Reload message at index ${index}`);
@@ -458,31 +544,21 @@ export default class MeiExtension extends Extension {
             this._popup?.showMessage('assistant', getLastAssistantContent(this._messages));
         }
 
-        this._indicator?.startGlint();
+        this._isStreamingResponse = true;
+        this._syncIndicatorState();
         this._fetchResponse();
     }
-}
 
-function parseProviderConfigs(json: string): Record<string, StoredProviderConfig> {
-    const parsed = JSON.parse(json || '{}') as unknown;
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        return {};
-    }
+    private _syncIndicatorState(): void {
+        if (!this._indicator) return;
 
-    const configs: Record<string, StoredProviderConfig> = {};
-    for (const [provider, value] of Object.entries(parsed)) {
-        if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
-        const source = value as Record<string, unknown>;
-        configs[provider] = {
-            url: typeof source.url === 'string' ? source.url : '',
-            modelName: typeof source.modelName === 'string' ? source.modelName : '',
-            apiKey: typeof source.apiKey === 'string' ? source.apiKey : '',
-            mode: typeof source.mode === 'string' ? source.mode : '',
-            thinking: typeof source.thinking === 'string' ? source.thinking : '',
-            reasoningEffort: typeof source.reasoningEffort === 'string' ? source.reasoningEffort : '',
-        };
+        const isStreaming = this._isStreamingResponse;
+        const popupOpen = Boolean(this._popup?.isOpen);
+        const popupExpanded = Boolean(this._popup?.isExpanded);
+
+        this._indicator.setStopControlVisible(isStreaming && popupOpen && !popupExpanded);
+        this._indicator.setActivity(isStreaming && !popupOpen);
     }
-    return configs;
 }
 
 function getLastAssistantContent(messages: ChatMessage[]): string {

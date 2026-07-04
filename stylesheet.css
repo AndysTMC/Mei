@@ -15,7 +15,7 @@
     cursor: pointer;
 }
 
-.mei-panel-button.glow:hover {
+.mei-panel-button.stop-active:hover {
     background-color: transparent !important;
     cursor: default;
 }
@@ -247,7 +247,8 @@
 
 .mei-md-code-language,
 .mei-md-table-label,
-.mei-md-status {
+.mei-md-status,
+.mei-md-link-overflow {
     font-size: 10px;
     opacity: 170;
 }
@@ -383,6 +384,14 @@
     margin-bottom: 2px;
 }
 
+.mei-message-info-scroll {
+    min-height: 1px;
+}
+
+.mei-message-info-content {
+    spacing: 4px;
+}
+
 .mei-message-info-row {
     spacing: 8px;
 }
@@ -488,6 +497,11 @@
 .mei-history-delete-btn:focus {
     opacity: 255;
     background-color: rgba(128, 128, 128, 0.15) !important;
+}
+
+.mei-history-delete-btn.selected {
+    opacity: 255;
+    background-color: rgba(220, 80, 80, 0.28) !important;
 }
 
 .mei-history-empty {

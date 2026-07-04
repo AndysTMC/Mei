@@ -4,7 +4,7 @@
  * Uses the Anthropic Messages API.
  * API docs: https://docs.anthropic.com/en/api/messages
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import Soup from 'gi://Soup?version=3.0';
@@ -13,6 +13,7 @@ import Gio from 'gi://Gio';
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
 import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
+import { buildAnthropicMessagesBody } from './anthropicPayload.js';
 
 export class AnthropicProvider implements Provider {
     readonly name = 'Anthropic';
@@ -25,7 +26,7 @@ export class AnthropicProvider implements Provider {
 
     constructor(session: Soup.Session, config: ProviderConfig) {
         this._session = session;
-        this._url = this.defaultUrl;
+        this._url = config.url || this.defaultUrl;
         this._model = config.model;
         this._apiKey = config.apiKey ?? '';
         Logger.info(Tag.Provider, `Created ${this.name} → ${this._url} (model: ${this._model}, key: ${maskKey(this._apiKey)})`);
@@ -36,33 +37,9 @@ export class AnthropicProvider implements Provider {
         cancellable: Gio.Cancellable,
         options: SendMessageOptions = {}
     ): Promise<ChatResponse> {
-        // Anthropic requires system messages to be passed separately,
-        // not in the messages array.
-        let systemPrompt: string | undefined;
-        const filteredMessages: Array<{ role: string; content: string }> = [];
+        const body = buildAnthropicMessagesBody(this._model, messages);
 
-        for (const msg of messages) {
-            if (msg.role === 'system') {
-                systemPrompt = msg.content;
-            } else {
-                filteredMessages.push({
-                    role: msg.role,
-                    content: msg.content,
-                });
-            }
-        }
-
-        const body: Record<string, unknown> = {
-            model: this._model,
-            messages: filteredMessages,
-            max_tokens: 4096,
-        };
-
-        if (systemPrompt) {
-            body.system = systemPrompt;
-        }
-
-        Logger.debug(Tag.Provider, `${this.name} sending ${filteredMessages.length} message(s)${systemPrompt ? ' + system prompt' : ''}`);
+        Logger.debug(Tag.Provider, `${this.name} sending ${body.messages.length} message(s)${body.system ? ' + system prompt' : ''}`);
 
         const headers: Record<string, string> = {
             'x-api-key': this._apiKey,

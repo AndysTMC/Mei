@@ -4,7 +4,7 @@
  * Works with the official OpenAI API and any compatible endpoint
  * (Azure OpenAI, Together AI, Groq, etc.).
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import Soup from 'gi://Soup?version=3.0';
@@ -12,13 +12,14 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, toApiMessages, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
+import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
 import {
     getDeepSeekReasoningEffort,
     getDeepSeekThinking,
     getOpenCodeChatCompletionsUrl,
     getOpenCodeMode,
 } from './catalog.js';
+import { buildDeepSeekChatBody, buildOpenAIChatBody } from './openaiPayload.js';
 
 export class OpenAICompatibleProvider implements Provider {
     readonly name: string;
@@ -80,10 +81,7 @@ export class OpenAICompatibleProvider implements Provider {
     }
 
     protected _buildBody(messages: ChatMessage[]): Record<string, unknown> {
-        return {
-            model: this._model,
-            messages: toApiMessages(messages),
-        };
+        return buildOpenAIChatBody(this._model, messages);
     }
 
     protected _buildHeaders(): Record<string, string> {
@@ -167,20 +165,13 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
     }
 
     protected _buildBody(messages: ChatMessage[]): Record<string, unknown> {
-        const body = super._buildBody(messages);
-        if (this._thinking !== 'default') {
-            body.thinking = {
-                type: this._thinking,
-                ...(this._thinking === 'enabled' ? { reasoning_effort: this._reasoningEffort } : {}),
-            };
-        }
-        return body;
+        return buildDeepSeekChatBody(this._model, messages, this._thinking, this._reasoningEffort);
     }
 }
 
 export class GitHubCopilotProvider extends OpenAICompatibleProvider {
     constructor(session: Soup.Session, config: ProviderConfig) {
-        super(session, config, 'GitHub Copilot', 'https://models.github.ai/inference/chat/completions');
+        super(session, config, 'GitHub Models', 'https://models.github.ai/inference/chat/completions');
     }
 
     protected _buildHeaders(): Record<string, string> {

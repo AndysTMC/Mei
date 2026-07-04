@@ -2,13 +2,9 @@
   "name": "Mei",
   "description": "Mei is an AI assistant",
   "uuid": "mei@andystmc.com",
+  "version": 1,
   "settings-schema": "org.gnome.shell.extensions.mei",
   "shell-version": [
-    "45",
-    "46",
-    "47",
-    "48",
-    "49",
     "50"
   ]
 }

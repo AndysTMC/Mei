@@ -4,7 +4,7 @@
  * Connects to a local Ollama instance.
  * API docs: https://github.com/ollama/ollama/blob/main/docs/api.md
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import Soup from 'gi://Soup?version=3.0';

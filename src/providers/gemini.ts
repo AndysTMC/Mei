@@ -4,7 +4,7 @@
  * Uses the Gemini REST API (generateContent endpoint).
  * API docs: https://ai.google.dev/api/generate-content
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import Soup from 'gi://Soup?version=3.0';
@@ -12,7 +12,8 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
+import { createTokenUsage, getNumberAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
+import { buildGeminiContentBody } from './geminiPayload.js';
 
 export class GeminiProvider implements Provider {
     readonly name = 'Gemini';
@@ -25,7 +26,7 @@ export class GeminiProvider implements Provider {
 
     constructor(session: Soup.Session, config: ProviderConfig) {
         this._session = session;
-        this._baseUrl = this.defaultUrl;
+        this._baseUrl = stripTrailingSlash(config.url || this.defaultUrl);
         this._model = config.model;
         this._apiKey = config.apiKey ?? '';
         Logger.info(Tag.Provider, `Created ${this.name} → ${this._baseUrl} (model: ${this._model}, key: ${maskKey(this._apiKey)})`);
@@ -36,46 +37,28 @@ export class GeminiProvider implements Provider {
         cancellable: Gio.Cancellable,
         options: SendMessageOptions = {}
     ): Promise<ChatResponse> {
-        // Gemini uses 'user' and 'model' roles (not 'assistant').
-        // System messages are passed via systemInstruction.
-        let systemInstruction: { parts: { text: string }[] } | undefined;
-        const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+        const body = buildGeminiContentBody(messages);
 
-        for (const msg of messages) {
-            if (msg.role === 'system') {
-                systemInstruction = { parts: [{ text: msg.content }] };
-            } else {
-                contents.push({
-                    role: msg.role === 'assistant' ? 'model' : 'user',
-                    parts: [{ text: msg.content }],
-                });
-            }
-        }
+        Logger.debug(Tag.Provider, `${this.name} sending ${body.contents.length} message(s)${body.systemInstruction ? ' + system instruction' : ''}`);
 
-        const body: Record<string, unknown> = { contents };
-        if (systemInstruction) {
-            body.systemInstruction = systemInstruction;
-        }
-
-        Logger.debug(Tag.Provider, `${this.name} sending ${contents.length} message(s)${systemInstruction ? ' + system instruction' : ''}`);
-
-        const url = `${this._baseUrl}/models/${this._model}:generateContent?key=${this._apiKey}`;
+        const url = `${this._baseUrl}/models/${this._model}:generateContent`;
+        const headers: Record<string, string> = this._apiKey ? { 'x-goog-api-key': this._apiKey } : {};
 
         if (options.stream) {
             let content = '';
             let usage: TokenUsage | undefined;
-            const streamUrl = `${this._baseUrl}/models/${this._model}:streamGenerateContent?alt=sse&key=${this._apiKey}`;
+            const streamUrl = `${this._baseUrl}/models/${this._model}:streamGenerateContent?alt=sse`;
             await postJsonSse(
                 this._session,
                 streamUrl,
                 body,
-                {},
+                headers,
                 cancellable,
                 data => {
                     const parsed = parseJsonObject(data);
                     if (!parsed) return;
                     usage = parseGeminiUsage(parsed) ?? usage;
-                    const contentDelta = getStringAtPath(parsed, ['candidates', 0, 'content', 'parts', 0, 'text']) ?? '';
+                    const contentDelta = extractGeminiText(parsed);
                     if (!contentDelta) return;
                     content += contentDelta;
                     options.onUpdate?.({ contentDelta });
@@ -88,11 +71,11 @@ export class GeminiProvider implements Provider {
             this._session,
             url,
             body,
-            {},
+            headers,
             cancellable
         );
 
-        const content = getStringAtPath(json, ['candidates', 0, 'content', 'parts', 0, 'text'])?.trim() ||
+        const content = extractGeminiText(json).trim() ||
             '(no response)';
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
         return { content, usage: parseGeminiUsage(json) };
@@ -105,4 +88,27 @@ function parseGeminiUsage(root: unknown): TokenUsage | undefined {
         getNumberAtPath(root, ['usageMetadata', 'candidatesTokenCount']),
         getNumberAtPath(root, ['usageMetadata', 'totalTokenCount'])
     );
+}
+
+function extractGeminiText(root: unknown): string {
+    if (typeof root !== 'object' || root === null || Array.isArray(root)) return '';
+    const candidates = (root as Record<string, unknown>).candidates;
+    if (!Array.isArray(candidates)) return '';
+
+    return candidates.flatMap(candidate => {
+        if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return [];
+        const content = (candidate as Record<string, unknown>).content;
+        if (typeof content !== 'object' || content === null || Array.isArray(content)) return [];
+        const parts = (content as Record<string, unknown>).parts;
+        if (!Array.isArray(parts)) return [];
+        return parts.flatMap(part => {
+            if (typeof part !== 'object' || part === null || Array.isArray(part)) return [];
+            const text = (part as Record<string, unknown>).text;
+            return typeof text === 'string' ? [text] : [];
+        });
+    }).join('');
+}
+
+function stripTrailingSlash(url: string): string {
+    return url.replace(/\/+$/, '');
 }

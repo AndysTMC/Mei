@@ -1,10 +1,10 @@
 /**
  * Type definitions for AI chat providers.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import Gio from 'gi://Gio';
+import type Gio from 'gi://Gio';
 
 /** A single message in a chat conversation. */
 export interface ChatMessage {

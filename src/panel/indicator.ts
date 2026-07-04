@@ -3,10 +3,10 @@
  *
  * Handles:
  *   - Rendering the label ("Mei")
- *   - Glint/pulse animation while waiting for AI response
- *   - Hover-to-stop icon swap during active requests
+ *   - Glint/pulse animation while a hidden popup is waiting for AI response
+ *   - Optional hover-to-stop icon swap during active requests
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import St from 'gi://St';
@@ -28,17 +28,18 @@ export class MeiIndicator {
     private _content: St.BoxLayout;
     private _label: St.Label;
     private _stopPill: St.Bin;
-    private _glintActive: boolean = false;
+    private _activityActive: boolean = false;
+    private _stopControlVisible: boolean = false;
     private _centerBox: St.BoxLayout | null = null;
     private _stableWidth = 0;
     private _glintTimeoutId = 0;
     private _glintDimmed = false;
     private _destroyed = false;
 
-    /** Called when the panel button is clicked (and not in glint mode). */
+    /** Called when the panel button is clicked without the stop control active. */
     onClicked: (() => void) | null = null;
 
-    /** Called when the user clicks during glint mode (stop request). */
+    /** Called when the user clicks while the stop control is active. */
     onStopRequested: (() => void) | null = null;
 
     constructor() {
@@ -85,7 +86,7 @@ export class MeiIndicator {
         });
 
         this._button.connect('clicked', () => {
-            if (this._glintActive) {
+            if (this._stopControlVisible) {
                 this.onStopRequested?.();
                 return;
             }
@@ -93,17 +94,14 @@ export class MeiIndicator {
         });
 
         this._button.connect('notify::hover', () => {
-            if (this._glintActive) {
-                if (this._button.hover) {
-                    this._button.accessible_name = 'Stop Mei response';
-                    this._syncHoverStopSize();
-                    this._showStopPill();
-                } else {
-                    this._setLabelText(PANEL_LABEL);
-                    this._button.accessible_name = 'Mei assistant';
-                    this._showLabel();
-                }
+            if (this._stopControlVisible && this._button.hover) {
+                this._button.accessible_name = 'Stop Mei response';
+                this._syncHoverStopSize();
+                this._showStopPill();
+                return;
             }
+            this._button.accessible_name = 'Mei assistant';
+            this._showLabel();
         });
 
         this._centerBox = getPanelCenterBox();
@@ -134,35 +132,59 @@ export class MeiIndicator {
 
     /** Whether the glint animation is currently active. */
     get isGlinting(): boolean {
-        return this._glintActive;
+        return this._activityActive;
     }
 
     /* ── Glint animation ─────────────────────────────── */
 
-    startGlint(): void {
-        this._glintActive = true;
-        this._button.add_style_class_name('glow');
-        this._syncHoverStopSize();
-        if (this._button.hover) {
-            this._button.accessible_name = 'Stop Mei response';
-            this._showStopPill();
+    setActivity(active: boolean): void {
+        if (this._activityActive === active) return;
+
+        this._activityActive = active;
+        if (active) {
+            this._button.add_style_class_name('glow');
+            this._startGlintTimer();
+            Logger.debug(Tag.Indicator, 'Activity animation started');
         } else {
-            this._showLabel();
+            this._clearGlintTimer();
+            this._button.remove_style_class_name('glow');
+            this._label.remove_all_transitions();
+            this._label.opacity = 255;
+            Logger.debug(Tag.Indicator, 'Activity animation stopped');
         }
-        this._startGlintTimer();
-        Logger.debug(Tag.Indicator, 'Glint animation started');
+    }
+
+    setStopControlVisible(visible: boolean): void {
+        if (this._stopControlVisible === visible) return;
+
+        this._stopControlVisible = visible;
+        if (visible) {
+            this._button.add_style_class_name('stop-active');
+            this._syncHoverStopSize();
+            if (this._button.hover) {
+                this._button.accessible_name = 'Stop Mei response';
+                this._showStopPill();
+                return;
+            }
+        } else {
+            this._button.remove_style_class_name('stop-active');
+        }
+
+        this._button.accessible_name = 'Mei assistant';
+        this._showLabel();
+    }
+
+    startGlint(): void {
+        this.setActivity(true);
+        this.setStopControlVisible(true);
     }
 
     stopGlint(): void {
-        this._glintActive = false;
-        this._clearGlintTimer();
-        this._button.remove_style_class_name('glow');
+        this.setStopControlVisible(false);
+        this.setActivity(false);
         this._button.accessible_name = 'Mei assistant';
         this._setLabelText(PANEL_LABEL);
         this._showLabel();
-        this._label.remove_all_transitions();
-        this._label.opacity = 255;
-        Logger.debug(Tag.Indicator, 'Glint animation stopped');
     }
 
     private _showLabel(): void {
@@ -190,7 +212,7 @@ export class MeiIndicator {
         this._glintDimmed = false;
         this._advanceGlintPulse();
         this._glintTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 700, () => {
-            if (this._destroyed || !this._glintActive) {
+            if (this._destroyed || !this._activityActive) {
                 this._glintTimeoutId = 0;
                 return GLib.SOURCE_REMOVE;
             }

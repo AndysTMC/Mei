@@ -4,22 +4,17 @@
  * Saves/loads chat sessions as JSON in the standard XDG data directory
  * (~/.local/share/mei/chats.json).
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 
 import type { ChatMessage } from '../providers/types.js';
+import { generateChatId, generateChatTitle, parseChatSessions, type ChatSession } from './chatSession.js';
 import { Logger, Tag } from './logger.js';
 
-export interface ChatSession {
-    id: string;
-    title: string;
-    messages: ChatMessage[];
-    createdAt: number;
-    updatedAt: number;
-}
+export type { ChatSession } from './chatSession.js';
 
 export class ChatStore {
     private _filePath: string;
@@ -29,7 +24,8 @@ export class ChatStore {
     constructor() {
         const dataDir = GLib.get_user_data_dir();
         const dir = GLib.build_filenamev([dataDir, 'mei']);
-        GLib.mkdir_with_parents(dir, 0o755);
+        GLib.mkdir_with_parents(dir, 0o700);
+        setPrivateMode(dir, 0o700);
         this._filePath = GLib.build_filenamev([dir, 'chats.json']);
         this._load();
     }
@@ -87,66 +83,21 @@ export class ChatStore {
         this._save();
     }
 
+    flush(): Promise<void> {
+        return this._saveChain;
+    }
+
     getChat(id: string): ChatSession | null {
         return this._sessions.find(s => s.id === id) ?? null;
     }
 
     static generateId(): string {
-        return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 8)}`;
+        return generateChatId();
     }
 
     static generateTitle(messages: ChatMessage[]): string {
-        const firstUser = messages.find(m => m.role === 'user');
-        if (!firstUser) return 'New Chat';
-        const text = firstUser.content.trim();
-        return text.length > 40 ? `${text.substring(0, 40)}…` : text;
+        return generateChatTitle(messages);
     }
-}
-
-function parseChatSessions(value: unknown): ChatSession[] {
-    if (!Array.isArray(value)) return [];
-
-    return value.filter((session): session is ChatSession => {
-        if (typeof session !== 'object' || session === null) return false;
-        const candidate = session as Record<string, unknown>;
-        return typeof candidate.id === 'string' &&
-            typeof candidate.title === 'string' &&
-            Array.isArray(candidate.messages) &&
-            candidate.messages.every(isChatMessage) &&
-            typeof candidate.createdAt === 'number' &&
-            typeof candidate.updatedAt === 'number';
-    });
-}
-
-function isChatMessage(value: unknown): value is ChatMessage {
-    if (typeof value !== 'object' || value === null) return false;
-    const candidate = value as Record<string, unknown>;
-    return (candidate.role === 'user' ||
-        candidate.role === 'assistant' ||
-        candidate.role === 'system') &&
-        typeof candidate.content === 'string' &&
-        (candidate.thinking === undefined || typeof candidate.thinking === 'string') &&
-        (candidate.metadata === undefined || isChatMetadata(candidate.metadata));
-}
-
-function isChatMetadata(value: unknown): boolean {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-    const metadata = value as Record<string, unknown>;
-    return (metadata.providerId === undefined || typeof metadata.providerId === 'string') &&
-        (metadata.providerLabel === undefined || typeof metadata.providerLabel === 'string') &&
-        (metadata.providerType === undefined || typeof metadata.providerType === 'string') &&
-        (metadata.model === undefined || typeof metadata.model === 'string') &&
-        (metadata.endpoint === undefined || typeof metadata.endpoint === 'string') &&
-        (metadata.durationMs === undefined || typeof metadata.durationMs === 'number') &&
-        (metadata.tokens === undefined || isTokenUsage(metadata.tokens));
-}
-
-function isTokenUsage(value: unknown): boolean {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-    const tokens = value as Record<string, unknown>;
-    return (tokens.inputTokens === undefined || typeof tokens.inputTokens === 'number') &&
-        (tokens.outputTokens === undefined || typeof tokens.outputTokens === 'number') &&
-        (tokens.totalTokens === undefined || typeof tokens.totalTokens === 'number');
 }
 
 function replaceFileContentsAsync(file: Gio.File, bytes: Uint8Array): Promise<void> {
@@ -161,6 +112,7 @@ function replaceFileContentsAsync(file: Gio.File, bytes: Uint8Array): Promise<vo
                 try {
                     const sourceFile = source ?? file;
                     sourceFile.replace_contents_finish(result);
+                    setPrivateMode(file.get_path(), 0o600);
                     resolve();
                 } catch (e) {
                     reject(e);
@@ -168,4 +120,18 @@ function replaceFileContentsAsync(file: Gio.File, bytes: Uint8Array): Promise<vo
             }
         );
     });
+}
+
+function setPrivateMode(path: string | null, mode: number): void {
+    if (!path) return;
+    try {
+        Gio.File.new_for_path(path).set_attribute_uint32(
+            Gio.FILE_ATTRIBUTE_UNIX_MODE,
+            mode,
+            Gio.FileQueryInfoFlags.NONE,
+            null
+        );
+    } catch (e) {
+        Logger.warn(Tag.Extension, `Failed to set private permissions on ${path}: ${e}`);
+    }
 }

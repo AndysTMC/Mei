@@ -1,8 +1,13 @@
+/**
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
 import Soup from 'gi://Soup?version=3.0';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
 import { Logger, Tag } from './logger.js';
+import { extractJsonLines, findSseSeparator, getSseSeparatorLength, parseSseDataBlock } from './streamParsers.js';
 import type { JsonObject } from '../providers/types.js';
 
 function redactSensitiveUrl(url: string): string {
@@ -40,7 +45,7 @@ export async function postJsonSse(
         let separatorIndex = findSseSeparator(buffer);
         while (separatorIndex !== -1) {
             const block = buffer.slice(0, separatorIndex);
-            buffer = buffer.slice(buffer.charAt(separatorIndex) === '\r' ? separatorIndex + 4 : separatorIndex + 2);
+            buffer = buffer.slice(separatorIndex + getSseSeparatorLength(buffer, separatorIndex));
             for (const data of parseSseDataBlock(block)) {
                 if (data === '[DONE]') {
                     done = true;
@@ -52,6 +57,11 @@ export async function postJsonSse(
         }
         return !done;
     });
+    if (!done && buffer.trim()) {
+        for (const data of parseSseDataBlock(buffer)) {
+            if (data !== '[DONE]') onData(data);
+        }
+    }
 }
 
 export async function postJsonLines(
@@ -65,13 +75,9 @@ export async function postJsonLines(
     let buffer = '';
     await postJsonTextStream(session, url, body, headers, cancellable, chunk => {
         buffer += chunk;
-        let newlineIndex = buffer.indexOf('\n');
-        while (newlineIndex !== -1) {
-            const line = buffer.slice(0, newlineIndex).trim();
-            buffer = buffer.slice(newlineIndex + 1);
-            if (line) onLine(line);
-            newlineIndex = buffer.indexOf('\n');
-        }
+        const extracted = extractJsonLines(buffer);
+        buffer = extracted.rest;
+        for (const line of extracted.lines) onLine(line);
     });
     const rest = buffer.trim();
     if (rest) onLine(rest);
@@ -92,7 +98,7 @@ async function sendJsonRequest(
     }
 
     const jsonStr = JSON.stringify(body);
-    Logger.debug(Tag.HTTP, `POST ${logUrl} body=${Logger.truncate(jsonStr, 500)}`);
+    Logger.debug(Tag.HTTP, `POST ${logUrl} bodyBytes=${jsonStr.length}`);
 
     const bytes = new GLib.Bytes(new TextEncoder().encode(jsonStr));
     msg.set_request_body_from_bytes('application/json', bytes);
@@ -113,7 +119,7 @@ async function sendJsonRequest(
         const text = data ? new TextDecoder().decode(data) : '';
         const elapsed = Logger.timeEnd(Tag.HTTP, logUrl);
         const status = msg.get_status();
-        Logger.debug(Tag.HTTP, `POST ${logUrl} → ${status} (${elapsed}ms) body=${Logger.truncate(text, 500)}`);
+        Logger.debug(Tag.HTTP, `POST ${logUrl} → ${status} (${elapsed}ms) responseBytes=${text.length}`);
 
         if (status >= 400) {
             let errMsg = `HTTP ${status}`;
@@ -164,7 +170,7 @@ async function postJsonTextStream(
     }
 
     const jsonStr = JSON.stringify(body);
-    Logger.debug(Tag.HTTP, `POST stream ${logUrl} body=${Logger.truncate(jsonStr, 500)}`);
+    Logger.debug(Tag.HTTP, `POST stream ${logUrl} bodyBytes=${jsonStr.length}`);
 
     const bytes = new GLib.Bytes(new TextEncoder().encode(jsonStr));
     msg.set_request_body_from_bytes('application/json', bytes);
@@ -190,7 +196,7 @@ async function postJsonTextStream(
             const chunk = await readBytesAsync(stream, cancellable);
             const data = chunk.get_data();
             if (!data || data.length === 0) break;
-            keepReading = onChunk(decoder.decode(data)) !== false;
+            keepReading = onChunk(decoder.decode(data, { stream: true })) !== false;
         }
 
         const tail = decoder.decode();
@@ -248,7 +254,7 @@ async function readStreamText(
         const chunk = await readBytesAsync(stream, cancellable);
         const data = chunk.get_data();
         if (!data || data.length === 0) break;
-        text += decoder.decode(data);
+        text += decoder.decode(data, { stream: true });
     }
     text += decoder.decode();
     return text;
@@ -273,20 +279,4 @@ function parseHttpError(status: number, text: string): string {
         if (text.trim()) errMsg += `: ${Logger.truncate(text.trim(), 100)}`;
     }
     return errMsg;
-}
-
-function findSseSeparator(text: string): number {
-    const lf = text.indexOf('\n\n');
-    const crlf = text.indexOf('\r\n\r\n');
-    if (lf === -1) return crlf;
-    if (crlf === -1) return lf;
-    return Math.min(lf, crlf);
-}
-
-function parseSseDataBlock(block: string): string[] {
-    const lines = block.split(/\r?\n/);
-    const dataLines = lines
-        .filter(line => line.startsWith('data:'))
-        .map(line => line.slice(5).trimStart());
-    return dataLines.length > 0 ? [dataLines.join('\n')] : [];
 }

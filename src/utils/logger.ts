@@ -7,11 +7,12 @@
  *
  * Log format:  [Mei:LEVEL] [Tag] message
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
+
+import { ensureLogDir, LOG_FILE, setPrivateMode } from './logFile.js';
 
 /* ── Log levels ───────────────────────────────────── */
 
@@ -46,20 +47,15 @@ function truncate(s: string, max: number): string {
 
 /** Mask an API key, showing only the last 4 characters. */
 export function maskKey(key: string | undefined): string {
-    if (!key || key.length <= 4) return '***';
+    if (!key || key.length <= 8) return '***';
     return '***' + key.slice(-4);
 }
 
 /* ── File Logging ─────────────────────────────────── */
 
-const LOG_DIR = GLib.get_user_state_dir() + '/mei';
-const LOG_FILE = LOG_DIR + '/logs.txt';
-
 function writeToFile(level: string, tag: string, msg: string): void {
     try {
-        if (!GLib.file_test(LOG_DIR, GLib.FileTest.EXISTS)) {
-            GLib.mkdir_with_parents(LOG_DIR, 0o700);
-        }
+        ensureLogDir();
         const file = Gio.File.new_for_path(LOG_FILE);
         const out = file.append_to(Gio.FileCreateFlags.NONE, null);
 
@@ -69,6 +65,7 @@ function writeToFile(level: string, tag: string, msg: string): void {
 
         out.write_all(new TextEncoder().encode(line), null);
         out.close(null);
+        setPrivateMode(LOG_FILE, 0o600);
     } catch (e) {
         console.error(`[Mei:ERROR] Failed to write log to file: ${e}`);
     }
@@ -77,8 +74,8 @@ function writeToFile(level: string, tag: string, msg: string): void {
 /* ── Logger ───────────────────────────────────────── */
 
 export class Logger {
-    /** Minimum level to log. Set to DEBUG to capture everything to file. */
-    static minLevel: LogLevel = LogLevel.DEBUG;
+    /** Minimum level to log. Set to DEBUG manually when diagnosing locally. */
+    static minLevel: LogLevel = LogLevel.INFO;
 
     /* ── Timing ───────────────────────────────────── */
 
