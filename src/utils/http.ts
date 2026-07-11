@@ -7,7 +7,7 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
 import { Logger, Tag } from './logger.js';
-import { extractJsonLines, findSseSeparator, getSseSeparatorLength, parseSseDataBlock } from './streamParsers.js';
+import { extractJsonLines, findSseSeparator, getSseSeparatorLength, getStreamErrorMessage, parseSseDataBlock, Utf8StreamDecoder } from './streamParsers.js';
 import type { JsonObject } from '../providers/types.js';
 
 function redactSensitiveUrl(url: string): string {
@@ -51,6 +51,8 @@ export async function postJsonSse(
                     done = true;
                     return false;
                 }
+                const errorMessage = getStreamErrorMessage(data);
+                if (errorMessage) throw new Error(errorMessage);
                 onData(data);
             }
             separatorIndex = findSseSeparator(buffer);
@@ -59,7 +61,10 @@ export async function postJsonSse(
     });
     if (!done && buffer.trim()) {
         for (const data of parseSseDataBlock(buffer)) {
-            if (data !== '[DONE]') onData(data);
+            if (data === '[DONE]') continue;
+            const errorMessage = getStreamErrorMessage(data);
+            if (errorMessage) throw new Error(errorMessage);
+            onData(data);
         }
     }
 }
@@ -129,12 +134,12 @@ async function sendJsonRequest(
                 if (typeof error === 'object' && error !== null && 'message' in error) {
                     const message = (error as JsonObject).message;
                     if (typeof message === 'string') {
-                        errMsg = message;
+                        errMsg = Logger.truncate(message, 500);
                     }
                 } else if (typeof error === 'string') {
-                    errMsg = error;
+                    errMsg = Logger.truncate(error, 500);
                 } else if (typeof parsed.detail === 'string') {
-                    errMsg = parsed.detail;
+                    errMsg = Logger.truncate(parsed.detail, 500);
                 }
             } catch {
                 if (text.trim()) errMsg += `: ${Logger.truncate(text.trim(), 100)}`;
@@ -149,7 +154,11 @@ async function sendJsonRequest(
         return json as JsonObject;
     } catch (e) {
         Logger.timeEnd(Tag.HTTP, logUrl);
-        Logger.error(Tag.HTTP, `POST ${logUrl} failed`, e);
+        if (cancellable.is_cancelled()) {
+            Logger.debug(Tag.HTTP, `POST ${logUrl} cancelled`);
+        } else {
+            Logger.error(Tag.HTTP, `POST ${logUrl} failed`, e);
+        }
         throw e;
     }
 }
@@ -181,10 +190,11 @@ async function postJsonTextStream(
 
     Logger.time(Tag.HTTP, logUrl);
 
+    let stream: Gio.InputStream | null = null;
     try {
-        const stream = await sendStreamAsync(session, msg, cancellable);
+        stream = await sendStreamAsync(session, msg, cancellable);
         const status = msg.get_status();
-        const decoder = new TextDecoder();
+        const decoder = new Utf8StreamDecoder();
         let keepReading = true;
 
         if (status >= 400) {
@@ -206,8 +216,20 @@ async function postJsonTextStream(
         Logger.debug(Tag.HTTP, `POST stream ${logUrl} → ${status} (${elapsed}ms)`);
     } catch (e) {
         Logger.timeEnd(Tag.HTTP, logUrl);
-        Logger.error(Tag.HTTP, `POST stream ${logUrl} failed`, e);
+        if (cancellable.is_cancelled()) {
+            Logger.debug(Tag.HTTP, `POST stream ${logUrl} cancelled`);
+        } else {
+            Logger.error(Tag.HTTP, `POST stream ${logUrl} failed`, e);
+        }
         throw e;
+    } finally {
+        if (stream) {
+            try {
+                stream.close(null);
+            } catch {
+                // The session may already have closed the stream after cancellation.
+            }
+        }
     }
 }
 
@@ -246,7 +268,7 @@ function readBytesAsync(
 
 async function readStreamText(
     stream: Gio.InputStream,
-    decoder: TextDecoder,
+    decoder: Utf8StreamDecoder,
     cancellable: Gio.Cancellable
 ): Promise<string> {
     let text = '';
@@ -268,12 +290,12 @@ function parseHttpError(status: number, text: string): string {
         if (typeof error === 'object' && error !== null && 'message' in error) {
             const message = (error as JsonObject).message;
             if (typeof message === 'string') {
-                errMsg = message;
+                errMsg = Logger.truncate(message, 500);
             }
         } else if (typeof error === 'string') {
-            errMsg = error;
+            errMsg = Logger.truncate(error, 500);
         } else if (typeof parsed.detail === 'string') {
-            errMsg = parsed.detail;
+            errMsg = Logger.truncate(parsed.detail, 500);
         }
     } catch {
         if (text.trim()) errMsg += `: ${Logger.truncate(text.trim(), 100)}`;

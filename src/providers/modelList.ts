@@ -11,6 +11,7 @@ import GLib from 'gi://GLib';
 import {
     getOpenCodeMode,
     getOpenCodeModelsUrl,
+    getModelListUrl,
     isOpenCodeChatCompletionsModel,
     type OpenCodeMode,
 } from './catalog.js';
@@ -61,9 +62,9 @@ export async function fetchProviderModels(
     };
 }
 
-type ModelEndpointKind = 'openai' | 'gemini' | 'ollama' | 'github';
+export type ModelEndpointKind = 'openai' | 'gemini' | 'ollama' | 'github';
 
-interface ModelEndpoint {
+export interface ModelEndpoint {
     url: string;
     headers: Record<string, string>;
     requiresApiKey: boolean;
@@ -71,12 +72,12 @@ interface ModelEndpoint {
     openCodeMode: OpenCodeMode | null;
 }
 
-function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelEndpoint | null {
+export function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelEndpoint | null {
     const apiKey = config.apiKey || '';
     switch (provider) {
         case 'ollama':
             return {
-                url: replacePath(config.url || 'http://127.0.0.1:11434/api/chat', '/api/tags'),
+                url: getModelListUrl(config.url || 'http://127.0.0.1:11434/api/chat', '/api/tags'),
                 headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
                 requiresApiKey: false,
                 kind: 'ollama',
@@ -84,7 +85,7 @@ function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelE
             };
         case 'llamacpp':
             return {
-                url: replacePath(config.url || 'http://127.0.0.1:8080/v1/chat/completions', '/v1/models'),
+                url: getModelListUrl(config.url || 'http://127.0.0.1:8080/v1/chat/completions', '/v1/models'),
                 headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
                 requiresApiKey: false,
                 kind: 'openai',
@@ -92,7 +93,7 @@ function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelE
             };
         case 'lmstudio':
             return {
-                url: replacePath(config.url || 'http://127.0.0.1:1234/v1/chat/completions', '/v1/models'),
+                url: getModelListUrl(config.url || 'http://127.0.0.1:1234/v1/chat/completions', '/v1/models'),
                 headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
                 requiresApiKey: false,
                 kind: 'openai',
@@ -106,8 +107,6 @@ function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelE
             return bearerEndpoint('https://api.mistral.ai/v1/models', apiKey);
         case 'openrouter':
             return bearerEndpoint('https://openrouter.ai/api/v1/models', apiKey);
-        case 'deepseek':
-            return bearerEndpoint('https://api.deepseek.com/models', apiKey);
         case 'opencode': {
             const mode = getOpenCodeMode(config.mode);
             return {
@@ -129,7 +128,7 @@ function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelE
             };
         case 'anthropic':
             return {
-                url: 'https://api.anthropic.com/v1/models',
+                url: 'https://api.anthropic.com/v1/models?limit=1000',
                 headers: {
                     'x-api-key': apiKey,
                     'anthropic-version': '2023-06-01',
@@ -140,7 +139,7 @@ function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelE
             };
         case 'gemini':
             return {
-                url: `${stripTrailingSlash(config.url || 'https://generativelanguage.googleapis.com/v1beta')}/models`,
+                url: `${stripTrailingSlash(config.url || 'https://generativelanguage.googleapis.com/v1beta')}/models?pageSize=1000`,
                 headers: { 'x-goog-api-key': apiKey },
                 requiresApiKey: true,
                 kind: 'gemini',
@@ -151,7 +150,7 @@ function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelE
                 throw new Error('Enter an endpoint URL to fetch models.');
             }
             return {
-                url: replacePath(config.url, '/v1/models'),
+                url: getModelListUrl(config.url, '/v1/models'),
                 headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
                 requiresApiKey: false,
                 kind: 'openai',
@@ -172,7 +171,7 @@ function bearerEndpoint(url: string, apiKey: string): ModelEndpoint {
     };
 }
 
-function parseModelList(text: string, kind: ModelEndpointKind, openCodeMode: OpenCodeMode | null): string[] {
+export function parseModelList(text: string, kind: ModelEndpointKind, openCodeMode: OpenCodeMode | null): string[] {
     const parsed = JSON.parse(text) as unknown;
     if (typeof parsed !== 'object' || parsed === null || (Array.isArray(parsed) && kind !== 'github')) {
         return [];
@@ -188,9 +187,13 @@ function parseModelList(text: string, kind: ModelEndpointKind, openCodeMode: Ope
                 : root.data;
     if (!Array.isArray(items)) return [];
 
-    return items.flatMap(item => {
+    const models = items.flatMap(item => {
         if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
         const model = item as Record<string, unknown>;
+        if (kind === 'gemini' && Array.isArray(model.supportedGenerationMethods) &&
+            !model.supportedGenerationMethods.includes('generateContent')) {
+            return [];
+        }
         const value = getModelName(model, kind);
         if (!value) return [];
 
@@ -202,6 +205,7 @@ function parseModelList(text: string, kind: ModelEndpointKind, openCodeMode: Ope
 
         return value;
     });
+    return [...new Set(models)];
 }
 
 function getModelName(model: Record<string, unknown>, kind: ModelEndpointKind): string | null {
@@ -212,14 +216,6 @@ function getModelName(model: Record<string, unknown>, kind: ModelEndpointKind): 
             : model.id ?? model.display_name;
     if (typeof value !== 'string' || value.length === 0) return null;
     return kind === 'gemini' ? value.replace('models/', '') : value;
-}
-
-function replacePath(url: string, path: string): string {
-    const match = url.match(/^(https?:\/\/[^/]+)(?:\/.*)?$/);
-    if (!match) {
-        return url;
-    }
-    return `${match[1]}${path}`;
 }
 
 function stripTrailingSlash(url: string): string {

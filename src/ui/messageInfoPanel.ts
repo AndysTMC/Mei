@@ -7,8 +7,6 @@ import St from 'gi://St';
 
 import type { ChatMessageMetadata, TokenUsage } from '../providers/types.js';
 
-const MESSAGE_INFO_MAX_HEIGHT = 160;
-
 export function createMessageInfoPanel(metadata: ChatMessageMetadata | undefined, isDark: boolean): St.BoxLayout {
     const panel = new St.BoxLayout({
         vertical: true,
@@ -23,21 +21,12 @@ export function createMessageInfoPanel(metadata: ChatMessageMetadata | undefined
         style_class: 'mei-message-info-title',
     }));
 
-    const scrollView = new St.ScrollView({
-        style_class: 'mei-message-info-scroll',
-        x_expand: true,
-        overlay_scrollbars: true,
-    });
-    scrollView.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
-    scrollView.set_style(`max-height: ${MESSAGE_INFO_MAX_HEIGHT}px;`);
-
     const rows = new St.BoxLayout({
         vertical: true,
         x_expand: true,
         style_class: 'mei-message-info-content',
     });
-    scrollView.set_child(rows);
-    panel.add_child(scrollView);
+    panel.add_child(rows);
 
     if (!metadata) {
         addMessageInfoRow(rows, 'Status', 'Unavailable for this response');
@@ -51,6 +40,7 @@ export function createMessageInfoPanel(metadata: ChatMessageMetadata | undefined
 
     addMessageInfoRow(rows, 'Provider', provider);
     addMessageInfoRow(rows, 'Model', metadata.model || 'Unavailable');
+    addMessageInfoRow(rows, 'Endpoint', metadata.endpoint || 'Unavailable');
     addMessageInfoRow(rows, 'Time', formatDuration(metadata.durationMs));
     addMessageInfoRow(rows, 'Tokens', formatTokens(metadata.tokens));
 
@@ -90,7 +80,7 @@ function addMessageInfoRow(panel: St.BoxLayout, label: string, value: string): v
 }
 
 function formatDuration(durationMs: number | undefined): string {
-    if (typeof durationMs !== 'number' || !Number.isFinite(durationMs)) {
+    if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) {
         return 'Unavailable';
     }
     if (durationMs < 1000) {

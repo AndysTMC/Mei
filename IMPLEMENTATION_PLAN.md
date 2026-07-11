@@ -32,7 +32,7 @@ This checklist tracks the current remediation pass so progress can be resumed sa
 
 Validation completed:
 
-- `npm test` passed: 24 tests.
+- `npm test` passed: 29 tests across 7 test files.
 - `npm run typecheck` passed.
 - `npm run lint` passed.
 - `node scripts/check-format.js` passed.

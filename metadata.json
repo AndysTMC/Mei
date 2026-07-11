@@ -2,6 +2,7 @@
   "name": "Mei",
   "description": "Mei is an AI assistant",
   "uuid": "mei@andystmc.com",
+  "url": "https://github.com/AndysTMC/Mei",
   "version": 1,
   "settings-schema": "org.gnome.shell.extensions.mei",
   "shell-version": [

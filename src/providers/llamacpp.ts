@@ -46,6 +46,7 @@ export class LlamaCppProvider implements Provider {
 
         if (options.stream) {
             let content = '';
+            let thinking = '';
             let usage: TokenUsage | undefined;
             const streamBody = { ...body, stream: true };
             await postJsonSse(
@@ -59,12 +60,19 @@ export class LlamaCppProvider implements Provider {
                     if (!parsed) return;
                     usage = parseOpenAIStyleUsage(parsed) ?? usage;
                     const contentDelta = getStringAtPath(parsed, ['choices', 0, 'delta', 'content']) ?? '';
-                    if (!contentDelta) return;
+                    const thinkingDelta = getStringAtPath(parsed, ['choices', 0, 'delta', 'reasoning_content']) ??
+                        getStringAtPath(parsed, ['choices', 0, 'delta', 'reasoning']) ?? '';
+                    if (!contentDelta && !thinkingDelta) return;
                     content += contentDelta;
-                    options.onUpdate?.({ contentDelta });
+                    thinking += thinkingDelta;
+                    options.onUpdate?.({ contentDelta, thinkingDelta });
                 }
             );
-            return { content: content.trim() || '(no response)', usage };
+            return {
+                content: content.trim() || '(no response)',
+                thinking: thinking.trim() || undefined,
+                usage,
+            };
         }
 
         const json = await postJson(
@@ -76,8 +84,10 @@ export class LlamaCppProvider implements Provider {
         );
 
         const content = getStringAtPath(json, ['choices', 0, 'message', 'content'])?.trim() || '(no response)';
+        const thinking = getStringAtPath(json, ['choices', 0, 'message', 'reasoning_content'])?.trim() ||
+            getStringAtPath(json, ['choices', 0, 'message', 'reasoning'])?.trim();
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
-        return { content, usage: parseOpenAIStyleUsage(json) };
+        return { content, thinking, usage: parseOpenAIStyleUsage(json) };
     }
 }
 

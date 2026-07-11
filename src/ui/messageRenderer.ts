@@ -142,6 +142,7 @@ const EXPANDED_TABLE_CONTENT_WIDTH = 610;
 const MAX_LINK_ACTIONS = 4;
 const MAX_CODE_CHARS = 30000;
 const MAX_PARSE_CACHE_ENTRIES = 100;
+const MAX_CACHE_MARKDOWN_CHARS = 100000;
 const SELECTION_COLOR = makeColor('#cfc4a6cc');
 const SELECTED_TEXT_COLOR = makeColor('#171717ff');
 
@@ -151,7 +152,7 @@ export function renderMessageBlocks(
     markdown: string,
     options: MessageRendererOptions
 ): MessageModel {
-    const cacheKey = options.streaming
+    const cacheKey = options.streaming || markdown.length > MAX_CACHE_MARKDOWN_CHARS
         ? ''
         : `${options.role}:${options.allowImages ? 'img' : 'no-img'}:${options.enableMath ? 'math' : 'no-math'}:${markdown}`;
 
@@ -191,7 +192,8 @@ export function createMessageActor(
     markdown: string,
     options: MessageRendererOptions
 ): RenderedMessageActor {
-    let model = renderMessageBlocks(markdown, options);
+    let currentOptions = options;
+    let model = renderMessageBlocks(markdown, currentOptions);
     const actor = new St.BoxLayout({
         vertical: true,
         x_expand: true,
@@ -204,7 +206,7 @@ export function createMessageActor(
         fillMessageActor(actor, nextModel, nextOptions);
     };
 
-    render(model, options);
+    render(model, currentOptions);
 
     return {
         actor,
@@ -212,9 +214,9 @@ export function createMessageActor(
             return model;
         },
         update(markdown: string, nextOptions: Partial<MessageRendererOptions> = {}) {
-            const mergedOptions = { ...options, ...nextOptions };
-            model = renderMessageBlocks(markdown, mergedOptions);
-            render(model, mergedOptions);
+            currentOptions = { ...currentOptions, ...nextOptions };
+            model = renderMessageBlocks(markdown, currentOptions);
+            render(model, currentOptions);
         },
         destroy() {
             actor.destroy_all_children();
@@ -422,9 +424,6 @@ function fillMessageActor(actor: St.BoxLayout, model: MessageModel, options: Mes
         actor.add_child(renderBlock(block, options));
     }
 
-    if (model.isStreaming) {
-        actor.add_child(makeStatusLabel('Generating...'));
-    }
 }
 
 function renderBlock(block: MessageBlock, options: MessageRendererOptions): St.Widget {
@@ -673,10 +672,6 @@ function makeOpenLinkButton(link: LinkTarget, index: number | null): St.Button {
     });
     button.connect('clicked', () => openExternalLink(link.url));
     return button;
-}
-
-function makeStatusLabel(text: string): St.Label {
-    return makePlainLabel(text, 'mei-md-status');
 }
 
 function makeMarkupLabel(markup: string, styleClass: string): St.Label {

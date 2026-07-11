@@ -38,28 +38,23 @@ import {
 import { ThemeManager, type ThemedWidgets } from '../utils/theme.js';
 import { Logger, Tag } from '../utils/logger.js';
 import {
-    DEEPSEEK_REASONING_EFFORT_LABELS,
-    DEEPSEEK_THINKING_LABELS,
-    getDeepSeekReasoningEffort,
-    getDeepSeekThinking,
     getOpenCodeMode,
     getProviderIdsForType,
     getProviderLabel,
     getProviderType,
+    isOpenCodeChatCompletionsModel,
     OPEN_CODE_MODE_LABELS,
     PROVIDER_TYPE_IDS,
     PROVIDER_TYPE_LABELS,
-    type DeepSeekReasoningEffort,
-    type DeepSeekThinking,
     type OpenCodeMode,
     type ProviderType,
 } from '../providers/catalog.js';
 import { fetchProviderModels } from '../providers/modelList.js';
 import type { ChatMessageMetadata, ProviderId } from '../providers/types.js';
 import {
-    API_KEY_PLACEHOLDER,
     createEmptyProviderConfig,
     isApiKeyPlaceholderLike,
+    mergeMigratedApiKeyConfigs,
     parseProviderConfigs,
     type ProviderConfigKey,
     type StoredProviderConfig,
@@ -100,6 +95,9 @@ export class ChatPopup {
     private _thinkingToggleBtn?: St.Button;
     private _streamingAnswerBox?: St.BoxLayout;
     private _streamingAnswerActor?: RenderedMessageActor;
+    private _streamRenderTimeoutId = 0;
+    private _pendingStreamContent = '';
+    private _pendingStreamThinking = '';
     private _thinkingExpanded = true;
     private _thinkingAutoCollapsed = false;
     private _isLoading = false;
@@ -155,6 +153,7 @@ export class ChatPopup {
     private _settingsEntryActors: Partial<Record<ProviderConfigKey, St.Entry | St.PasswordEntry>> = {};
     private _providerDraft: { provider: ProviderId; config: StoredProviderConfig } | null = null;
     private _apiKeyCache = new Map<string, string>();
+    private _apiKeyEditing = false;
     private _settingsSaveStatus = '';
     private _settingsScreen: SettingsScreen = 'main';
     private _settingsForcedWide: boolean = false;
@@ -817,7 +816,10 @@ export class ChatPopup {
     /**
      * Display the full chat history in the scroll area.
      */
-    showHistory(messages: { role: string, content: string, thinking?: string, metadata?: ChatMessageMetadata }[]): void {
+    showHistory(
+        messages: { role: string, content: string, thinking?: string, metadata?: ChatMessageMetadata }[],
+        fadeLastAssistant = false
+    ): void {
         if (this._isLoading) {
             this._removeLoadingBubble();
         }
@@ -841,6 +843,8 @@ export class ChatPopup {
             });
             rendered.actor.x_align = role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START;
             rendered.actor.x_expand = role === 'assistant';
+            const shouldFadeIn = fadeLastAssistant && role === 'assistant' && i === messages.length - 1;
+            if (shouldFadeIn) msgContainer.opacity = 0;
 
             if (role === 'assistant' && this._isExpanded && msg.thinking) {
                 msgContainer.add_child(this._createThinkingBlock(msg.thinking));
@@ -939,6 +943,18 @@ export class ChatPopup {
                 msgContainer.add_child(infoPanel);
             }
             this._messageBox.add_child(msgContainer);
+            if (shouldFadeIn) {
+                this._addOneShotIdle(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                    if (msgContainer.get_parent()) {
+                        msgContainer.ease({
+                            opacity: 255,
+                            duration: 320,
+                            mode: Clutter.AnimationMode.EASE_IN_OUT_QUAD,
+                        });
+                    }
+                    return GLib.SOURCE_REMOVE;
+                });
+            }
         }
 
         if (this._isLoading) {
@@ -1154,6 +1170,12 @@ export class ChatPopup {
     }
 
     private _removeLoadingBubble(): void {
+        if (this._streamRenderTimeoutId !== 0) {
+            this._removeSource(this._streamRenderTimeoutId);
+            this._streamRenderTimeoutId = 0;
+        }
+        this._pendingStreamContent = '';
+        this._pendingStreamThinking = '';
         this._returnSpinnerToContentBox();
         if (this._loadingBubble) {
             const bubbleParent = this._loadingBubble.get_parent();
@@ -1302,6 +1324,18 @@ export class ChatPopup {
     }
 
     showStreamingResponse(content: string, thinking: string): void {
+        this._pendingStreamContent = content;
+        this._pendingStreamThinking = thinking;
+        if (this._streamRenderTimeoutId !== 0) return;
+
+        this._streamRenderTimeoutId = this._addOneShotTimeout(GLib.PRIORITY_DEFAULT, 50, () => {
+            this._streamRenderTimeoutId = 0;
+            this._renderStreamingResponse(this._pendingStreamContent, this._pendingStreamThinking);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    private _renderStreamingResponse(content: string, thinking: string): void {
         if (!this._isExpanded || !this._loadingBubble) return;
 
         const adjustment = this._scrollView.get_vadjustment();
@@ -1333,7 +1367,7 @@ export class ChatPopup {
         }
 
         if (this._streamingAnswerBox) {
-            if (content.trim()) {
+            if (hasContent) {
                 if (!this._streamingAnswerActor) {
                     this._streamingAnswerActor = createMessageActor(content, {
                         role: 'assistant',
@@ -1345,12 +1379,9 @@ export class ChatPopup {
                 } else {
                     this._streamingAnswerActor.update(content, { streaming: true });
                 }
-            } else {
-                this._streamingAnswerBox.destroy_all_children();
-                if (this._streamingAnswerActor) {
-                    this._streamingAnswerActor.destroy();
-                    this._streamingAnswerActor = undefined;
-                }
+            } else if (this._streamingAnswerActor) {
+                this._streamingAnswerActor.destroy();
+                this._streamingAnswerActor = undefined;
             }
         }
 
@@ -1557,6 +1588,7 @@ export class ChatPopup {
 
         this._settingsScreen = 'main';
         this._providerDraft = null;
+        this._apiKeyEditing = false;
         this._settingsForcedWide = !this._isExpanded;
         this._container.add_style_class_name('expanded');
         this._refreshSettingsView();
@@ -1660,29 +1692,6 @@ export class ChatPopup {
             );
         }
 
-        if (provider === 'deepseek') {
-            const thinkingIds: DeepSeekThinking[] = ['default', 'enabled', 'disabled'];
-            const thinking = getDeepSeekThinking(config.thinking);
-            this._addSettingsSegmentRow(
-                'Thinking',
-                thinkingIds,
-                thinking,
-                id => DEEPSEEK_THINKING_LABELS[id],
-                id => void this._updateCurrentProviderConfig('thinking', id)
-            );
-
-            if (thinking === 'enabled') {
-                const effortIds: DeepSeekReasoningEffort[] = ['high', 'max'];
-                this._addSettingsSegmentRow(
-                    'Effort',
-                    effortIds,
-                    getDeepSeekReasoningEffort(config.reasoningEffort),
-                    id => DEEPSEEK_REASONING_EFFORT_LABELS[id],
-                    id => void this._updateCurrentProviderConfig('reasoningEffort', id)
-                );
-            }
-        }
-
         this._addSettingsSection('Connection');
         if (this._modelOptions.length > 0) {
             this._addModelDropdownRow(config.modelName || this._modelOptions[0], this._modelOptions);
@@ -1705,13 +1714,29 @@ export class ChatPopup {
             );
         }
 
-        this._addSettingsEntryRow(
-            'API Key',
-            getApiKeyFieldText(config),
-            'apiKey',
-            'API key',
-            true
-        );
+        if (this._apiKeyEditing) {
+            this._addSettingsEntryRow('API Key', '', 'apiKey', 'Enter new API key', true);
+        } else {
+            const apiKeyRow = this._createSettingsRow('API Key');
+            const enterApiKeyBtn = new St.Button({
+                label: 'Enter new API key',
+                style_class: 'mei-settings-value-btn',
+                can_focus: true,
+                reactive: true,
+                track_hover: true,
+                accessible_name: 'Enter new API key',
+                accessible_role: Atk.Role.PUSH_BUTTON,
+            });
+            enterApiKeyBtn.connect('clicked', () => {
+                this._apiKeyEditing = true;
+                this._settingsSaveStatus = '';
+                this._refreshSettingsView();
+                this._settingsEntryActors.apiKey?.grab_key_focus();
+            });
+            apiKeyRow.add_child(enterApiKeyBtn);
+            this._settingsListBox.add_child(apiKeyRow);
+            this._addButtonClickScaleEffect(enterApiKeyBtn);
+        }
         if (this._modelFetchStatus) {
             this._addSettingsStatusRow(this._modelFetchStatus);
         }
@@ -1837,6 +1862,7 @@ export class ChatPopup {
                 this._modelFetchStatus = '';
                 this._settingsSaveStatus = '';
                 this._providerDraft = null;
+                this._apiKeyEditing = false;
                 this._settings?.set_string('provider', provider);
             });
             listBox.add_child(providerBtn);
@@ -1972,6 +1998,7 @@ export class ChatPopup {
         this._modelFetchStatus = '';
         this._settingsSaveStatus = '';
         this._providerDraft = null;
+        this._apiKeyEditing = false;
         settings.set_string('provider-type', providerType);
         const providers = getProviderIdsForType(providerType);
         const currentProvider = settings.get_string('provider');
@@ -2022,9 +2049,13 @@ export class ChatPopup {
         const settings = this._settings;
         if (!settings) return;
 
-        const result = await migratePlaintextApiKeys(this._getProviderConfigs());
+        const original = this._getProviderConfigs();
+        const result = await migratePlaintextApiKeys(original);
         if (this._destroyed || !result.changed) return;
-        settings.set_string('provider-configs', JSON.stringify(result.configs));
+        const current = parseProviderConfigs(settings.get_string('provider-configs'));
+        settings.set_string('provider-configs', JSON.stringify(
+            mergeMigratedApiKeyConfigs(original, result.configs, current)
+        ));
     }
 
     private async _resolveProviderConfig(provider: ProviderId, config: StoredProviderConfig): Promise<StoredProviderConfig> {
@@ -2062,8 +2093,13 @@ export class ChatPopup {
             ? { ...visibleDraft, apiKey: nextSavedConfig.apiKey, apiKeyStorage: nextSavedConfig.apiKeyStorage }
             : { ...visibleDraft, [key]: value };
         if (this._destroyed) return;
-        configs[provider] = nextSavedConfig;
-        settings.set_string('provider-configs', JSON.stringify(configs));
+        const latestConfigs = this._getProviderConfigs();
+        const latestConfig = latestConfigs[provider] || createEmptyProviderConfig();
+        latestConfigs[provider] = key === 'apiKey'
+            ? { ...latestConfig, apiKey: nextSavedConfig.apiKey, apiKeyStorage: nextSavedConfig.apiKeyStorage }
+            : { ...latestConfig, [key]: value };
+        settings.set_string('provider-configs', JSON.stringify(latestConfigs));
+        const isCurrentProvider = settings.get_string('provider') === provider;
         if (key === 'apiKey') {
             if (value.trim()) {
                 this._apiKeyCache.set(provider, value.trim());
@@ -2071,11 +2107,12 @@ export class ChatPopup {
                 this._apiKeyCache.delete(provider);
             }
             this._invalidateModelFetch();
+            if (isCurrentProvider) this._apiKeyEditing = false;
         } else if (key === 'url') {
             this._invalidateModelFetch();
         }
-        this._providerDraft = { provider, config: nextDraftConfig };
-        this._settingsSaveStatus = `Saved ${labelText}.`;
+        this._providerDraft = isCurrentProvider ? { provider, config: nextDraftConfig } : null;
+        this._settingsSaveStatus = isCurrentProvider ? `Saved ${labelText}.` : '';
         this._modelFetchStatus = '';
         this._refreshSettingsView();
     }
@@ -2113,6 +2150,8 @@ export class ChatPopup {
         }
         if (key === 'apiKey' && isApiKeyPlaceholderLike(value.trim())) return;
         if (configs[provider][key] === value) return;
+        const resetOpenCodeModel = provider === 'opencode' && key === 'mode' &&
+            !isOpenCodeChatCompletionsModel(configs[provider].modelName, getOpenCodeMode(value));
         if (key === 'apiKey') {
             configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
             if (value.trim()) {
@@ -2122,9 +2161,19 @@ export class ChatPopup {
             }
         } else {
             configs[provider][key] = value;
+            if (resetOpenCodeModel) configs[provider].modelName = '';
         }
         if (this._destroyed) return;
-        settings.set_string('provider-configs', JSON.stringify(configs));
+        const latestConfigs = this._getProviderConfigs();
+        const latestConfig = latestConfigs[provider] || createEmptyProviderConfig();
+        latestConfigs[provider] = key === 'apiKey'
+            ? { ...latestConfig, apiKey: configs[provider].apiKey, apiKeyStorage: configs[provider].apiKeyStorage }
+            : {
+                ...latestConfig,
+                [key]: value,
+                ...(resetOpenCodeModel ? { modelName: '' } : {}),
+            };
+        settings.set_string('provider-configs', JSON.stringify(latestConfigs));
 
         if (key === 'url' || key === 'apiKey' || key === 'mode') {
             this._invalidateModelFetch();
@@ -2660,9 +2709,4 @@ export class ChatPopup {
 
 function isRenderableRole(role: string): role is MessageRole {
     return role === 'user' || role === 'assistant';
-}
-
-function getApiKeyFieldText(config: StoredProviderConfig): string {
-    if (config.apiKey && !isApiKeyPlaceholderLike(config.apiKey)) return config.apiKey;
-    return config.apiKeyStorage === 'secret' ? API_KEY_PLACEHOLDER : '';
 }

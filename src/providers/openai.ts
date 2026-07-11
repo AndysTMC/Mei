@@ -1,8 +1,8 @@
 /**
  * OpenAI AI provider.
  *
- * Works with the official OpenAI API and any compatible endpoint
- * (Azure OpenAI, Together AI, Groq, etc.).
+ * Works with the official OpenAI API and Bearer-authenticated compatible
+ * Chat Completions endpoints.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -13,13 +13,8 @@ import Gio from 'gi://Gio';
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
 import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
-import {
-    getDeepSeekReasoningEffort,
-    getDeepSeekThinking,
-    getOpenCodeChatCompletionsUrl,
-    getOpenCodeMode,
-} from './catalog.js';
-import { buildDeepSeekChatBody, buildOpenAIChatBody } from './openaiPayload.js';
+import { getOpenCodeChatCompletionsUrl, getOpenCodeMode } from './catalog.js';
+import { buildOpenAIChatBody } from './openaiPayload.js';
 
 export class OpenAICompatibleProvider implements Provider {
     readonly name: string;
@@ -154,27 +149,12 @@ export class OpenRouterProvider extends OpenAICompatibleProvider {
     }
 }
 
-export class DeepSeekProvider extends OpenAICompatibleProvider {
-    private _thinking: string;
-    private _reasoningEffort: string;
-
-    constructor(session: Soup.Session, config: ProviderConfig) {
-        super(session, config, 'DeepSeek', 'https://api.deepseek.com/chat/completions');
-        this._thinking = getDeepSeekThinking(config.thinking);
-        this._reasoningEffort = getDeepSeekReasoningEffort(config.reasoningEffort);
-    }
-
-    protected _buildBody(messages: ChatMessage[]): Record<string, unknown> {
-        return buildDeepSeekChatBody(this._model, messages, this._thinking, this._reasoningEffort);
-    }
-}
-
 export class GitHubCopilotProvider extends OpenAICompatibleProvider {
     constructor(session: Soup.Session, config: ProviderConfig) {
         super(session, config, 'GitHub Models', 'https://models.github.ai/inference/chat/completions');
     }
 
-    protected _buildHeaders(): Record<string, string> {
+    protected override _buildHeaders(): Record<string, string> {
         return {
             ...super._buildHeaders(),
             Accept: 'application/vnd.github+json',

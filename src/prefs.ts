@@ -14,10 +14,6 @@ import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 import {
-    DEEPSEEK_REASONING_EFFORT_LABELS,
-    DEEPSEEK_THINKING_LABELS,
-    getDeepSeekReasoningEffort,
-    getDeepSeekThinking,
     getOpenCodeMode,
     getProviderIdsForType,
     getProviderLabel,
@@ -25,16 +21,14 @@ import {
     OPEN_CODE_MODE_LABELS,
     PROVIDER_TYPE_IDS,
     PROVIDER_TYPE_LABELS,
-    type DeepSeekReasoningEffort,
-    type DeepSeekThinking,
     type OpenCodeMode,
 } from './providers/catalog.js';
 import { fetchProviderModels } from './providers/modelList.js';
 import type { ProviderId } from './providers/types.js';
 import {
-    API_KEY_PLACEHOLDER,
     createEmptyProviderConfig,
     isApiKeyPlaceholderLike,
+    mergeMigratedApiKeyConfigs,
     parseProviderConfigs,
     type ProviderConfigKey,
     type ProviderConfigs,
@@ -50,7 +44,7 @@ import { Logger, Tag } from './utils/logger.js';
 import { LOG_FILE, replaceLogFileTextAsync } from './utils/logFile.js';
 
 export default class MeiPreferences extends ExtensionPreferences {
-    async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
+    override async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
         const settings = this.getSettings();
         const settingsSignalIds: number[] = [];
         let destroyed = false;
@@ -243,12 +237,14 @@ export default class MeiPreferences extends ExtensionPreferences {
             const configs = getProviderConfigs();
             const result = await migratePlaintextApiKeys(configs);
             if (destroyed) return;
+            const finalConfigs = result.changed
+                ? mergeMigratedApiKeyConfigs(configs, result.configs, getProviderConfigs())
+                : configs;
             if (result.changed) {
-                saveProviderConfigsNow(result.configs);
+                saveProviderConfigsNow(finalConfigs);
             }
 
             // Pre-warm apiKeyCache
-            const finalConfigs = result.changed ? result.configs : configs;
             for (const [provider, config] of Object.entries(finalConfigs)) {
                 if (config.apiKeyStorage === 'secret') {
                     try {
@@ -289,8 +285,16 @@ export default class MeiPreferences extends ExtensionPreferences {
             } else {
                 configs[provider][key] = value;
             }
-            if (destroyed) return;
-            queueSaveProviderConfigs(configs);
+            if (destroyed) {
+                const latestConfigs = parseProviderConfigs(settings.get_string('provider-configs'));
+                const latestConfig = latestConfigs[provider] || createEmptyProviderConfig();
+                latestConfigs[provider] = key === 'apiKey'
+                    ? { ...latestConfig, apiKey: configs[provider].apiKey, apiKeyStorage: configs[provider].apiKeyStorage }
+                    : { ...latestConfig, [key]: value };
+                saveProviderConfigsNow(latestConfigs);
+            } else {
+                queueSaveProviderConfigs(configs);
+            }
         }
 
         void migrateProviderConfigsToSecret();
@@ -319,37 +323,6 @@ export default class MeiPreferences extends ExtensionPreferences {
             }
         });
         providerModeGroup.add(openCodeModeRow);
-
-        const deepSeekThinkingModel = new Gtk.StringList();
-        const deepSeekThinkingIds: DeepSeekThinking[] = ['default', 'enabled', 'disabled'];
-        deepSeekThinkingModel.splice(0, 0, deepSeekThinkingIds.map(id => DEEPSEEK_THINKING_LABELS[id]));
-        const deepSeekThinkingRow = new Adw.ComboRow({
-            title: 'DeepSeek Thinking',
-            subtitle: 'Controls the documented DeepSeek thinking mode for supported models.',
-            model: deepSeekThinkingModel,
-        });
-        deepSeekThinkingRow.connect('notify::selected', () => {
-            const idx = deepSeekThinkingRow.get_selected();
-            if (idx >= 0 && idx < deepSeekThinkingIds.length) {
-                void updateCurrentProviderConfig('thinking', deepSeekThinkingIds[idx]);
-            }
-        });
-        providerModeGroup.add(deepSeekThinkingRow);
-
-        const deepSeekEffortModel = new Gtk.StringList();
-        const deepSeekEffortIds: DeepSeekReasoningEffort[] = ['high', 'max'];
-        deepSeekEffortModel.splice(0, 0, deepSeekEffortIds.map(id => DEEPSEEK_REASONING_EFFORT_LABELS[id]));
-        const deepSeekEffortRow = new Adw.ComboRow({
-            title: 'DeepSeek Reasoning Effort',
-            model: deepSeekEffortModel,
-        });
-        deepSeekEffortRow.connect('notify::selected', () => {
-            const idx = deepSeekEffortRow.get_selected();
-            if (idx >= 0 && idx < deepSeekEffortIds.length) {
-                void updateCurrentProviderConfig('reasoningEffort', deepSeekEffortIds[idx]);
-            }
-        });
-        providerModeGroup.add(deepSeekEffortRow);
 
         let modelEntryTimeout = 0;
         const modelEntryRow = new Adw.EntryRow({ title: 'Model' });
@@ -392,24 +365,64 @@ export default class MeiPreferences extends ExtensionPreferences {
         });
         connectionGroup.add(urlRow);
 
-        let apiKeyTimeout = 0;
+        let apiKeyEditingProvider = '';
+        const apiKeyActionRow = new Adw.ActionRow({
+            title: 'API Key',
+            subtitle: 'No API key saved.',
+        });
+        const enterApiKeyBtn = new Gtk.Button({
+            label: 'Enter new API key',
+            valign: Gtk.Align.CENTER,
+        });
+        apiKeyActionRow.add_suffix(enterApiKeyBtn);
+        connectionGroup.add(apiKeyActionRow);
+
         const apiKeyRow = new Adw.PasswordEntryRow({ title: 'API Key' });
+        apiKeyRow.set_visible(false);
+        const saveApiKeyBtn = new Gtk.Button({
+            icon_name: 'object-select-symbolic',
+            tooltip_text: 'Save API key',
+            valign: Gtk.Align.CENTER,
+            sensitive: false,
+        });
+        apiKeyRow.add_suffix(saveApiKeyBtn);
+
+        enterApiKeyBtn.connect('clicked', () => {
+            apiKeyEditingProvider = settings.get_string('provider');
+            refreshingProviderUi = true;
+            apiKeyRow.set_text('');
+            refreshingProviderUi = false;
+            apiKeyActionRow.set_visible(false);
+            apiKeyRow.set_visible(true);
+            apiKeyRow.grab_focus();
+        });
         apiKeyRow.connect('notify::text', () => {
             if (refreshingProviderUi) return;
-            const text = apiKeyRow.get_text();
-            if (isApiKeyPlaceholderLike(text.trim())) return;
-
-            if (apiKeyTimeout) GLib.source_remove(apiKeyTimeout);
-            apiKeyTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
-                apiKeyTimeout = 0;
-                void (async () => {
-                    await updateCurrentProviderConfig('apiKey', text);
-                    if (getProviderType(settings.get_string('provider-type')) === 'cloud') {
-                        queueUpdateModels();
-                    }
-                })();
-                return GLib.SOURCE_REMOVE;
-            });
+            saveApiKeyBtn.set_sensitive(apiKeyRow.get_text().trim().length > 0);
+        });
+        saveApiKeyBtn.connect('clicked', () => {
+            const apiKey = apiKeyRow.get_text().trim();
+            if (!apiKey) return;
+            const savingProvider = settings.get_string('provider');
+            saveApiKeyBtn.set_sensitive(false);
+            void (async () => {
+                await updateCurrentProviderConfig('apiKey', apiKey);
+                if (destroyed) return;
+                if (settings.get_string('provider') !== savingProvider) {
+                    updateVisibility();
+                    return;
+                }
+                apiKeyEditingProvider = '';
+                refreshingProviderUi = true;
+                apiKeyRow.set_text('');
+                refreshingProviderUi = false;
+                apiKeyRow.set_visible(false);
+                apiKeyActionRow.set_subtitle('API key is saved.');
+                apiKeyActionRow.set_visible(true);
+                if (getProviderType(settings.get_string('provider-type')) === 'cloud') {
+                    queueUpdateModels();
+                }
+            })();
         });
         connectionGroup.add(apiKeyRow);
 
@@ -555,26 +568,26 @@ export default class MeiPreferences extends ExtensionPreferences {
             try {
                 if (modelEntryRow.get_text() !== (config.modelName || '')) modelEntryRow.set_text(config.modelName || '');
                 if (urlRow.get_text() !== (config.url || '')) urlRow.set_text(config.url || '');
-                const apiKeyText = getApiKeyFieldText(config);
-                if (apiKeyRow.get_text() !== apiKeyText) apiKeyRow.set_text(apiKeyText);
+                if (apiKeyEditingProvider && apiKeyEditingProvider !== provider) {
+                    apiKeyEditingProvider = '';
+                    apiKeyRow.set_text('');
+                }
 
                 const openCodeModeIdx = openCodeModeIds.indexOf(getOpenCodeMode(config.mode));
                 if (openCodeModeRow.get_selected() !== openCodeModeIdx) openCodeModeRow.set_selected(openCodeModeIdx);
 
-                const deepSeekThinkingIdx = deepSeekThinkingIds.indexOf(getDeepSeekThinking(config.thinking));
-                if (deepSeekThinkingRow.get_selected() !== deepSeekThinkingIdx) deepSeekThinkingRow.set_selected(deepSeekThinkingIdx);
-
-                const deepSeekEffortIdx = deepSeekEffortIds.indexOf(getDeepSeekReasoningEffort(config.reasoningEffort));
-                if (deepSeekEffortRow.get_selected() !== deepSeekEffortIdx) deepSeekEffortRow.set_selected(deepSeekEffortIdx);
             } finally {
                 refreshingProviderUi = false;
             }
 
             urlRow.set_visible(pType === 'custom');
-            providerModeGroup.set_visible(provider === 'opencode' || provider === 'deepseek');
+            const hasSavedApiKey = Boolean(config.apiKey || config.apiKeyStorage === 'secret');
+            const editingApiKey = apiKeyEditingProvider === provider;
+            apiKeyActionRow.set_subtitle(hasSavedApiKey ? 'API key is saved.' : 'No API key saved.');
+            apiKeyActionRow.set_visible(!editingApiKey);
+            apiKeyRow.set_visible(editingApiKey);
+            providerModeGroup.set_visible(provider === 'opencode');
             openCodeModeRow.set_visible(provider === 'opencode');
-            deepSeekThinkingRow.set_visible(provider === 'deepseek');
-            deepSeekEffortRow.set_visible(provider === 'deepseek' && getDeepSeekThinking(config.thinking) === 'enabled');
 
             if (pType === 'local' || pType === 'custom') {
                 modelEntryRow.set_visible(true);
@@ -813,14 +826,12 @@ export default class MeiPreferences extends ExtensionPreferences {
             if (modelEntryTimeout) {
                 GLib.source_remove(modelEntryTimeout);
                 modelEntryTimeout = 0;
+                void updateCurrentProviderConfig('modelName', modelEntryRow.get_text());
             }
             if (urlTimeout) {
                 GLib.source_remove(urlTimeout);
                 urlTimeout = 0;
-            }
-            if (apiKeyTimeout) {
-                GLib.source_remove(apiKeyTimeout);
-                apiKeyTimeout = 0;
+                void updateCurrentProviderConfig('url', urlRow.get_text());
             }
             if (fetchTimeout) {
                 GLib.source_remove(fetchTimeout);
@@ -843,9 +854,4 @@ export default class MeiPreferences extends ExtensionPreferences {
             settingsSignalIds.length = 0;
         });
     }
-}
-
-function getApiKeyFieldText(config: StoredProviderConfig): string {
-    if (config.apiKey && !isApiKeyPlaceholderLike(config.apiKey)) return config.apiKey;
-    return config.apiKeyStorage === 'secret' ? API_KEY_PLACEHOLDER : '';
 }

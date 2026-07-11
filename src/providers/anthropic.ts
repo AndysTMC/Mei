@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
+import { createTokenUsage, getNumberAtPath, getStringAtPath, mergeTokenUsage, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
 import { buildAnthropicMessagesBody } from './anthropicPayload.js';
 
 export class AnthropicProvider implements Provider {
@@ -37,7 +37,12 @@ export class AnthropicProvider implements Provider {
         cancellable: Gio.Cancellable,
         options: SendMessageOptions = {}
     ): Promise<ChatResponse> {
-        const body = buildAnthropicMessagesBody(this._model, messages);
+        const body = buildAnthropicMessagesBody(
+            this._model,
+            messages,
+            4096,
+            supportsAdaptiveThinking(this._model)
+        );
 
         Logger.debug(Tag.Provider, `${this.name} sending ${body.messages.length} message(s)${body.system ? ' + system prompt' : ''}`);
 
@@ -59,7 +64,7 @@ export class AnthropicProvider implements Provider {
                 data => {
                     const parsed = parseJsonObject(data);
                     if (!parsed) return;
-                    usage = parseAnthropicUsage(parsed) ?? usage;
+                    usage = mergeTokenUsage(usage, parseAnthropicUsage(parsed));
                     const deltaType = getStringAtPath(parsed, ['delta', 'type']);
                     const contentDelta = deltaType === 'text_delta'
                         ? getStringAtPath(parsed, ['delta', 'text']) ?? ''
@@ -118,8 +123,14 @@ function parseAnthropicContent(json: unknown): ChatResponse {
 
 function parseAnthropicUsage(root: unknown): TokenUsage | undefined {
     return createTokenUsage(
-        getNumberAtPath(root, ['usage', 'input_tokens']),
+        getNumberAtPath(root, ['usage', 'input_tokens']) ??
+            getNumberAtPath(root, ['message', 'usage', 'input_tokens']),
         getNumberAtPath(root, ['usage', 'output_tokens']),
         null
     );
+}
+
+function supportsAdaptiveThinking(model: string): boolean {
+    const id = model.toLowerCase();
+    return /(?:opus-4-[678]|sonnet-4-6|fable-5|sonnet-5|mythos-5)/.test(id);
 }

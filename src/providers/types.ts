@@ -77,7 +77,7 @@ export interface Provider {
 }
 
 /** Supported provider identifiers. */
-export type ProviderId = 'ollama' | 'llamacpp' | 'lmstudio' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'mistral' | 'openrouter' | 'deepseek' | 'custom' | 'opencode' | 'githubcopilot';
+export type ProviderId = 'ollama' | 'llamacpp' | 'lmstudio' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'mistral' | 'openrouter' | 'custom' | 'opencode' | 'githubcopilot';
 
 export function getStringAtPath(
     root: unknown,
@@ -126,16 +126,39 @@ export function createTokenUsage(
     outputTokens?: number | null,
     totalTokens?: number | null
 ): TokenUsage | undefined {
+    const input = normalizeTokenCount(inputTokens);
+    const output = normalizeTokenCount(outputTokens);
+    const total = normalizeTokenCount(totalTokens);
     const usage: TokenUsage = {};
-    if (typeof inputTokens === 'number') usage.inputTokens = inputTokens;
-    if (typeof outputTokens === 'number') usage.outputTokens = outputTokens;
-    if (typeof totalTokens === 'number') {
-        usage.totalTokens = totalTokens;
-    } else if (typeof inputTokens === 'number' && typeof outputTokens === 'number') {
-        usage.totalTokens = inputTokens + outputTokens;
+    if (input !== null) usage.inputTokens = input;
+    if (output !== null) usage.outputTokens = output;
+    if (total !== null) {
+        usage.totalTokens = total;
+    } else if (input !== null && output !== null) {
+        usage.totalTokens = input + output;
     }
 
     return Object.keys(usage).length > 0 ? usage : undefined;
+}
+
+function normalizeTokenCount(value: number | null | undefined): number | null {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ? Math.trunc(value)
+        : null;
+}
+
+export function mergeTokenUsage(
+    current: TokenUsage | undefined,
+    update: TokenUsage | undefined
+): TokenUsage | undefined {
+    if (!current) return update;
+    if (!update) return current;
+
+    return createTokenUsage(
+        update.inputTokens ?? current.inputTokens,
+        update.outputTokens ?? current.outputTokens,
+        update.totalTokens ?? current.totalTokens
+    );
 }
 
 export function parseJsonObject(text: string): JsonObject | null {

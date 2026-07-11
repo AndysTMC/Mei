@@ -38,6 +38,23 @@ test('parseChatSessions keeps valid sessions and filters malformed entries', () 
         { ...valid, messages: [{ role: 'tool', content: 'bad' }] },
         { ...valid, messages: [{ role: 'user', content: 'bad', metadata: [] }] },
     ]), [valid]);
+    assert.deepEqual(parseChatSessions(null), []);
+    assert.deepEqual(parseChatSessions({}), []);
+});
+
+test('parseChatSessions accepts every supported message role and optional metadata', () => {
+    const session = {
+        id: 'all-roles',
+        title: '',
+        createdAt: 0,
+        updatedAt: -1,
+        messages: [
+            { role: 'system', content: 'system' },
+            { role: 'user', content: 'user', thinking: '' },
+            { role: 'assistant', content: 'assistant', metadata: {} },
+        ],
+    };
+    assert.deepEqual(parseChatSessions([session]), [session]);
 });
 
 test('generateChatTitle uses the first user message and truncates long titles', () => {

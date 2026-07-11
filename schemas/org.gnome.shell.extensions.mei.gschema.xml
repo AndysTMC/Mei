@@ -10,7 +10,7 @@
         <key name="provider" type="s">
             <default>'ollama'</default>
             <summary>AI Provider</summary>
-            <description>The AI provider to use: ollama, llamacpp, lmstudio, openai, anthropic, gemini, groq, mistral, openrouter, deepseek, custom, opencode, githubcopilot</description>
+            <description>The AI provider to use: ollama, llamacpp, lmstudio, openai, anthropic, gemini, groq, mistral, openrouter, custom, opencode, githubcopilot</description>
         </key>
         <key name="provider-configs" type="s">
             <default>'{}'</default>

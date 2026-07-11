@@ -116,11 +116,10 @@ export class PopupLogPanel {
                 this._lines = [];
                 return;
             }
-            const rawLines = new TextDecoder().decode(contents).split('\n');
-            const lines = rawLines
+            const lines = new TextDecoder().decode(contents).split('\n')
                 .map(line => line.trimEnd())
                 .filter(line => line.trim().length > 0);
-            this._lines = this._trimLines(lines, rawLines.length !== lines.length);
+            this._lines = this._trimLines(lines);
             this._page = Math.min(this._page, this._getPageCount(this._getVisibleLines()) - 1);
         } catch (e) {
             this._lines = [`[ERROR] Failed to load logs: ${e}`];
@@ -176,8 +175,8 @@ export class PopupLogPanel {
         }, callbacks, this._page < totalPages - 1);
     }
 
-    private _trimLines(lines: string[], forceWrite: boolean = false): string[] {
-        if (lines.length <= LOG_MAX_LINES && !forceWrite) return lines;
+    private _trimLines(lines: string[]): string[] {
+        if (lines.length <= LOG_MAX_LINES) return lines;
 
         const trimmed = lines.slice(-LOG_MAX_LINES);
         const nextText = trimmed.length > 0 ? trimmed.join('\n') + '\n' : '';

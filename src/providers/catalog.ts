@@ -8,8 +8,6 @@ import type { ProviderId } from './types.js';
 
 export type ProviderType = 'local' | 'cloud' | 'custom';
 export type OpenCodeMode = 'go' | 'zen';
-export type DeepSeekThinking = 'default' | 'enabled' | 'disabled';
-export type DeepSeekReasoningEffort = 'high' | 'max';
 
 export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
     local: 'Local',
@@ -27,7 +25,6 @@ export const PROVIDER_LABELS: Record<ProviderId, string> = {
     groq: 'Groq',
     mistral: 'Mistral',
     openrouter: 'OpenRouter',
-    deepseek: 'DeepSeek',
     custom: 'Custom',
     opencode: 'OpenCode',
     githubcopilot: 'GitHub Models',
@@ -42,7 +39,6 @@ export const CLOUD_PROVIDER_IDS: ProviderId[] = [
     'groq',
     'mistral',
     'openrouter',
-    'deepseek',
     'opencode',
     'githubcopilot',
 ];
@@ -77,23 +73,13 @@ const OPEN_CODE_CHAT_MODEL_IDS: Record<OpenCodeMode, readonly string[]> = {
         'kimi-k2.6',
         'kimi-k2.7-code',
         'grok-build-0.1',
+        'grok-4.5',
         'big-pickle',
         'mimo-v2.5-free',
         'north-mini-code-free',
         'nemotron-3-ultra-free',
         'deepseek-v4-flash-free',
     ],
-};
-
-export const DEEPSEEK_THINKING_LABELS: Record<DeepSeekThinking, string> = {
-    default: 'Default',
-    enabled: 'On',
-    disabled: 'Off',
-};
-
-export const DEEPSEEK_REASONING_EFFORT_LABELS: Record<DeepSeekReasoningEffort, string> = {
-    high: 'High',
-    max: 'Max',
 };
 
 export function getProviderType(value: string): ProviderType {
@@ -138,11 +124,15 @@ export function isOpenCodeChatCompletionsModel(model: string, mode: OpenCodeMode
     return OPEN_CODE_CHAT_MODEL_IDS[mode].includes(getOpenCodeModelId(model));
 }
 
-export function getDeepSeekThinking(value: string | undefined): DeepSeekThinking {
-    if (value === 'enabled' || value === 'disabled') return value;
-    return 'default';
-}
+export function getModelListUrl(chatUrl: string, modelPath: '/api/tags' | '/v1/models'): string {
+    const match = chatUrl.trim().match(/^(https?:\/\/[^/?#]+)([^?#]*)/i);
+    if (!match) return chatUrl;
 
-export function getDeepSeekReasoningEffort(value: string | undefined): DeepSeekReasoningEffort {
-    return value === 'max' ? 'max' : 'high';
+    const origin = match[1];
+    const currentPath = (match[2] || '').replace(/\/+$/, '');
+    const chatSuffix = modelPath === '/api/tags' ? '/api/chat' : '/v1/chat/completions';
+    if (currentPath.endsWith(chatSuffix)) {
+        return `${origin}${currentPath.slice(0, -chatSuffix.length)}${modelPath}`;
+    }
+    return `${origin}${modelPath}`;
 }

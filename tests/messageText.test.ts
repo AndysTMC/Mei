@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    decodeEntities,
     escapePangoText,
     extractLinks,
     inlineMarkup,
@@ -27,6 +28,8 @@ test('inlineMarkup escapes Pango text while preserving supported inline markup',
         inlineMarkup('[bad](javascript:alert(1))'),
         'bad'
     );
+    assert.equal(inlineMarkup('~~gone~~ *italic* _also_ \\*literal*'), '<s>gone</s> <i>italic</i> <i>also</i> *literal*');
+    assert.equal(inlineMarkup('<https://example.test> <mailto:a@example.test>'), '<span underline="single">https://example.test</span> <span underline="single">mailto:a@example.test</span>');
 });
 
 test('extractLinks deduplicates links and ignores images or unsafe protocols', () => {
@@ -36,9 +39,14 @@ test('extractLinks deduplicates links and ignores images or unsafe protocols', (
         { label: 'Docs', url: 'https://example.test' },
         { label: 'mailto:a@example.test', url: 'mailto:a@example.test' },
     ]);
+    assert.deepEqual(extractLinks('[Nested](https://example.test/a_(b)) https://second.test/path.'), [
+        { label: 'Nested', url: 'https://example.test/a_(b)' },
+        { label: 'https://second.test/path.', url: 'https://second.test/path.' },
+    ]);
 });
 
 test('Pango helpers escape text and strip generated tags', () => {
+    assert.equal(decodeEntities('&amp;&lt;&gt;&quot;&#39;'), '&<>"\'');
     assert.equal(escapePangoText('a < b & c > d'), 'a &lt; b &amp; c &gt; d');
     assert.equal(stripPangoTags('<b>Hello</b> <span underline="single">link</span>'), 'Hello link');
 });

@@ -4,28 +4,33 @@
   "type": "module",
   "license": "GPL-3.0-only",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "clean": "rm -rf dist",
     "test": "node scripts/run-tests.js",
+    "test:coverage": "MEI_TEST_COVERAGE=1 node scripts/run-tests.js",
     "lint": "npm run typecheck",
     "format:check": "node scripts/check-format.js",
     "smoke:providers": "node scripts/smoke-providers.js",
+    "test:live": "node scripts/smoke-providers.js",
     "check": "npm test && npm run lint && npm run format:check && npm run build",
     "typecheck": "tsc --noEmit",
     "build:ts": "node esbuild.js",
     "build:ts:dev": "node esbuild.js --dev",
     "build:schemas": "mkdir -p dist/schemas && cp schemas/*.xml dist/schemas/ && glib-compile-schemas dist/schemas/",
-    "build:assets": "cp metadata.json dist/ && cp stylesheet.css dist/ && cp -r icons dist/",
+    "build:assets": "cp metadata.json dist/ && cp stylesheet.css dist/",
     "build": "npm run clean && mkdir -p dist && npm run build:ts && npm run build:schemas && npm run build:assets",
     "build:dev": "npm run clean && mkdir -p dist && npm run build:ts:dev && npm run build:schemas && npm run build:assets",
     "install:ext": "ln -sf $(pwd)/dist ~/.local/share/gnome-shell/extensions/mei@andystmc.com",
     "dev": "npm run build:dev && npm run install:ext && dbus-run-session gnome-shell --devkit --wayland"
   },
   "devDependencies": {
-    "@girs/gjs": "4.0.4",
-    "@girs/gnome-shell": "50.0.1",
-    "@girs/soup-3.0": "3.6.6-4.0.4",
-    "esbuild": "0.25.12",
-    "typescript": "5.9.3"
+    "@girs/gjs": "4.1.0",
+    "@girs/gnome-shell": "50.0.4",
+    "@girs/soup-3.0": "4.1.0",
+    "esbuild": "0.28.1",
+    "typescript": "7.0.2"
   }
 }

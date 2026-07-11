@@ -13,19 +13,3 @@ export function buildOpenAIChatBody(
         messages: toApiMessages(messages),
     };
 }
-
-export function buildDeepSeekChatBody(
-    model: string,
-    messages: ChatMessage[],
-    thinking: string,
-    reasoningEffort: string
-): Record<string, unknown> {
-    const body = buildOpenAIChatBody(model, messages);
-    if (thinking !== 'default') {
-        body.thinking = {
-            type: thinking,
-            ...(thinking === 'enabled' ? { reasoning_effort: reasoningEffort } : {}),
-        };
-    }
-    return body;
-}

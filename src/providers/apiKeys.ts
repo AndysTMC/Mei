@@ -5,6 +5,7 @@
 import {
     createEmptyProviderConfig,
     isApiKeyPlaceholderLike,
+    withSecretApiKeyFallback,
     type ProviderConfigs,
     type StoredProviderConfig,
 } from './configStore.js';
@@ -49,7 +50,10 @@ export async function updateStoredProviderApiKey(
 
     try {
         if (await storeProviderApiKey(provider, trimmedKey)) {
-            return { ...config, apiKey: '', apiKeyStorage: 'secret' };
+            // Keep a GSettings fallback. Secret Service can be available while
+            // saving and unavailable after a Shell restart; without this copy,
+            // every cloud provider is recreated with an empty credential.
+            return withSecretApiKeyFallback(config, trimmedKey);
         }
     } catch (e) {
         Logger.warn(Tag.Extension, `Failed to store ${provider} API key in keyring: ${e}`);
@@ -72,7 +76,7 @@ export async function migratePlaintextApiKeys(configs: ProviderConfigs): Promise
 
         try {
             if (await storeProviderApiKey(provider, config.apiKey)) {
-                migrated[provider] = { ...config, apiKey: '', apiKeyStorage: 'secret' };
+                migrated[provider] = withSecretApiKeyFallback(config, config.apiKey);
                 changed = true;
                 continue;
             }

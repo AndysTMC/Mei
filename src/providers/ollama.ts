@@ -40,6 +40,7 @@ export class OllamaProvider implements Provider {
             model: this._model,
             messages: toApiMessages(messages),
             stream: Boolean(options.stream),
+            think: this._model.toLowerCase().includes('gpt-oss') ? 'medium' : true,
         };
 
         Logger.debug(Tag.Provider, `${this.name} sending ${messages.length} message(s)`);

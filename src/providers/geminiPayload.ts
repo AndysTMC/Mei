@@ -7,15 +7,16 @@ import type { ChatMessage } from './types.js';
 export interface GeminiContentBody {
     contents: Array<{ role: string; parts: Array<{ text: string }> }>;
     systemInstruction?: { parts: Array<{ text: string }> };
+    generationConfig?: { thinkingConfig: { includeThoughts: boolean } };
 }
 
-export function buildGeminiContentBody(messages: ChatMessage[]): GeminiContentBody {
-    let systemInstruction: GeminiContentBody['systemInstruction'];
+export function buildGeminiContentBody(messages: ChatMessage[], includeThoughts = false): GeminiContentBody {
+    const systemParts: Array<{ text: string }> = [];
     const contents: GeminiContentBody['contents'] = [];
 
     for (const msg of messages) {
         if (msg.role === 'system') {
-            systemInstruction = { parts: [{ text: msg.content }] };
+            systemParts.push({ text: msg.content });
         } else {
             contents.push({
                 role: msg.role === 'assistant' ? 'model' : 'user',
@@ -24,5 +25,9 @@ export function buildGeminiContentBody(messages: ChatMessage[]): GeminiContentBo
         }
     }
 
-    return systemInstruction ? { contents, systemInstruction } : { contents };
+    return {
+        contents,
+        ...(systemParts.length > 0 ? { systemInstruction: { parts: systemParts } } : {}),
+        ...(includeThoughts ? { generationConfig: { thinkingConfig: { includeThoughts: true } } } : {}),
+    };
 }

@@ -2,8 +2,8 @@
  * Structured logger for Mei.
  *
  * Uses the build-time `__DEV__` constant (injected by esbuild) to
- * control verbosity.  In production builds `__DEV__` is `false` and
- * esbuild tree-shakes all DEBUG/INFO paths away — zero runtime cost.
+ * control console verbosity. Production builds retain INFO/WARN/ERROR file
+ * logging while omitting development-only console output and stack details.
  *
  * Log format:  [Mei:LEVEL] [Tag] message
  *
@@ -37,6 +37,10 @@ export const Tag = {
 
 export type TagName = (typeof Tag)[keyof typeof Tag];
 
+const MAX_LOG_BYTES = 2 * 1024 * 1024;
+const RETAINED_LOG_CHARS = 1024 * 1024;
+let approximateLogBytes: number | null = null;
+
 /* ── Helpers ──────────────────────────────────────── */
 
 /** Truncate a string to `max` chars, appending `…` if clipped. */
@@ -57,18 +61,43 @@ function writeToFile(level: string, tag: string, msg: string): void {
     try {
         ensureLogDir();
         const file = Gio.File.new_for_path(LOG_FILE);
+        rotateLogIfNeeded(file);
         const out = file.append_to(Gio.FileCreateFlags.NONE, null);
 
         const now = new Date();
         const timestamp = now.toISOString();
-        const line = `[${timestamp}] [${level}] [${tag}] ${msg}\n`;
+        const safeMessage = msg.replace(/[\r\n]+/g, '\\n');
+        const line = `[${timestamp}] [${level}] [${tag}] ${safeMessage}\n`;
 
-        out.write_all(new TextEncoder().encode(line), null);
+        const encodedLine = new TextEncoder().encode(line);
+        out.write_all(encodedLine, null);
         out.close(null);
+        approximateLogBytes = (approximateLogBytes ?? 0) + encodedLine.length;
         setPrivateMode(LOG_FILE, 0o600);
     } catch (e) {
         console.error(`[Mei:ERROR] Failed to write log to file: ${e}`);
     }
+}
+
+function rotateLogIfNeeded(file: Gio.File): void {
+    if (approximateLogBytes === null) {
+        approximateLogBytes = file.query_exists(null)
+            ? file.query_info(Gio.FILE_ATTRIBUTE_STANDARD_SIZE, Gio.FileQueryInfoFlags.NONE, null).get_size()
+            : 0;
+    }
+    if (approximateLogBytes <= MAX_LOG_BYTES) return;
+
+    const [ok, contents] = file.load_contents(null);
+    if (!ok) return;
+    const text = new TextDecoder().decode(contents);
+    const retained = text.slice(-RETAINED_LOG_CHARS);
+    const firstNewline = retained.indexOf('\n');
+    const tail = firstNewline >= 0 ? retained.slice(firstNewline + 1) : retained;
+    const rotated = `[${new Date().toISOString()}] [INFO] [Extension] Log rotated\n${tail}`;
+    const bytes = new TextEncoder().encode(rotated);
+    file.replace_contents(bytes, null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+    approximateLogBytes = bytes.length;
+    setPrivateMode(LOG_FILE, 0o600);
 }
 
 /* ── Logger ───────────────────────────────────────── */

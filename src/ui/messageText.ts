@@ -66,15 +66,15 @@ export function extractLinks(text: string, sanitize: (url: string) => string | n
         addLink(match[1], match[1]);
     }
     for (const match of text.matchAll(/\bhttps?:\/\/[^\s<>)\]]+/gi)) {
-        if (typeof match.index === 'number' && isMarkdownImageUrl(text, match.index)) continue;
+        if (typeof match.index === 'number' && isMarkdownLinkUrl(text, match.index)) continue;
         addLink(match[0], match[0]);
     }
 
     return [...links.values()];
 }
 
-function isMarkdownImageUrl(text: string, urlIndex: number): boolean {
-    return /!\[[^\]\n]*\]\($/.test(text.slice(0, urlIndex));
+function isMarkdownLinkUrl(text: string, urlIndex: number): boolean {
+    return /!?\[[^\]\n]*\]\($/.test(text.slice(0, urlIndex));
 }
 
 export function sanitizeUrl(url: string, validator: UrlValidator = isValidStandardUrl): string | null {

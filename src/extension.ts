@@ -21,12 +21,12 @@ import { ChatStore, ChatSession } from './utils/chatStore.js';
 import type { ChatMessage, ChatMessageMetadata, Provider, ProviderConfig, ProviderId, StreamUpdate } from './providers/types.js';
 import { OllamaProvider } from './providers/ollama.js';
 import { LlamaCppProvider } from './providers/llamacpp.js';
-import { OpenAIProvider, GroqProvider, MistralProvider, OpenRouterProvider, DeepSeekProvider, CustomProvider, OpenCodeProvider, GitHubCopilotProvider, LMStudioProvider } from './providers/openai.js';
+import { OpenAIProvider, GroqProvider, MistralProvider, OpenRouterProvider, CustomProvider, OpenCodeProvider, GitHubCopilotProvider, LMStudioProvider } from './providers/openai.js';
 import { AnthropicProvider } from './providers/anthropic.js';
 import { GeminiProvider } from './providers/gemini.js';
-import { getProviderLabel, getProviderType, PROVIDER_TYPE_LABELS } from './providers/catalog.js';
+import { getProviderLabel, getProviderType, isProviderId, PROVIDER_TYPE_LABELS } from './providers/catalog.js';
 import { migratePlaintextApiKeys, resolveStoredProviderConfig } from './providers/apiKeys.js';
-import { createEmptyProviderConfig, parseProviderConfigs, type StoredProviderConfig } from './providers/configStore.js';
+import { createEmptyProviderConfig, mergeMigratedApiKeyConfigs, parseProviderConfigs, type StoredProviderConfig } from './providers/configStore.js';
 
 interface ProviderBuildResult {
     provider: Provider;
@@ -52,7 +52,7 @@ export default class MeiExtension extends Extension {
     private _chatSessionId: string | null = null;
     private _isStreamingResponse = false;
 
-    enable(): void {
+    override enable(): void {
         Logger.info(Tag.Extension, 'Enabling Mei extension');
         this._soupSession = new Soup.Session({ timeout: 300 });
         this._messages = [];
@@ -106,7 +106,7 @@ export default class MeiExtension extends Extension {
         Logger.info(Tag.Extension, 'Mei extension enabled');
     }
 
-    disable(): void {
+    override disable(): void {
         Logger.info(Tag.Extension, 'Disabling Mei extension');
         const chatStore = this._chatStore;
 
@@ -167,6 +167,15 @@ export default class MeiExtension extends Extension {
         });
     }
 
+    private _flushQueuedProviderRefresh(): Promise<void> | null {
+        if (this._providerRefreshTimeoutId !== 0) {
+            GLib.source_remove(this._providerRefreshTimeoutId);
+            this._providerRefreshTimeoutId = 0;
+            this._providerReadyPromise = this._refreshProviderNow();
+        }
+        return this._providerReadyPromise;
+    }
+
     private async _refreshProviderNow(): Promise<void> {
         const seq = ++this._providerRefreshSeq;
         try {
@@ -184,7 +193,9 @@ export default class MeiExtension extends Extension {
 
     private async _createProvider(): Promise<ProviderBuildResult> {
         const session = this._soupSession!;
-        const providerId = this._settings!.get_string('provider') as ProviderId;
+        const storedProviderId = this._settings!.get_string('provider');
+        const providerId: ProviderId = isProviderId(storedProviderId) ? storedProviderId : 'openai';
+        if (providerId !== storedProviderId) this._settings!.set_string('provider', providerId);
         const configsJson = this._settings!.get_string('provider-configs');
         let parsedConfigs: Record<string, StoredProviderConfig> = {};
         try {
@@ -193,13 +204,16 @@ export default class MeiExtension extends Extension {
             Logger.warn(Tag.Extension, `Failed to parse provider-configs: ${e}`);
         }
         const migrated = await migratePlaintextApiKeys(parsedConfigs);
+        let effectiveConfigs = migrated.configs;
         if (migrated.changed && this._settings) {
-            this._settings.set_string('provider-configs', JSON.stringify(migrated.configs));
+            const currentConfigs = parseProviderConfigs(this._settings.get_string('provider-configs'));
+            effectiveConfigs = mergeMigratedApiKeyConfigs(parsedConfigs, migrated.configs, currentConfigs);
+            this._settings.set_string('provider-configs', JSON.stringify(effectiveConfigs));
         }
 
         const providerConfig = await resolveStoredProviderConfig(
             providerId,
-            migrated.configs[providerId] || createEmptyProviderConfig()
+            effectiveConfigs[providerId] || createEmptyProviderConfig()
         );
 
         const config: ProviderConfig = {
@@ -230,9 +244,6 @@ export default class MeiExtension extends Extension {
                 break;
             case 'openrouter':
                 provider = new OpenRouterProvider(session, config);
-                break;
-            case 'deepseek':
-                provider = new DeepSeekProvider(session, config);
                 break;
             case 'custom':
                 provider = new CustomProvider(session, config);
@@ -388,7 +399,8 @@ export default class MeiExtension extends Extension {
     private async _fetchResponse(): Promise<void> {
         if (!this._soupSession) return;
 
-        let provider = this._provider;
+        let provider: Provider | null = null;
+        let providerMetadata: ChatMessageMetadata | null = null;
         const cancellable = new Gio.Cancellable();
         this._cancellable = cancellable;
         this._isStreamingResponse = true;
@@ -398,9 +410,10 @@ export default class MeiExtension extends Extension {
         this._popup?.setLoading(true);
 
         try {
-            await this._providerReadyPromise;
+            await this._flushQueuedProviderRefresh();
             provider = this._provider;
             if (!provider) throw new Error('AI provider is not ready.');
+            providerMetadata = this._providerMetadata ? { ...this._providerMetadata } : null;
             Logger.info(Tag.Extension, `Fetching response from ${provider.name}`);
 
             let streamedContent = '';
@@ -439,7 +452,7 @@ export default class MeiExtension extends Extension {
                 content: reply.content,
                 thinking: reply.thinking,
                 metadata: {
-                    ...(this._providerMetadata ?? {}),
+                    ...(providerMetadata ?? {}),
                     durationMs: Date.now() - startedAt,
                     tokens: reply.usage,
                 },
@@ -448,7 +461,7 @@ export default class MeiExtension extends Extension {
             this._messagesBackup = null;
 
             if (this._popup?.isExpanded) {
-                this._popup.showHistory(this._messages);
+                this._popup.showHistory(this._messages, true);
             } else {
                 this._popup?.showMessage('assistant', reply.content);
                 this._popup?.open();

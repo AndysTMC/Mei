@@ -37,7 +37,7 @@ export class GeminiProvider implements Provider {
         cancellable: Gio.Cancellable,
         options: SendMessageOptions = {}
     ): Promise<ChatResponse> {
-        const body = buildGeminiContentBody(messages);
+        const body = buildGeminiContentBody(messages, supportsThoughtSummaries(this._model));
 
         Logger.debug(Tag.Provider, `${this.name} sending ${body.contents.length} message(s)${body.systemInstruction ? ' + system instruction' : ''}`);
 
@@ -46,6 +46,7 @@ export class GeminiProvider implements Provider {
 
         if (options.stream) {
             let content = '';
+            let thinking = '';
             let usage: TokenUsage | undefined;
             const streamUrl = `${this._baseUrl}/models/${this._model}:streamGenerateContent?alt=sse`;
             await postJsonSse(
@@ -58,13 +59,20 @@ export class GeminiProvider implements Provider {
                     const parsed = parseJsonObject(data);
                     if (!parsed) return;
                     usage = parseGeminiUsage(parsed) ?? usage;
-                    const contentDelta = extractGeminiText(parsed);
-                    if (!contentDelta) return;
+                    const delta = extractGeminiResponse(parsed);
+                    const contentDelta = delta.content;
+                    const thinkingDelta = delta.thinking ?? '';
+                    if (!contentDelta && !thinkingDelta) return;
                     content += contentDelta;
-                    options.onUpdate?.({ contentDelta });
+                    thinking += thinkingDelta;
+                    options.onUpdate?.({ contentDelta, thinkingDelta });
                 }
             );
-            return { content: content.trim() || '(no response)', usage };
+            return {
+                content: content.trim() || '(no response)',
+                thinking: thinking.trim() || undefined,
+                usage,
+            };
         }
 
         const json = await postJson(
@@ -75,10 +83,14 @@ export class GeminiProvider implements Provider {
             cancellable
         );
 
-        const content = extractGeminiText(json).trim() ||
-            '(no response)';
+        const response = extractGeminiResponse(json);
+        const content = response.content.trim() || '(no response)';
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
-        return { content, usage: parseGeminiUsage(json) };
+        return {
+            content,
+            thinking: response.thinking?.trim() || undefined,
+            usage: parseGeminiUsage(json),
+        };
     }
 }
 
@@ -90,23 +102,32 @@ function parseGeminiUsage(root: unknown): TokenUsage | undefined {
     );
 }
 
-function extractGeminiText(root: unknown): string {
-    if (typeof root !== 'object' || root === null || Array.isArray(root)) return '';
+function extractGeminiResponse(root: unknown): ChatResponse {
+    if (typeof root !== 'object' || root === null || Array.isArray(root)) return { content: '' };
     const candidates = (root as Record<string, unknown>).candidates;
-    if (!Array.isArray(candidates)) return '';
+    if (!Array.isArray(candidates)) return { content: '' };
 
-    return candidates.flatMap(candidate => {
-        if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) return [];
+    let contentText = '';
+    let thinkingText = '';
+    for (const candidate of candidates) {
+        if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) continue;
         const content = (candidate as Record<string, unknown>).content;
-        if (typeof content !== 'object' || content === null || Array.isArray(content)) return [];
+        if (typeof content !== 'object' || content === null || Array.isArray(content)) continue;
         const parts = (content as Record<string, unknown>).parts;
-        if (!Array.isArray(parts)) return [];
-        return parts.flatMap(part => {
-            if (typeof part !== 'object' || part === null || Array.isArray(part)) return [];
-            const text = (part as Record<string, unknown>).text;
-            return typeof text === 'string' ? [text] : [];
-        });
-    }).join('');
+        if (!Array.isArray(parts)) continue;
+        for (const part of parts) {
+            if (typeof part !== 'object' || part === null || Array.isArray(part)) continue;
+            const item = part as Record<string, unknown>;
+            if (typeof item.text !== 'string') continue;
+            if (item.thought === true) thinkingText += item.text;
+            else contentText += item.text;
+        }
+    }
+    return { content: contentText, thinking: thinkingText || undefined };
+}
+
+function supportsThoughtSummaries(model: string): boolean {
+    return /^gemini-(?:2\.5|3(?:\.|-))/.test(model.toLowerCase());
 }
 
 function stripTrailingSlash(url: string): string {

@@ -9,19 +9,21 @@ export interface AnthropicMessagesBody {
     messages: Array<{ role: string; content: string }>;
     max_tokens: number;
     system?: string;
+    thinking?: { type: 'adaptive'; display: 'summarized' };
 }
 
 export function buildAnthropicMessagesBody(
     model: string,
     messages: ChatMessage[],
-    maxTokens = 4096
+    maxTokens = 4096,
+    adaptiveThinking = false
 ): AnthropicMessagesBody {
-    let systemPrompt: string | undefined;
+    const systemPrompts: string[] = [];
     const filteredMessages: AnthropicMessagesBody['messages'] = [];
 
     for (const msg of messages) {
         if (msg.role === 'system') {
-            systemPrompt = msg.content;
+            systemPrompts.push(msg.content);
         } else {
             filteredMessages.push({
                 role: msg.role,
@@ -30,10 +32,12 @@ export function buildAnthropicMessagesBody(
         }
     }
 
+    const systemPrompt = systemPrompts.join('\n\n');
     return {
         model,
         messages: filteredMessages,
         max_tokens: maxTokens,
         ...(systemPrompt ? { system: systemPrompt } : {}),
+        ...(adaptiveThinking ? { thinking: { type: 'adaptive' as const, display: 'summarized' as const } } : {}),
     };
 }
