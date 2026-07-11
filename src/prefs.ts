@@ -32,7 +32,9 @@ import {
 import { fetchProviderModels } from './providers/modelList.js';
 import type { ProviderId } from './providers/types.js';
 import {
+    API_KEY_PLACEHOLDER,
     createEmptyProviderConfig,
+    isApiKeyPlaceholderLike,
     parseProviderConfigs,
     type ProviderConfigKey,
     type ProviderConfigs,
@@ -43,6 +45,8 @@ import {
     resolveStoredProviderConfig,
     updateStoredProviderApiKey,
 } from './providers/apiKeys.js';
+import { lookupProviderApiKey } from './utils/secretStore.js';
+import { Logger, Tag } from './utils/logger.js';
 import { LOG_FILE, replaceLogFileTextAsync } from './utils/logFile.js';
 
 export default class MeiPreferences extends ExtensionPreferences {
@@ -188,6 +192,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         let providerConfigSaveTimeout = 0;
         let pendingProviderConfigs: ProviderConfigs | null = null;
         const apiKeyCache = new Map<string, string>();
+        let refreshingProviderUi = false;
 
         function getProviderConfigs(): ProviderConfigs {
             if (pendingProviderConfigs) return pendingProviderConfigs;
@@ -232,18 +237,34 @@ export default class MeiPreferences extends ExtensionPreferences {
 
         function getCurrentApiKeySnapshot(provider: string): string {
             const config = getProviderConfigs()[provider] || createEmptyProviderConfig();
-            return config.apiKey || apiKeyCache.get(provider) || '';
+            return isApiKeyPlaceholderLike(config.apiKey) ? apiKeyCache.get(provider) || '' : config.apiKey || apiKeyCache.get(provider) || '';
         }
         async function migrateProviderConfigsToSecret(): Promise<void> {
-            const result = await migratePlaintextApiKeys(getProviderConfigs());
+            const configs = getProviderConfigs();
+            const result = await migratePlaintextApiKeys(configs);
             if (destroyed) return;
             if (result.changed) {
                 saveProviderConfigsNow(result.configs);
             }
+
+            // Pre-warm apiKeyCache
+            const finalConfigs = result.changed ? result.configs : configs;
+            for (const [provider, config] of Object.entries(finalConfigs)) {
+                if (config.apiKeyStorage === 'secret') {
+                    try {
+                        const key = await lookupProviderApiKey(provider);
+                        if (key && !destroyed) {
+                            apiKeyCache.set(provider, key);
+                        }
+                    } catch (e) {
+                        Logger.warn(Tag.Extension, `Failed to pre-warm ${provider} API key: ${e}`);
+                    }
+                }
+            }
         }
 
         async function getResolvedProviderConfig(provider: string, config: StoredProviderConfig): Promise<StoredProviderConfig> {
-            if (config.apiKey) return config;
+            if (config.apiKey && !isApiKeyPlaceholderLike(config.apiKey)) return config;
             const cachedKey = apiKeyCache.get(provider);
             if (cachedKey) return { ...config, apiKey: cachedKey };
 
@@ -253,9 +274,11 @@ export default class MeiPreferences extends ExtensionPreferences {
         }
 
         async function updateCurrentProviderConfig(key: ProviderConfigKey, value: string): Promise<void> {
+            if (refreshingProviderUi) return;
             const provider = settings.get_string('provider');
             const configs = getProviderConfigs();
             if (!configs[provider]) configs[provider] = createEmptyProviderConfig();
+            if (key === 'apiKey' && isApiKeyPlaceholderLike(value.trim())) return;
             if (key === 'apiKey') {
                 configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
                 if (value.trim()) {
@@ -328,9 +351,16 @@ export default class MeiPreferences extends ExtensionPreferences {
         });
         providerModeGroup.add(deepSeekEffortRow);
 
+        let modelEntryTimeout = 0;
         const modelEntryRow = new Adw.EntryRow({ title: 'Model' });
         modelEntryRow.connect('notify::text', () => {
-            void updateCurrentProviderConfig('modelName', modelEntryRow.get_text());
+            if (refreshingProviderUi) return;
+            if (modelEntryTimeout) GLib.source_remove(modelEntryTimeout);
+            modelEntryTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 400, () => {
+                modelEntryTimeout = 0;
+                void updateCurrentProviderConfig('modelName', modelEntryRow.get_text());
+                return GLib.SOURCE_REMOVE;
+            });
         });
         connectionGroup.add(modelEntryRow);
 
@@ -349,20 +379,41 @@ export default class MeiPreferences extends ExtensionPreferences {
         modelStatusRow.add_suffix(spinner);
         connectionGroup.add(modelStatusRow);
 
+        let urlTimeout = 0;
         const urlRow = new Adw.EntryRow({ title: 'Endpoint URL (optional)' });
         urlRow.connect('notify::text', () => {
-            void updateCurrentProviderConfig('url', urlRow.get_text());
+            if (refreshingProviderUi) return;
+            if (urlTimeout) GLib.source_remove(urlTimeout);
+            urlTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 400, () => {
+                urlTimeout = 0;
+                void updateCurrentProviderConfig('url', urlRow.get_text());
+                return GLib.SOURCE_REMOVE;
+            });
         });
         connectionGroup.add(urlRow);
 
+        let apiKeyTimeout = 0;
         const apiKeyRow = new Adw.PasswordEntryRow({ title: 'API Key' });
         apiKeyRow.connect('notify::text', () => {
-            void updateCurrentProviderConfig('apiKey', apiKeyRow.get_text());
-            if (getProviderType(settings.get_string('provider-type')) === 'cloud') queueUpdateModels();
+            if (refreshingProviderUi) return;
+            const text = apiKeyRow.get_text();
+            if (isApiKeyPlaceholderLike(text.trim())) return;
+
+            if (apiKeyTimeout) GLib.source_remove(apiKeyTimeout);
+            apiKeyTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                apiKeyTimeout = 0;
+                void (async () => {
+                    await updateCurrentProviderConfig('apiKey', text);
+                    if (getProviderType(settings.get_string('provider-type')) === 'cloud') {
+                        queueUpdateModels();
+                    }
+                })();
+                return GLib.SOURCE_REMOVE;
+            });
         });
         connectionGroup.add(apiKeyRow);
 
-        const session = new Soup.Session({ timeout: 5 });
+        const session = new Soup.Session({ timeout: 15 });
         let modelFetchCancellable: Gio.Cancellable | null = null;
 
         async function fetchModels(provider: string, config: StoredProviderConfig, cancellable: Gio.Cancellable): Promise<string[]> {
@@ -408,7 +459,9 @@ export default class MeiPreferences extends ExtensionPreferences {
             if (apiKey.length === 0) {
                 modelComboRow.set_visible(false);
                 modelStatusRow.set_visible(true);
-                modelStatusRow.set_subtitle('API key required.');
+                modelStatusRow.set_subtitle(config.apiKeyStorage === 'secret'
+                    ? 'Stored API key could not be read. Enter and save it again.'
+                    : 'API key required.');
                 spinner.stop();
                 spinner.set_visible(false);
                 currentFetchProvider = '';
@@ -498,18 +551,24 @@ export default class MeiPreferences extends ExtensionPreferences {
             const provider = settings.get_string('provider');
 
             const config = getCurrentProviderConfig();
-            if (modelEntryRow.get_text() !== (config.modelName || '')) modelEntryRow.set_text(config.modelName || '');
-            if (urlRow.get_text() !== (config.url || '')) urlRow.set_text(config.url || '');
-            if (apiKeyRow.get_text() !== (config.apiKey || '')) apiKeyRow.set_text(config.apiKey || '');
+            refreshingProviderUi = true;
+            try {
+                if (modelEntryRow.get_text() !== (config.modelName || '')) modelEntryRow.set_text(config.modelName || '');
+                if (urlRow.get_text() !== (config.url || '')) urlRow.set_text(config.url || '');
+                const apiKeyText = getApiKeyFieldText(config);
+                if (apiKeyRow.get_text() !== apiKeyText) apiKeyRow.set_text(apiKeyText);
 
-            const openCodeModeIdx = openCodeModeIds.indexOf(getOpenCodeMode(config.mode));
-            if (openCodeModeRow.get_selected() !== openCodeModeIdx) openCodeModeRow.set_selected(openCodeModeIdx);
+                const openCodeModeIdx = openCodeModeIds.indexOf(getOpenCodeMode(config.mode));
+                if (openCodeModeRow.get_selected() !== openCodeModeIdx) openCodeModeRow.set_selected(openCodeModeIdx);
 
-            const deepSeekThinkingIdx = deepSeekThinkingIds.indexOf(getDeepSeekThinking(config.thinking));
-            if (deepSeekThinkingRow.get_selected() !== deepSeekThinkingIdx) deepSeekThinkingRow.set_selected(deepSeekThinkingIdx);
+                const deepSeekThinkingIdx = deepSeekThinkingIds.indexOf(getDeepSeekThinking(config.thinking));
+                if (deepSeekThinkingRow.get_selected() !== deepSeekThinkingIdx) deepSeekThinkingRow.set_selected(deepSeekThinkingIdx);
 
-            const deepSeekEffortIdx = deepSeekEffortIds.indexOf(getDeepSeekReasoningEffort(config.reasoningEffort));
-            if (deepSeekEffortRow.get_selected() !== deepSeekEffortIdx) deepSeekEffortRow.set_selected(deepSeekEffortIdx);
+                const deepSeekEffortIdx = deepSeekEffortIds.indexOf(getDeepSeekReasoningEffort(config.reasoningEffort));
+                if (deepSeekEffortRow.get_selected() !== deepSeekEffortIdx) deepSeekEffortRow.set_selected(deepSeekEffortIdx);
+            } finally {
+                refreshingProviderUi = false;
+            }
 
             urlRow.set_visible(pType === 'custom');
             providerModeGroup.set_visible(provider === 'opencode' || provider === 'deepseek');
@@ -548,7 +607,6 @@ export default class MeiPreferences extends ExtensionPreferences {
 
         settingsSignalIds.push(settings.connect('changed::provider', updateVisibility));
         settingsSignalIds.push(settings.connect('changed::provider-type', updateVisibility));
-        settingsSignalIds.push(settings.connect('changed::provider-configs', updateVisibility));
         updateVisibility();
 
         const providerSubpage = new Adw.NavigationPage({
@@ -752,6 +810,18 @@ export default class MeiPreferences extends ExtensionPreferences {
         });
 
         window.connect('destroy', () => {
+            if (modelEntryTimeout) {
+                GLib.source_remove(modelEntryTimeout);
+                modelEntryTimeout = 0;
+            }
+            if (urlTimeout) {
+                GLib.source_remove(urlTimeout);
+                urlTimeout = 0;
+            }
+            if (apiKeyTimeout) {
+                GLib.source_remove(apiKeyTimeout);
+                apiKeyTimeout = 0;
+            }
             if (fetchTimeout) {
                 GLib.source_remove(fetchTimeout);
                 fetchTimeout = 0;
@@ -773,4 +843,9 @@ export default class MeiPreferences extends ExtensionPreferences {
             settingsSignalIds.length = 0;
         });
     }
+}
+
+function getApiKeyFieldText(config: StoredProviderConfig): string {
+    if (config.apiKey && !isApiKeyPlaceholderLike(config.apiKey)) return config.apiKey;
+    return config.apiKeyStorage === 'secret' ? API_KEY_PLACEHOLDER : '';
 }

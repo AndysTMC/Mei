@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    API_KEY_PLACEHOLDER,
     createEmptyProviderConfig,
+    isApiKeyPlaceholder,
+    isApiKeyPlaceholderLike,
     parseProviderConfigs,
 } from '../src/providers/configStore.ts';
 
@@ -16,6 +19,17 @@ test('createEmptyProviderConfig returns all supported fields', () => {
         thinking: '',
         reasoningEffort: '',
     });
+});
+
+test('API key placeholder is recognizable but distinct from an empty key', () => {
+    assert.equal(API_KEY_PLACEHOLDER, '********');
+    assert.equal(isApiKeyPlaceholder(API_KEY_PLACEHOLDER), true);
+    assert.equal(isApiKeyPlaceholderLike(API_KEY_PLACEHOLDER), true);
+    assert.equal(isApiKeyPlaceholderLike('****'), true);
+    assert.equal(isApiKeyPlaceholder(''), false);
+    assert.equal(isApiKeyPlaceholderLike(''), false);
+    assert.equal(isApiKeyPlaceholder('real-key'), false);
+    assert.equal(isApiKeyPlaceholderLike('real-key'), false);
 });
 
 test('parseProviderConfigs returns normalized provider configs', () => {

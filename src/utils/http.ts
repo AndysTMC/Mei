@@ -196,7 +196,7 @@ async function postJsonTextStream(
             const chunk = await readBytesAsync(stream, cancellable);
             const data = chunk.get_data();
             if (!data || data.length === 0) break;
-            keepReading = onChunk(decoder.decode(data, { stream: true })) !== false;
+            keepReading = onChunk(decoder.decode(data)) !== false;
         }
 
         const tail = decoder.decode();
@@ -254,7 +254,7 @@ async function readStreamText(
         const chunk = await readBytesAsync(stream, cancellable);
         const data = chunk.get_data();
         if (!data || data.length === 0) break;
-        text += decoder.decode(data, { stream: true });
+        text += decoder.decode(data);
     }
     text += decoder.decode();
     return text;

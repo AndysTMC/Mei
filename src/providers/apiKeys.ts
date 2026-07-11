@@ -4,6 +4,7 @@
 
 import {
     createEmptyProviderConfig,
+    isApiKeyPlaceholderLike,
     type ProviderConfigs,
     type StoredProviderConfig,
 } from './configStore.js';
@@ -14,16 +15,17 @@ export async function resolveStoredProviderConfig(
     provider: string,
     config: StoredProviderConfig
 ): Promise<StoredProviderConfig> {
-    if (config.apiKeyStorage !== 'secret' && config.apiKey) {
+    if (config.apiKeyStorage !== 'secret' && config.apiKey && !isApiKeyPlaceholderLike(config.apiKey)) {
         return config;
     }
 
     try {
         const apiKey = await lookupProviderApiKey(provider);
-        return apiKey ? { ...config, apiKey } : config;
+        if (apiKey) return { ...config, apiKey };
+        return isApiKeyPlaceholderLike(config.apiKey) ? { ...config, apiKey: '' } : config;
     } catch (e) {
         Logger.warn(Tag.Extension, `Failed to read ${provider} API key from keyring: ${e}`);
-        return config;
+        return isApiKeyPlaceholderLike(config.apiKey) ? { ...config, apiKey: '' } : config;
     }
 }
 
@@ -33,6 +35,9 @@ export async function updateStoredProviderApiKey(
     apiKey: string
 ): Promise<StoredProviderConfig> {
     const trimmedKey = apiKey.trim();
+    if (isApiKeyPlaceholderLike(trimmedKey)) {
+        return config;
+    }
     if (!trimmedKey) {
         try {
             await clearProviderApiKey(provider);

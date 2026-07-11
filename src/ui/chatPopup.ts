@@ -23,7 +23,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
 
-import { createMessageActor, type MessageRole } from './messageRenderer.js';
+import { createMessageActor, type MessageRole, type RenderedMessageActor } from './messageRenderer.js';
 import { createMessageInfoPanel, styleMessageInfoPanel } from './messageInfoPanel.js';
 import { renderHistoryList, styleHistoryList, type ChatSummary } from './historyListView.js';
 import { PopupLogPanel } from './popupLogPanel.js';
@@ -57,7 +57,9 @@ import {
 import { fetchProviderModels } from '../providers/modelList.js';
 import type { ChatMessageMetadata, ProviderId } from '../providers/types.js';
 import {
+    API_KEY_PLACEHOLDER,
     createEmptyProviderConfig,
+    isApiKeyPlaceholderLike,
     parseProviderConfigs,
     type ProviderConfigKey,
     type StoredProviderConfig,
@@ -97,6 +99,7 @@ export class ChatPopup {
     private _thinkingDetailsLabel?: St.Label;
     private _thinkingToggleBtn?: St.Button;
     private _streamingAnswerBox?: St.BoxLayout;
+    private _streamingAnswerActor?: RenderedMessageActor;
     private _thinkingExpanded = true;
     private _thinkingAutoCollapsed = false;
     private _isLoading = false;
@@ -1130,6 +1133,10 @@ export class ChatPopup {
         this._thinkingTitleLabel = undefined;
         this._thinkingToggleBtn = undefined;
         this._streamingAnswerBox = undefined;
+        if (this._streamingAnswerActor) {
+            this._streamingAnswerActor.destroy();
+            this._streamingAnswerActor = undefined;
+        }
     }
 
     private _returnSpinnerToContentBox(): void {
@@ -1302,6 +1309,9 @@ export class ChatPopup {
         const hasThinking = thinking.trim().length > 0;
         const hasContent = content.trim().length > 0;
 
+        // Auto-scroll logic: if the user was already near the bottom (within 20px), auto-scroll to the new bottom.
+        const isNearBottom = scrollValue >= (adjustment.get_upper() - adjustment.get_page_size() - 20);
+
         if (hasThinking && hasContent && !this._thinkingAutoCollapsed) {
             this._thinkingExpanded = false;
             this._thinkingAutoCollapsed = true;
@@ -1323,22 +1333,36 @@ export class ChatPopup {
         }
 
         if (this._streamingAnswerBox) {
-            this._streamingAnswerBox.destroy_all_children();
             if (content.trim()) {
-                const rendered = createMessageActor(content, {
-                    role: 'assistant',
-                    compact: false,
-                });
-                rendered.actor.x_expand = true;
-                this._streamingAnswerBox.add_child(rendered.actor);
+                if (!this._streamingAnswerActor) {
+                    this._streamingAnswerActor = createMessageActor(content, {
+                        role: 'assistant',
+                        compact: false,
+                        streaming: true,
+                    });
+                    this._streamingAnswerActor.actor.x_expand = true;
+                    this._streamingAnswerBox.add_child(this._streamingAnswerActor.actor);
+                } else {
+                    this._streamingAnswerActor.update(content, { streaming: true });
+                }
+            } else {
+                this._streamingAnswerBox.destroy_all_children();
+                if (this._streamingAnswerActor) {
+                    this._streamingAnswerActor.destroy();
+                    this._streamingAnswerActor = undefined;
+                }
             }
         }
 
         this._addOneShotIdle(GLib.PRIORITY_DEFAULT, () => {
             if (this._destroyed) return GLib.SOURCE_REMOVE;
             const lower = adjustment.get_lower();
-            const maxValue = Math.max(lower, adjustment.get_upper() - adjustment.get_page_size());
-            adjustment.set_value(Math.max(lower, Math.min(scrollValue, maxValue)));
+            const upper = adjustment.get_upper();
+            const pageSize = adjustment.get_page_size();
+            const target = isNearBottom
+                ? Math.max(lower, upper - pageSize)
+                : Math.max(lower, Math.min(scrollValue, upper - pageSize));
+            adjustment.set_value(target);
             return GLib.SOURCE_REMOVE;
         });
     }
@@ -1683,7 +1707,7 @@ export class ChatPopup {
 
         this._addSettingsEntryRow(
             'API Key',
-            config.apiKey || '',
+            getApiKeyFieldText(config),
             'apiKey',
             'API key',
             true
@@ -1982,10 +2006,11 @@ export class ChatPopup {
     }
 
     private _readProviderConfigDraft(fallback: StoredProviderConfig): StoredProviderConfig {
+        const apiKeyText = this._settingsEntryActors.apiKey?.get_text();
         return {
             url: this._settingsEntryActors.url?.get_text() ?? fallback.url,
             modelName: this._settingsEntryActors.modelName?.get_text() ?? fallback.modelName,
-            apiKey: this._settingsEntryActors.apiKey?.get_text() ?? fallback.apiKey,
+            apiKey: apiKeyText === undefined || isApiKeyPlaceholderLike(apiKeyText) ? fallback.apiKey : apiKeyText,
             apiKeyStorage: fallback.apiKeyStorage,
             mode: fallback.mode,
             thinking: fallback.thinking,
@@ -2003,7 +2028,7 @@ export class ChatPopup {
     }
 
     private async _resolveProviderConfig(provider: ProviderId, config: StoredProviderConfig): Promise<StoredProviderConfig> {
-        if (config.apiKey) return config;
+        if (config.apiKey && !isApiKeyPlaceholderLike(config.apiKey)) return config;
         const cachedKey = this._apiKeyCache.get(provider);
         if (cachedKey) return { ...config, apiKey: cachedKey };
 
@@ -2024,11 +2049,17 @@ export class ChatPopup {
                 ? this._providerDraft.config
                 : savedConfig
         );
+        if (key === 'apiKey' && isApiKeyPlaceholderLike(value.trim())) {
+            this._providerDraft = { provider, config: visibleDraft };
+            this._settingsSaveStatus = 'Using stored API key.';
+            this._refreshSettingsView();
+            return;
+        }
         const nextSavedConfig = key === 'apiKey'
             ? await updateStoredProviderApiKey(provider, savedConfig, value)
             : { ...savedConfig, [key]: value };
         const nextDraftConfig = key === 'apiKey'
-            ? { ...visibleDraft, apiKey: value.trim(), apiKeyStorage: nextSavedConfig.apiKeyStorage }
+            ? { ...visibleDraft, apiKey: nextSavedConfig.apiKey, apiKeyStorage: nextSavedConfig.apiKeyStorage }
             : { ...visibleDraft, [key]: value };
         if (this._destroyed) return;
         configs[provider] = nextSavedConfig;
@@ -2039,6 +2070,9 @@ export class ChatPopup {
             } else {
                 this._apiKeyCache.delete(provider);
             }
+            this._invalidateModelFetch();
+        } else if (key === 'url') {
+            this._invalidateModelFetch();
         }
         this._providerDraft = { provider, config: nextDraftConfig };
         this._settingsSaveStatus = `Saved ${labelText}.`;
@@ -2077,6 +2111,7 @@ export class ChatPopup {
         if (!configs[provider]) {
             configs[provider] = createEmptyProviderConfig();
         }
+        if (key === 'apiKey' && isApiKeyPlaceholderLike(value.trim())) return;
         if (configs[provider][key] === value) return;
         if (key === 'apiKey') {
             configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
@@ -2092,9 +2127,7 @@ export class ChatPopup {
         settings.set_string('provider-configs', JSON.stringify(configs));
 
         if (key === 'url' || key === 'apiKey' || key === 'mode') {
-            this._modelOptions = [];
-            this._modelFetchKey = '';
-            this._modelFetchStatus = '';
+            this._invalidateModelFetch();
         }
 
         if (refreshView && this._isSettingsView && this._settingsScreen === 'providers') {
@@ -2134,7 +2167,9 @@ export class ChatPopup {
                 this._modelFetchLoading = false;
                 this._modelOptions = result.models;
                 this._modelFetchStatus = result.requiresApiKey
-                    ? 'API key required to load models.'
+                    ? resolvedConfig.apiKeyStorage === 'secret'
+                        ? 'Stored API key could not be read. Enter and save it again.'
+                        : 'API key required to load models.'
                     : result.models.length === 0
                         ? 'No models returned; enter a model name manually.'
                         : '';
@@ -2169,6 +2204,17 @@ export class ChatPopup {
             config.apiKey || '',
             config.mode || '',
         ].join('\u0000');
+    }
+
+    private _invalidateModelFetch(): void {
+        this._modelOptions = [];
+        this._modelFetchKey = '';
+        this._modelFetchStatus = '';
+        this._modelFetchLoading = false;
+        this._modelDropdownOpen = false;
+        this._modelFetchCancellable?.cancel();
+        this._modelFetchCancellable = null;
+        this._modelFetchSeq++;
     }
 
     /* ── Private ──────────────────────────────────────── */
@@ -2614,4 +2660,9 @@ export class ChatPopup {
 
 function isRenderableRole(role: string): role is MessageRole {
     return role === 'user' || role === 'assistant';
+}
+
+function getApiKeyFieldText(config: StoredProviderConfig): string {
+    if (config.apiKey && !isApiKeyPlaceholderLike(config.apiKey)) return config.apiKey;
+    return config.apiKeyStorage === 'secret' ? API_KEY_PLACEHOLDER : '';
 }

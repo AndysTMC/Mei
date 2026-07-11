@@ -17,8 +17,18 @@ export interface StoredProviderConfig {
 
 export type ProviderConfigs = Record<string, StoredProviderConfig>;
 
+export const API_KEY_PLACEHOLDER = '********';
+
 export function createEmptyProviderConfig(): StoredProviderConfig {
     return { url: '', modelName: '', apiKey: '', apiKeyStorage: '', mode: '', thinking: '', reasoningEffort: '' };
+}
+
+export function isApiKeyPlaceholder(value: string | undefined): boolean {
+    return value === API_KEY_PLACEHOLDER;
+}
+
+export function isApiKeyPlaceholderLike(value: string | undefined): boolean {
+    return typeof value === 'string' && /^\*{1,8}$/.test(value);
 }
 
 export function parseProviderConfigs(json: string): ProviderConfigs {
