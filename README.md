@@ -83,3 +83,10 @@ To test the extension in an isolated development session (requires GNOME Shell d
 ```sh
 dbus-run-session gnome-shell --devkit --wayland
 ```
+
+## See also
+
+- [AGENTS.md](AGENTS.md) — install, test, and hard rules for coding agents
+- [docs/decisions/](docs/decisions/) — binding choices
+- [LICENSE](LICENSE) — GPL-3.0-only
+
