@@ -1,0 +1,48 @@
+{
+    "version": 1,
+    "name": "Mei",
+    "tagline": "A GNOME Shell assistant powered by LLMs",
+    "description": "Mei is a GNOME Shell 50 extension that puts an assistant on the top panel. It talks to local servers (Ollama, llama.cpp, LM Studio) and cloud APIs (OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter, OpenCode, GitHub Models, plus any OpenAI-compatible URL), streams replies in the expanded popup, and renders Markdown with native St widgets. Provider settings live in GSettings. API keys go to libsecret with a GSettings fallback. Chats and logs stay in XDG user directories. The longer vision is a Gemini-like assistant, in the spirit of Hermes Agent, that understands intent, interacts with the system, and helps finish tasks.",
+    "tags": ["GNOME", "AI assistant", "LLM", "desktop", "chat"],
+    "skills": ["TypeScript", "JavaScript", "Node.js", "GTK", "GJS", "esbuild"],
+    "highlights": [
+        "Ships as GNOME Shell extension mei@andystmc.com targeting Shell 50, built to dist/extension.js and dist/prefs.js",
+        "Twelve backends share one Provider.sendMessage interface, with live model-list fetch in prefs and the popup",
+        "Native St Markdown renderer covers headings, lists, tables, code, math, footnotes, and sanitized http/https/mailto links",
+        "48 Node regression tests cover catalog, payloads, streaming parsers, Markdown, and GSettings identity",
+        "API keys migrate to libsecret (schema com.andystmc.mei.provider-api-key) and keep a GSettings fallback",
+        "Chat sessions persist as ~/.local/share/mei/chats.json with 0700/0600 modes; logs go to ~/.local/state/mei/logs.txt"
+    ],
+    "story": {
+        "why": "A modern GNOME Shell extension powered by LLMs that understands intent, interacts with the system, and assists in accomplishing tasks, closer to a Gemini assistant and the Hermes Agent vision than to a coding tool.",
+        "problem": "The shipped extension is still a panel chat client. It does not yet interact with the desktop or complete tasks on the user's behalf.",
+        "challenges": [
+            "Preferences run in a GTK process that cannot import St, Clutter, or Shell Main, so settings UI is duplicated (src/prefs.ts)",
+            "Secret Service can succeed when saving keys and vanish after a Shell restart, so a GSettings copy is kept (src/providers/apiKeys.ts)",
+            "libsoup delivers SSE and NDJSON as byte chunks, so parsers must reassemble UTF-8 and error frames (src/utils/http.ts)",
+            "The panel button is inserted into Shell's private _centerBox, which may be missing at runtime (src/panel/indicator.ts)",
+            "Markdown has to become St actors, not HTML, and large code is truncated for popup performance (src/ui/messageRenderer.ts)"
+        ],
+        "designDecisions": [
+            "esbuild emits two ESM bundles and leaves gi:// and resource:// imports external (esbuild.js)",
+            "Every backend implements Provider.sendMessage so the Shell loop never branches on vendor APIs (src/providers/types.ts)",
+            "Groq, Mistral, OpenRouter, LM Studio, OpenCode, GitHub Models, and Custom subclass one OpenAI-compatible client (src/providers/openai.ts)",
+            "Per-provider settings are one GSettings JSON string rather than a key per field (schemas/org.gnome.shell.extensions.mei.gschema.xml)",
+            "Gemini sends the API key in the x-goog-api-key header instead of the query string (src/providers/gemini.ts)",
+            "Node tests stub gi:// and resource:// through an esbuild plugin so the suite runs without GNOME (scripts/run-tests.js)",
+            "Streaming token updates run only while the expanded popup is open (src/extension.ts)"
+        ]
+    },
+    "future": {
+        "next": "Move Mei toward the Hermes Agent vision: a Gemini-like assistant that can interact with the system, not only chat.",
+        "roadmap": [
+            "Grow Mei toward that Hermes-inspired assistant vision"
+        ],
+        "upcomingFeatures": [
+            "System interaction so Mei can help accomplish tasks, not only chat",
+            "Inline image display in chat",
+            "Mermaid diagram rendering"
+        ],
+        "ideas": []
+    }
+}
