@@ -183,17 +183,67 @@ function githubProvider() {
 
 function openCodeProvider(mode, prefix, baseUrl) {
     const apiKey = firstEnv(`${prefix}_API_KEY`, 'OPENCODE_API_KEY', 'OPENCODE_TOKEN');
+    const headers = () => ({
+        ...bearer(apiKey),
+        'HTTP-Referer': 'https://github.com/AndysTMC/Mei',
+        'X-Title': 'Mei',
+    });
     return {
         ...openAiProvider(`OpenCode ${mode}`, prefix, baseUrl),
         enabled: () => Boolean(apiKey),
         skipReason: `missing ${prefix}_API_KEY or OPENCODE_API_KEY`,
-        listRequest: () => ({ url: `${baseUrl}/models`, headers: bearer(apiKey) }),
-        chatRequest: model => jsonRequest(`${baseUrl}/chat/completions`, bearer(apiKey), {
+        listRequest: () => ({ url: `${baseUrl}/models`, headers: headers() }),
+        chatRequest: model => openCodeChatRequest(baseUrl, mode, model, headers()),
+        parseChat: parseOpenCodeChat,
+    };
+}
+
+function openCodeChatRequest(baseUrl, mode, configuredModel, headers) {
+    const model = configuredModel.trim().split('/').at(-1);
+    const apiMode = openCodeApiMode(model, mode);
+    if (apiMode === 'responses') {
+        return jsonRequest(`${baseUrl}/responses`, headers, {
+            model,
+            store: false,
+            input: [{ role: 'user', content: 'Reply with exactly: OK' }],
+            max_output_tokens: 16,
+        });
+    }
+    if (apiMode === 'anthropic_messages') {
+        return jsonRequest(`${baseUrl}/messages`, {
+            ...headers,
+            'anthropic-version': '2023-06-01',
+        }, {
             model,
             messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
             max_tokens: 16,
-        }),
-    };
+        });
+    }
+    return jsonRequest(`${baseUrl}/chat/completions`, headers, {
+        model,
+        messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
+        max_tokens: 16,
+    });
+}
+
+function openCodeApiMode(model, mode) {
+    const normalized = model.toLowerCase();
+    if (/^(?:gpt-|grok-|muse-spark)/.test(normalized)) return 'responses';
+    if (mode.toLowerCase() === 'zen' && /^(?:claude-|qwen)/.test(normalized)) return 'anthropic_messages';
+    if (mode.toLowerCase() !== 'zen' && /^(?:minimax-|qwen)/.test(normalized)) return 'anthropic_messages';
+    return 'chat_completions';
+}
+
+function parseOpenCodeChat(json) {
+    if (parseOpenAiChat(json)) return true;
+    if (Array.isArray(json?.content) && json.content.some(part => typeof part?.text === 'string' && part.text)) {
+        return true;
+    }
+    if (typeof json?.output_text === 'string' && json.output_text) return true;
+    return Array.isArray(json?.output) && json.output.some(item =>
+        Array.isArray(item?.content) && item.content.some(part =>
+            (typeof part?.text === 'string' && part.text.length > 0) ||
+            (typeof part?.refusal === 'string' && part.refusal.length > 0)));
 }
 
 function ollamaProvider() {

@@ -5,8 +5,9 @@
  */
 
 import type { ProviderId } from './types.js';
+import { normalizeOpenCodeModelId, PROVIDER_PROFILES, resolveProviderId, type ProviderType } from './profiles.js';
 
-export type ProviderType = 'local' | 'cloud' | 'custom';
+export type { ProviderType } from './profiles.js';
 export type OpenCodeMode = 'go' | 'zen';
 
 export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
@@ -15,71 +16,18 @@ export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
     custom: 'Custom',
 };
 
-export const PROVIDER_LABELS: Record<ProviderId, string> = {
-    ollama: 'Ollama',
-    llamacpp: 'llama.cpp',
-    lmstudio: 'LM Studio',
-    openai: 'OpenAI',
-    anthropic: 'Anthropic',
-    gemini: 'Gemini',
-    groq: 'Groq',
-    mistral: 'Mistral',
-    openrouter: 'OpenRouter',
-    custom: 'Custom',
-    opencode: 'OpenCode',
-    githubcopilot: 'GitHub Models',
-};
+export const PROVIDER_LABELS = Object.fromEntries(
+    Object.values(PROVIDER_PROFILES).map(profile => [profile.id, profile.label])
+) as Record<ProviderId, string>;
 
 export const PROVIDER_TYPE_IDS: ProviderType[] = ['local', 'cloud', 'custom'];
-export const LOCAL_PROVIDER_IDS: ProviderId[] = ['ollama', 'llamacpp', 'lmstudio'];
-export const CLOUD_PROVIDER_IDS: ProviderId[] = [
-    'openai',
-    'anthropic',
-    'gemini',
-    'groq',
-    'mistral',
-    'openrouter',
-    'opencode',
-    'githubcopilot',
-];
-export const CUSTOM_PROVIDER_IDS: ProviderId[] = ['custom'];
+export const LOCAL_PROVIDER_IDS = providerIdsOfType('local');
+export const CLOUD_PROVIDER_IDS = providerIdsOfType('cloud');
+export const CUSTOM_PROVIDER_IDS = providerIdsOfType('custom');
 
 export const OPEN_CODE_MODE_LABELS: Record<OpenCodeMode, string> = {
     go: 'Go',
     zen: 'Zen',
-};
-
-const OPEN_CODE_CHAT_MODEL_IDS: Record<OpenCodeMode, readonly string[]> = {
-    go: [
-        'glm-5.2',
-        'glm-5.1',
-        'kimi-k2.7-code',
-        'kimi-k2.6',
-        'deepseek-v4-pro',
-        'deepseek-v4-flash',
-        'mimo-v2.5',
-        'mimo-v2.5-pro',
-    ],
-    zen: [
-        'deepseek-v4-pro',
-        'deepseek-v4-flash',
-        'minimax-m3',
-        'minimax-m2.7',
-        'minimax-m2.5',
-        'glm-5.2',
-        'glm-5.1',
-        'glm-5',
-        'kimi-k2.5',
-        'kimi-k2.6',
-        'kimi-k2.7-code',
-        'grok-build-0.1',
-        'grok-4.5',
-        'big-pickle',
-        'mimo-v2.5-free',
-        'north-mini-code-free',
-        'nemotron-3-ultra-free',
-        'deepseek-v4-flash-free',
-    ],
 };
 
 export function getProviderType(value: string): ProviderType {
@@ -93,7 +41,7 @@ export function getProviderIdsForType(type: ProviderType): ProviderId[] {
 }
 
 export function isProviderId(value: string): value is ProviderId {
-    return value in PROVIDER_LABELS;
+    return resolveProviderId(value) === value;
 }
 
 export function getProviderLabel(provider: string): string {
@@ -117,11 +65,7 @@ export function getOpenCodeModelsUrl(mode: OpenCodeMode): string {
 }
 
 export function getOpenCodeModelId(model: string): string {
-    return model.replace(/^opencode-go\//, '').replace(/^opencode\//, '');
-}
-
-export function isOpenCodeChatCompletionsModel(model: string, mode: OpenCodeMode): boolean {
-    return OPEN_CODE_CHAT_MODEL_IDS[mode].includes(getOpenCodeModelId(model));
+    return normalizeOpenCodeModelId(model);
 }
 
 export function getModelListUrl(chatUrl: string, modelPath: '/api/tags' | '/v1/models'): string {
@@ -134,5 +78,13 @@ export function getModelListUrl(chatUrl: string, modelPath: '/api/tags' | '/v1/m
     if (currentPath.endsWith(chatSuffix)) {
         return `${origin}${currentPath.slice(0, -chatSuffix.length)}${modelPath}`;
     }
-    return `${origin}${modelPath}`;
+    if (!currentPath || currentPath === '/') return `${origin}${modelPath}`;
+    const basePath = currentPath.endsWith('/v1') ? currentPath : `${currentPath}/v1`;
+    return `${origin}${basePath}${modelPath.replace('/v1', '')}`;
+}
+
+function providerIdsOfType(type: ProviderType): ProviderId[] {
+    return Object.values(PROVIDER_PROFILES)
+        .filter(profile => profile.type === type)
+        .map(profile => profile.id);
 }

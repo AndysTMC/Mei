@@ -13,7 +13,6 @@ import Gio from 'gi://Gio';
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
 import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
-import { getOpenCodeChatCompletionsUrl, getOpenCodeMode } from './catalog.js';
 import { buildOpenAIChatBody } from './openaiPayload.js';
 
 export class OpenAICompatibleProvider implements Provider {
@@ -24,12 +23,14 @@ export class OpenAICompatibleProvider implements Provider {
     protected _url: string;
     protected _model: string;
     protected _apiKey: string;
+    private _defaultHeaders: Readonly<Record<string, string>>;
 
     constructor(
         session: Soup.Session,
         config: ProviderConfig,
         name: string,
-        url: string
+        url: string,
+        defaultHeaders: Readonly<Record<string, string>> = {}
     ) {
         this.name = name;
         this.defaultUrl = url;
@@ -37,6 +38,7 @@ export class OpenAICompatibleProvider implements Provider {
         this._url = config.url || url;
         this._model = config.model;
         this._apiKey = config.apiKey ?? '';
+        this._defaultHeaders = defaultHeaders;
         Logger.info(Tag.Provider, `Created ${this.name} → ${this._url} (model: ${this._model}, key: ${maskKey(this._apiKey)})`);
     }
 
@@ -80,7 +82,10 @@ export class OpenAICompatibleProvider implements Provider {
     }
 
     protected _buildHeaders(): Record<string, string> {
-        return this._apiKey ? { Authorization: `Bearer ${this._apiKey}` } : {};
+        return {
+            ...this._defaultHeaders,
+            ...(this._apiKey ? { Authorization: `Bearer ${this._apiKey}` } : {}),
+        };
     }
 
     private async _sendStreaming(
@@ -122,63 +127,6 @@ export class OpenAICompatibleProvider implements Provider {
             thinking: thinking.trim() || undefined,
             usage,
         };
-    }
-}
-
-export class OpenAIProvider extends OpenAICompatibleProvider {
-    constructor(session: Soup.Session, config: ProviderConfig) {
-        super(session, config, 'OpenAI', 'https://api.openai.com/v1/chat/completions');
-    }
-}
-
-export class GroqProvider extends OpenAICompatibleProvider {
-    constructor(session: Soup.Session, config: ProviderConfig) {
-        super(session, config, 'Groq', 'https://api.groq.com/openai/v1/chat/completions');
-    }
-}
-
-export class MistralProvider extends OpenAICompatibleProvider {
-    constructor(session: Soup.Session, config: ProviderConfig) {
-        super(session, config, 'Mistral', 'https://api.mistral.ai/v1/chat/completions');
-    }
-}
-
-export class OpenRouterProvider extends OpenAICompatibleProvider {
-    constructor(session: Soup.Session, config: ProviderConfig) {
-        super(session, config, 'OpenRouter', 'https://openrouter.ai/api/v1/chat/completions');
-    }
-}
-
-export class GitHubCopilotProvider extends OpenAICompatibleProvider {
-    constructor(session: Soup.Session, config: ProviderConfig) {
-        super(session, config, 'GitHub Models', 'https://models.github.ai/inference/chat/completions');
-    }
-
-    protected override _buildHeaders(): Record<string, string> {
-        return {
-            ...super._buildHeaders(),
-            Accept: 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2026-03-10',
-        };
-    }
-}
-
-export class CustomProvider extends OpenAICompatibleProvider {
-    constructor(session: Soup.Session, config: ProviderConfig) {
-        super(session, config, 'Custom', config.url || 'http://127.0.0.1:8080/v1/chat/completions');
-    }
-}
-
-export class LMStudioProvider extends OpenAICompatibleProvider {
-    constructor(session: Soup.Session, config: ProviderConfig) {
-        super(session, config, 'LM Studio', 'http://127.0.0.1:1234/v1/chat/completions');
-    }
-}
-
-export class OpenCodeProvider extends OpenAICompatibleProvider {
-    constructor(session: Soup.Session, config: ProviderConfig) {
-        const mode = getOpenCodeMode(config.mode);
-        super(session, config, `OpenCode ${mode === 'zen' ? 'Zen' : 'Go'}`, getOpenCodeChatCompletionsUrl(mode));
     }
 }
 

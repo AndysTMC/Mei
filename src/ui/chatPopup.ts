@@ -42,7 +42,6 @@ import {
     getProviderIdsForType,
     getProviderLabel,
     getProviderType,
-    isOpenCodeChatCompletionsModel,
     OPEN_CODE_MODE_LABELS,
     PROVIDER_TYPE_IDS,
     PROVIDER_TYPE_LABELS,
@@ -2150,8 +2149,6 @@ export class ChatPopup {
         }
         if (key === 'apiKey' && isApiKeyPlaceholderLike(value.trim())) return;
         if (configs[provider][key] === value) return;
-        const resetOpenCodeModel = provider === 'opencode' && key === 'mode' &&
-            !isOpenCodeChatCompletionsModel(configs[provider].modelName, getOpenCodeMode(value));
         if (key === 'apiKey') {
             configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
             if (value.trim()) {
@@ -2161,7 +2158,6 @@ export class ChatPopup {
             }
         } else {
             configs[provider][key] = value;
-            if (resetOpenCodeModel) configs[provider].modelName = '';
         }
         if (this._destroyed) return;
         const latestConfigs = this._getProviderConfigs();
@@ -2171,7 +2167,6 @@ export class ChatPopup {
             : {
                 ...latestConfig,
                 [key]: value,
-                ...(resetOpenCodeModel ? { modelName: '' } : {}),
             };
         settings.set_string('provider-configs', JSON.stringify(latestConfigs));
 
