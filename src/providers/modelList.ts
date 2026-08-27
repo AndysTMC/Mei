@@ -12,9 +12,9 @@ import {
     getOpenCodeMode,
     getOpenCodeModelsUrl,
     getModelListUrl,
-    isOpenCodeChatCompletionsModel,
     type OpenCodeMode,
 } from './catalog.js';
+import { getProviderProfile, type ModelEndpointKind } from './profiles.js';
 import type { ProviderId } from './types.js';
 
 export interface ModelListConfig {
@@ -39,30 +39,29 @@ export async function fetchProviderModels(
     if (!endpoint) return { models: [], requiresApiKey: false };
 
     if (endpoint.requiresApiKey && !apiKey) {
-        return { models: [], requiresApiKey: true };
+        return {
+            models: [...(getProviderProfile(provider).fallbackModels ?? [])],
+            requiresApiKey: true,
+        };
     }
 
-    const msg = Soup.Message.new('GET', endpoint.url);
-    if (!msg) throw new Error('Invalid URL');
-
-    for (const [key, value] of Object.entries(endpoint.headers)) {
-        msg.get_request_headers().append(key, value);
+    const models: string[] = [];
+    let pageUrl: string | null = endpoint.url;
+    for (let page = 0; page < 10 && pageUrl; page++) {
+        const msg = createModelRequest(pageUrl, endpoint.headers);
+        const text = await readModelPage(session, msg, cancellable);
+        models.push(...parseModelList(text, endpoint.kind, endpoint.openCodeMode));
+        pageUrl = getNextPageUrl(pageUrl, text, endpoint.kind);
     }
-
-    const bytes = await session.send_and_read_async(msg, GLib.PRIORITY_DEFAULT, cancellable);
-    const data = bytes.get_data();
-    const text = data ? new TextDecoder().decode(data) : '';
-    if (msg.get_status() >= 400) {
-        throw new Error(`HTTP ${msg.get_status()}`);
-    }
+    const fallbackModels = getProviderProfile(provider).fallbackModels ?? [];
 
     return {
-        models: parseModelList(text, endpoint.kind, endpoint.openCodeMode),
+        models: models.length > 0 ? [...new Set(models)] : [...fallbackModels],
         requiresApiKey: endpoint.requiresApiKey,
     };
 }
 
-export type ModelEndpointKind = 'openai' | 'gemini' | 'ollama' | 'github';
+export type { ModelEndpointKind } from './profiles.js';
 
 export interface ModelEndpoint {
     url: string;
@@ -74,104 +73,39 @@ export interface ModelEndpoint {
 
 export function getModelEndpoint(provider: ProviderId, config: ModelListConfig): ModelEndpoint | null {
     const apiKey = config.apiKey || '';
-    switch (provider) {
-        case 'ollama':
-            return {
-                url: getModelListUrl(config.url || 'http://127.0.0.1:11434/api/chat', '/api/tags'),
-                headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-                requiresApiKey: false,
-                kind: 'ollama',
-                openCodeMode: null,
-            };
-        case 'llamacpp':
-            return {
-                url: getModelListUrl(config.url || 'http://127.0.0.1:8080/v1/chat/completions', '/v1/models'),
-                headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-                requiresApiKey: false,
-                kind: 'openai',
-                openCodeMode: null,
-            };
-        case 'lmstudio':
-            return {
-                url: getModelListUrl(config.url || 'http://127.0.0.1:1234/v1/chat/completions', '/v1/models'),
-                headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-                requiresApiKey: false,
-                kind: 'openai',
-                openCodeMode: null,
-            };
-        case 'openai':
-            return bearerEndpoint('https://api.openai.com/v1/models', apiKey);
-        case 'groq':
-            return bearerEndpoint('https://api.groq.com/openai/v1/models', apiKey);
-        case 'mistral':
-            return bearerEndpoint('https://api.mistral.ai/v1/models', apiKey);
-        case 'openrouter':
-            return bearerEndpoint('https://openrouter.ai/api/v1/models', apiKey);
-        case 'opencode': {
-            const mode = getOpenCodeMode(config.mode);
-            return {
-                ...bearerEndpoint(getOpenCodeModelsUrl(mode), apiKey),
-                openCodeMode: mode,
-            };
+    const profile = getProviderProfile(provider);
+    const headers: Record<string, string> = { ...profile.headers };
+    if (apiKey) {
+        if (profile.authType === 'api_key') {
+            headers[provider === 'gemini' ? 'x-goog-api-key' : 'x-api-key'] = apiKey;
+        } else {
+            headers.Authorization = `Bearer ${apiKey}`;
         }
-        case 'githubcopilot':
-            return {
-                url: 'https://models.github.ai/catalog/models',
-                headers: {
-                    Authorization: `Bearer ${apiKey}`,
-                    Accept: 'application/vnd.github+json',
-                    'X-GitHub-Api-Version': '2026-03-10',
-                },
-                requiresApiKey: true,
-                kind: 'github',
-                openCodeMode: null,
-            };
-        case 'anthropic':
-            return {
-                url: 'https://api.anthropic.com/v1/models?limit=1000',
-                headers: {
-                    'x-api-key': apiKey,
-                    'anthropic-version': '2023-06-01',
-                },
-                requiresApiKey: true,
-                kind: 'openai',
-                openCodeMode: null,
-            };
-        case 'gemini':
-            return {
-                url: `${stripTrailingSlash(config.url || 'https://generativelanguage.googleapis.com/v1beta')}/models?pageSize=1000`,
-                headers: { 'x-goog-api-key': apiKey },
-                requiresApiKey: true,
-                kind: 'gemini',
-                openCodeMode: null,
-            };
-        case 'custom':
-            if (!config.url.trim()) {
-                throw new Error('Enter an endpoint URL to fetch models.');
-            }
-            return {
-                url: getModelListUrl(config.url, '/v1/models'),
-                headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-                requiresApiKey: false,
-                kind: 'openai',
-                openCodeMode: null,
-            };
-        default:
-            return null;
     }
-}
 
-function bearerEndpoint(url: string, apiKey: string): ModelEndpoint {
+    if (provider === 'custom' && !config.url.trim()) {
+        throw new Error('Enter an endpoint URL to fetch models.');
+    }
+
+    let url = profile.modelsUrl ?? getModelListUrl(config.url || profile.chatUrl, provider === 'ollama' ? '/api/tags' : '/v1/models');
+    if (provider === 'gemini' && config.url) {
+        url = `${stripTrailingSlash(config.url)}/models?pageSize=1000`;
+    } else if (provider === 'opencode') {
+        url = getOpenCodeModelsUrl(getOpenCodeMode(config.mode));
+    } else if (config.url && provider !== 'gemini') {
+        url = getModelListUrl(config.url, provider === 'ollama' ? '/api/tags' : '/v1/models');
+    }
+
     return {
         url,
-        headers: { Authorization: `Bearer ${apiKey}` },
-        requiresApiKey: true,
-        kind: 'openai',
-        openCodeMode: null,
+        headers,
+        requiresApiKey: profile.modelAuthRequired,
+        kind: profile.modelKind,
+        openCodeMode: provider === 'opencode' ? getOpenCodeMode(config.mode) : null,
     };
 }
 
-export function parseModelList(text: string, kind: ModelEndpointKind, openCodeMode: OpenCodeMode | null): string[] {
+export function parseModelList(text: string, kind: ModelEndpointKind, _openCodeMode: OpenCodeMode | null): string[] {
     const parsed = JSON.parse(text) as unknown;
     if (typeof parsed !== 'object' || parsed === null || (Array.isArray(parsed) && kind !== 'github')) {
         return [];
@@ -197,12 +131,6 @@ export function parseModelList(text: string, kind: ModelEndpointKind, openCodeMo
         const value = getModelName(model, kind);
         if (!value) return [];
 
-        if (openCodeMode) {
-            const endpoint = typeof model.endpoint === 'string' ? model.endpoint : '';
-            if (endpoint && !endpoint.endsWith('/chat/completions')) return [];
-            if (!endpoint && !isOpenCodeChatCompletionsModel(value, openCodeMode)) return [];
-        }
-
         return value;
     });
     return [...new Set(models)];
@@ -220,4 +148,74 @@ function getModelName(model: Record<string, unknown>, kind: ModelEndpointKind): 
 
 function stripTrailingSlash(url: string): string {
     return url.replace(/\/+$/, '');
+}
+
+async function readModelPage(
+    session: Soup.Session,
+    msg: Soup.Message,
+    cancellable: Gio.Cancellable
+): Promise<string> {
+    const bytes = await session.send_and_read_async(msg, GLib.PRIORITY_DEFAULT, cancellable);
+    const data = bytes.get_data();
+    const text = data ? new TextDecoder().decode(data) : '';
+    if (msg.get_status() >= 400) {
+        const detail = getErrorDetail(text);
+        throw new Error(`HTTP ${msg.get_status()}${detail ? `: ${detail}` : ''}`);
+    }
+    return text;
+}
+
+function getErrorDetail(text: string): string {
+    try {
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        const error = parsed.error;
+        if (typeof error === 'string') return error.slice(0, 240);
+        if (typeof error === 'object' && error !== null) {
+            const message = (error as Record<string, unknown>).message;
+            if (typeof message === 'string') return message.slice(0, 240);
+        }
+        if (typeof parsed.message === 'string') return parsed.message.slice(0, 240);
+    } catch {
+        return text.trim().replace(/\s+/g, ' ').slice(0, 240);
+    }
+    return '';
+}
+
+function createModelRequest(url: string, headers: Record<string, string>): Soup.Message {
+    const msg = Soup.Message.new('GET', url);
+    if (!msg) throw new Error(`Invalid model catalog URL: ${url}`);
+    for (const [key, value] of Object.entries(headers)) {
+        msg.get_request_headers().append(key, value);
+    }
+    return msg;
+}
+
+export function getNextPageUrl(currentUrl: string, text: string, kind: ModelEndpointKind): string | null {
+    let root: Record<string, unknown>;
+    try {
+        const parsed = JSON.parse(text) as unknown;
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+        root = parsed as Record<string, unknown>;
+    } catch {
+        return null;
+    }
+
+    if (typeof root.next === 'string' && /^https?:\/\//i.test(root.next)) return root.next;
+    const token = root.nextPageToken ?? root.next_page_token;
+    if (typeof token === 'string' && token) {
+        return withQueryParam(currentUrl, kind === 'gemini' ? 'pageToken' : 'page_token', token);
+    }
+    if (root.has_more === true && Array.isArray(root.data)) {
+        const last = root.data.at(-1);
+        if (typeof last === 'object' && last !== null && !Array.isArray(last)) {
+            const id = (last as Record<string, unknown>).id;
+            if (typeof id === 'string' && id) return withQueryParam(currentUrl, 'after_id', id);
+        }
+    }
+    return null;
+}
+
+function withQueryParam(url: string, key: string, value: string): string {
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 }

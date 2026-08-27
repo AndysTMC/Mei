@@ -19,14 +19,11 @@ import { Logger, Tag } from './utils/logger.js';
 import { ChatStore, ChatSession } from './utils/chatStore.js';
 
 import type { ChatMessage, ChatMessageMetadata, Provider, ProviderConfig, ProviderId, StreamUpdate } from './providers/types.js';
-import { OllamaProvider } from './providers/ollama.js';
-import { LlamaCppProvider } from './providers/llamacpp.js';
-import { OpenAIProvider, GroqProvider, MistralProvider, OpenRouterProvider, CustomProvider, OpenCodeProvider, GitHubCopilotProvider, LMStudioProvider } from './providers/openai.js';
-import { AnthropicProvider } from './providers/anthropic.js';
-import { GeminiProvider } from './providers/gemini.js';
-import { getProviderLabel, getProviderType, isProviderId, PROVIDER_TYPE_LABELS } from './providers/catalog.js';
+import { getProviderLabel, getProviderType, PROVIDER_TYPE_LABELS } from './providers/catalog.js';
 import { migratePlaintextApiKeys, resolveStoredProviderConfig } from './providers/apiKeys.js';
 import { createEmptyProviderConfig, mergeMigratedApiKeyConfigs, parseProviderConfigs, type StoredProviderConfig } from './providers/configStore.js';
+import { createRuntimeProvider, resolveProviderRuntime } from './providers/runtime.js';
+import { resolveProviderId } from './providers/profiles.js';
 
 interface ProviderBuildResult {
     provider: Provider;
@@ -194,7 +191,7 @@ export default class MeiExtension extends Extension {
     private async _createProvider(): Promise<ProviderBuildResult> {
         const session = this._soupSession!;
         const storedProviderId = this._settings!.get_string('provider');
-        const providerId: ProviderId = isProviderId(storedProviderId) ? storedProviderId : 'openai';
+        const providerId: ProviderId = resolveProviderId(storedProviderId) ?? 'openai';
         if (providerId !== storedProviderId) this._settings!.set_string('provider', providerId);
         const configsJson = this._settings!.get_string('provider-configs');
         let parsedConfigs: Record<string, StoredProviderConfig> = {};
@@ -225,46 +222,8 @@ export default class MeiExtension extends Extension {
             reasoningEffort: providerConfig.reasoningEffort || '',
         };
 
-        let provider: Provider;
-        switch (providerId) {
-            case 'llamacpp':
-                provider = new LlamaCppProvider(session, config);
-                break;
-            case 'lmstudio':
-                provider = new LMStudioProvider(session, config);
-                break;
-            case 'openai':
-                provider = new OpenAIProvider(session, config);
-                break;
-            case 'groq':
-                provider = new GroqProvider(session, config);
-                break;
-            case 'mistral':
-                provider = new MistralProvider(session, config);
-                break;
-            case 'openrouter':
-                provider = new OpenRouterProvider(session, config);
-                break;
-            case 'custom':
-                provider = new CustomProvider(session, config);
-                break;
-            case 'opencode':
-                provider = new OpenCodeProvider(session, config);
-                break;
-            case 'githubcopilot':
-                provider = new GitHubCopilotProvider(session, config);
-                break;
-            case 'anthropic':
-                provider = new AnthropicProvider(session, config);
-                break;
-            case 'gemini':
-                provider = new GeminiProvider(session, config);
-                break;
-            case 'ollama':
-            default:
-                provider = new OllamaProvider(session, config);
-                break;
-        }
+        const provider = createRuntimeProvider(session, providerId, config);
+        const runtime = resolveProviderRuntime(providerId, config);
 
         const providerType = getProviderType(this._settings!.get_string('provider-type'));
         const metadata: ChatMessageMetadata = {
@@ -272,7 +231,7 @@ export default class MeiExtension extends Extension {
             providerLabel: getProviderLabel(providerId),
             providerType: PROVIDER_TYPE_LABELS[providerType],
             model: config.model,
-            endpoint: sanitizeEndpoint(config.url || provider.defaultUrl),
+            endpoint: sanitizeEndpoint(runtime.url),
         };
         return { provider, metadata };
     }

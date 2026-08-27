@@ -13,11 +13,11 @@ import {
     getProviderLabel,
     getProviderType,
     isProviderId,
-    isOpenCodeChatCompletionsModel,
     LOCAL_PROVIDER_IDS,
     PROVIDER_LABELS,
     PROVIDER_TYPE_IDS,
 } from '../src/providers/catalog.js';
+import { getOpenCodeApiMode, resolveProviderId } from '../src/providers/profiles.js';
 
 test('OpenCode model ids strip provider prefixes consistently', () => {
     assert.equal(getOpenCodeModelId('opencode-go/kimi-k2.7-code'), 'kimi-k2.7-code');
@@ -37,14 +37,13 @@ test('model-list URLs preserve reverse-proxy path prefixes', () => {
     assert.equal(getModelListUrl('https://example.test', '/v1/models'), 'https://example.test/v1/models');
 });
 
-test('OpenCode fallback filters include only chat completions models', () => {
-    assert.equal(isOpenCodeChatCompletionsModel('opencode-go/kimi-k2.7-code', 'go'), true);
-    assert.equal(isOpenCodeChatCompletionsModel('opencode-go/minimax-m3', 'go'), false);
-    assert.equal(isOpenCodeChatCompletionsModel('opencode-go/big-pickle', 'go'), false);
-    assert.equal(isOpenCodeChatCompletionsModel('opencode/minimax-m3', 'zen'), true);
-    assert.equal(isOpenCodeChatCompletionsModel('opencode/big-pickle', 'zen'), true);
-    assert.equal(isOpenCodeChatCompletionsModel('opencode/grok-4.5', 'zen'), true);
-    assert.equal(isOpenCodeChatCompletionsModel('opencode/gpt-5.5', 'zen'), false);
+test('OpenCode routes model families without a finite allowlist', () => {
+    assert.equal(getOpenCodeApiMode('opencode-go/kimi-k2.7-code', 'go'), 'chat_completions');
+    assert.equal(getOpenCodeApiMode('opencode-go/minimax-m4-future', 'go'), 'anthropic_messages');
+    assert.equal(getOpenCodeApiMode('opencode-go/qwen4-future', 'go'), 'anthropic_messages');
+    assert.equal(getOpenCodeApiMode('opencode/grok-5-future', 'zen'), 'responses');
+    assert.equal(getOpenCodeApiMode('opencode/claude-5-future', 'zen'), 'anthropic_messages');
+    assert.equal(getOpenCodeApiMode('opencode/future-model', 'zen'), 'chat_completions');
 });
 
 test('GitHub provider is labelled for the API it uses', () => {
@@ -68,6 +67,8 @@ test('provider catalog normalizes types, ids, labels, and OpenCode modes', () =>
     assert.equal(getProviderType('anything-else'), 'cloud');
     assert.equal(isProviderId('gemini'), true);
     assert.equal(isProviderId('deepseek'), false);
+    assert.equal(resolveProviderId('github-models'), 'githubcopilot');
+    assert.equal(resolveProviderId('llama.cpp'), 'llamacpp');
     assert.equal(getProviderLabel('gemini'), 'Gemini');
     assert.equal(getProviderLabel('future-provider'), 'future-provider');
     assert.equal(getOpenCodeMode('zen'), 'zen');
@@ -80,6 +81,6 @@ test('provider catalog normalizes types, ids, labels, and OpenCode modes', () =>
 
 test('model-list URL handling is safe for malformed and non-chat URLs', () => {
     assert.equal(getModelListUrl('not a url', '/v1/models'), 'not a url');
-    assert.equal(getModelListUrl('https://example.test/unrelated', '/v1/models'), 'https://example.test/v1/models');
+    assert.equal(getModelListUrl('https://example.test/unrelated', '/v1/models'), 'https://example.test/unrelated/v1/models');
     assert.equal(getModelListUrl(' HTTPS://EXAMPLE.TEST/v1/chat/completions/ ', '/v1/models'), 'HTTPS://EXAMPLE.TEST/v1/models');
 });

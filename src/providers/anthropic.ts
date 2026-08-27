@@ -16,19 +16,32 @@ import { createTokenUsage, getNumberAtPath, getStringAtPath, mergeTokenUsage, pa
 import { buildAnthropicMessagesBody } from './anthropicPayload.js';
 
 export class AnthropicProvider implements Provider {
-    readonly name = 'Anthropic';
-    readonly defaultUrl = 'https://api.anthropic.com/v1/messages';
+    readonly name: string;
+    readonly defaultUrl: string;
 
     private _session: Soup.Session;
     private _url: string;
     private _model: string;
     private _apiKey: string;
+    private _bearerAuth: boolean;
+    private _defaultHeaders: Readonly<Record<string, string>>;
 
-    constructor(session: Soup.Session, config: ProviderConfig) {
+    constructor(
+        session: Soup.Session,
+        config: ProviderConfig,
+        name = 'Anthropic',
+        defaultUrl = 'https://api.anthropic.com/v1/messages',
+        bearerAuth = false,
+        defaultHeaders: Readonly<Record<string, string>> = {}
+    ) {
+        this.name = name;
+        this.defaultUrl = defaultUrl;
         this._session = session;
         this._url = config.url || this.defaultUrl;
         this._model = config.model;
         this._apiKey = config.apiKey ?? '';
+        this._bearerAuth = bearerAuth;
+        this._defaultHeaders = defaultHeaders;
         Logger.info(Tag.Provider, `Created ${this.name} → ${this._url} (model: ${this._model}, key: ${maskKey(this._apiKey)})`);
     }
 
@@ -47,7 +60,10 @@ export class AnthropicProvider implements Provider {
         Logger.debug(Tag.Provider, `${this.name} sending ${body.messages.length} message(s)${body.system ? ' + system prompt' : ''}`);
 
         const headers: Record<string, string> = {
-            'x-api-key': this._apiKey,
+            ...this._defaultHeaders,
+            ...(this._bearerAuth
+                ? { Authorization: `Bearer ${this._apiKey}` }
+                : { 'x-api-key': this._apiKey }),
             'anthropic-version': '2023-06-01',
         };
 

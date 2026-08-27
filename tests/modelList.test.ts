@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getModelEndpoint, parseModelList } from '../src/providers/modelList.js';
+import { getModelEndpoint, getNextPageUrl, parseModelList } from '../src/providers/modelList.js';
 import type { ProviderId } from '../src/providers/types.js';
 
 const emptyConfig = { url: '', apiKey: '', mode: '' };
@@ -59,6 +59,14 @@ test('getModelEndpoint builds authentication and mode-specific requests', () => 
         getModelEndpoint('opencode', { ...emptyConfig, apiKey: 'token', mode: 'zen' })?.url,
         'https://opencode.ai/zen/v1/models'
     );
+    assert.equal(getModelEndpoint('openrouter', emptyConfig)?.requiresApiKey, false);
+    assert.equal(
+        getModelEndpoint('custom', {
+            ...emptyConfig,
+            url: 'https://custom.test/provider/v1/chat/completions',
+        })?.url,
+        'https://custom.test/provider/v1/models'
+    );
     assert.throws(
         () => getModelEndpoint('custom', emptyConfig),
         /Enter an endpoint URL/
@@ -88,7 +96,7 @@ test('parseModelList handles OpenAI, Ollama, Gemini, and GitHub response shapes'
     ]), 'github', null), ['openai/gpt-test', 'Fallback Model']);
 });
 
-test('parseModelList filters OpenCode models by mode and endpoint capability', () => {
+test('parseModelList keeps OpenCode models for runtime API-mode routing', () => {
     const response = JSON.stringify({
         data: [
             { id: 'kimi-k2.7-code' },
@@ -97,8 +105,24 @@ test('parseModelList filters OpenCode models by mode and endpoint capability', (
             { id: 'server-responses', endpoint: '/v1/responses' },
         ],
     });
-    assert.deepEqual(parseModelList(response, 'openai', 'go'), ['kimi-k2.7-code', 'server-chat']);
-    assert.deepEqual(parseModelList(response, 'openai', 'zen'), ['kimi-k2.7-code', 'big-pickle', 'server-chat']);
+    const expected = ['kimi-k2.7-code', 'big-pickle', 'server-chat', 'server-responses'];
+    assert.deepEqual(parseModelList(response, 'openai', 'go'), expected);
+    assert.deepEqual(parseModelList(response, 'openai', 'zen'), expected);
+});
+
+test('model pagination supports Gemini tokens, OpenAI cursors, and absolute next URLs', () => {
+    assert.equal(
+        getNextPageUrl('https://models.test/list?pageSize=10', '{"nextPageToken":"abc"}', 'gemini'),
+        'https://models.test/list?pageSize=10&pageToken=abc'
+    );
+    assert.equal(
+        getNextPageUrl('https://models.test/list', '{"has_more":true,"data":[{"id":"last"}]}', 'openai'),
+        'https://models.test/list?after_id=last'
+    );
+    assert.equal(
+        getNextPageUrl('https://models.test/list', '{"next":"https://models.test/page/2"}', 'openai'),
+        'https://models.test/page/2'
+    );
 });
 
 test('parseModelList rejects malformed envelopes and invalid JSON', () => {
