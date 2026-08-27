@@ -23,7 +23,7 @@ import {
     PROVIDER_TYPE_LABELS,
     type OpenCodeMode,
 } from './providers/catalog.js';
-import { fetchProviderModels } from './providers/modelList.js';
+import { fetchProviderModels, type ModelListResult } from './providers/modelList.js';
 import type { ProviderId } from './providers/types.js';
 import {
     createEmptyProviderConfig,
@@ -319,6 +319,7 @@ export default class MeiPreferences extends ExtensionPreferences {
                 currentFetchProvider = '';
                 currentFetchKey = '';
                 currentFetchMode = '';
+                currentFetchRequiresApiKey = false;
                 queueUpdateModels();
             }
         });
@@ -429,8 +430,8 @@ export default class MeiPreferences extends ExtensionPreferences {
         const session = new Soup.Session({ timeout: 15 });
         let modelFetchCancellable: Gio.Cancellable | null = null;
 
-        async function fetchModels(provider: string, config: StoredProviderConfig, cancellable: Gio.Cancellable): Promise<string[]> {
-            const result = await fetchProviderModels(
+        async function fetchModels(provider: string, config: StoredProviderConfig, cancellable: Gio.Cancellable): Promise<ModelListResult> {
+            return fetchProviderModels(
                 session,
                 provider as ProviderId,
                 {
@@ -440,13 +441,13 @@ export default class MeiPreferences extends ExtensionPreferences {
                 },
                 cancellable
             );
-            return result.models;
         }
 
         let fetchTimeout = 0;
         let currentFetchProvider = '';
         let currentFetchKey = '';
         let currentFetchMode = '';
+        let currentFetchRequiresApiKey = false;
         let modelFetchSeq = 0;
 
         function queueUpdateModels() {
@@ -469,20 +470,6 @@ export default class MeiPreferences extends ExtensionPreferences {
             if (destroyed || provider !== settings.get_string('provider')) return;
             const apiKey = resolvedConfig.apiKey || '';
 
-            if (apiKey.length === 0) {
-                modelComboRow.set_visible(false);
-                modelStatusRow.set_visible(true);
-                modelStatusRow.set_subtitle(config.apiKeyStorage === 'secret'
-                    ? 'Stored API key could not be read. Enter and save it again.'
-                    : 'API key required.');
-                spinner.stop();
-                spinner.set_visible(false);
-                currentFetchProvider = '';
-                currentFetchKey = '';
-                currentFetchMode = '';
-                return;
-            }
-
             const providerMode = config.mode || '';
             if (
                 provider === currentFetchProvider &&
@@ -490,7 +477,13 @@ export default class MeiPreferences extends ExtensionPreferences {
                 providerMode === currentFetchMode &&
                 modelStringList.get_n_items() > 0
             ) {
-                modelStatusRow.set_visible(false);
+                const missingRequiredKey = currentFetchRequiresApiKey && apiKey.length === 0;
+                modelStatusRow.set_visible(missingRequiredKey);
+                if (missingRequiredKey) {
+                    modelStatusRow.set_subtitle(config.apiKeyStorage === 'secret'
+                        ? 'Stored API key could not be read. Enter and save it again.'
+                        : 'API key required to load the live model catalog.');
+                }
                 modelComboRow.set_visible(true);
                 return;
             }
@@ -505,7 +498,8 @@ export default class MeiPreferences extends ExtensionPreferences {
             spinner.set_visible(true);
 
             try {
-                const models = await fetchModels(provider, resolvedConfig, modelFetchCancellable);
+                const result = await fetchModels(provider, resolvedConfig, modelFetchCancellable);
+                const models = result.models;
                 if (
                     destroyed ||
                     fetchSeq !== modelFetchSeq ||
@@ -516,12 +510,28 @@ export default class MeiPreferences extends ExtensionPreferences {
                     return;
                 }
 
+                const missingRequiredKey = result.requiresApiKey && apiKey.length === 0;
+                if (models.length === 0 && missingRequiredKey) {
+                    modelComboRow.set_visible(false);
+                    modelStatusRow.set_visible(true);
+                    modelStatusRow.set_subtitle(config.apiKeyStorage === 'secret'
+                        ? 'Stored API key could not be read. Enter and save it again.'
+                        : 'API key required to load the live model catalog.');
+                    spinner.stop();
+                    spinner.set_visible(false);
+                    currentFetchProvider = provider;
+                    currentFetchKey = apiKey;
+                    currentFetchMode = providerMode;
+                    currentFetchRequiresApiKey = true;
+                    return;
+                }
                 if (models.length === 0) {
                     throw new Error('No models returned.');
                 }
                 currentFetchProvider = provider;
                 currentFetchKey = apiKey;
                 currentFetchMode = providerMode;
+                currentFetchRequiresApiKey = result.requiresApiKey;
 
                 modelStringList.splice(0, modelStringList.get_n_items(), models);
 
@@ -533,7 +543,12 @@ export default class MeiPreferences extends ExtensionPreferences {
                 }
                 modelComboRow.set_selected(idx);
 
-                modelStatusRow.set_visible(false);
+                modelStatusRow.set_visible(missingRequiredKey);
+                if (missingRequiredKey) {
+                    modelStatusRow.set_subtitle(config.apiKeyStorage === 'secret'
+                        ? 'Stored API key could not be read. Enter and save it again.'
+                        : 'API key required to load the live model catalog.');
+                }
                 modelComboRow.set_visible(true);
                 spinner.stop();
                 spinner.set_visible(false);
@@ -550,10 +565,11 @@ export default class MeiPreferences extends ExtensionPreferences {
 
                 modelComboRow.set_visible(false);
                 modelStatusRow.set_visible(true);
-                modelStatusRow.set_subtitle('API Key required or network error.');
+                modelStatusRow.set_subtitle(`Model list unavailable: ${e instanceof Error ? e.message : String(e)}`);
                 currentFetchProvider = '';
                 currentFetchKey = '';
                 currentFetchMode = '';
+                currentFetchRequiresApiKey = false;
                 spinner.stop();
                 spinner.set_visible(false);
             }
@@ -610,8 +626,14 @@ export default class MeiPreferences extends ExtensionPreferences {
                     (getCurrentProviderConfig().mode || '') === currentFetchMode &&
                     modelStringList.get_n_items() > 0
                 ) {
+                    const missingRequiredKey = currentFetchRequiresApiKey && currentFetchKey.length === 0;
                     modelComboRow.set_visible(true);
-                    modelStatusRow.set_visible(false);
+                    modelStatusRow.set_visible(missingRequiredKey);
+                    if (missingRequiredKey) {
+                        modelStatusRow.set_subtitle(config.apiKeyStorage === 'secret'
+                            ? 'Stored API key could not be read. Enter and save it again.'
+                            : 'API key required to load the live model catalog.');
+                    }
                 } else {
                     queueUpdateModels();
                 }

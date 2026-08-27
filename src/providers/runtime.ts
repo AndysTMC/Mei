@@ -13,6 +13,7 @@ import { OllamaProvider } from './ollama.js';
 import { OpenAICompatibleProvider } from './openai.js';
 import {
     getProviderProfile,
+    normalizeOpenCodeModelId,
     resolveProviderRuntime,
 } from './profiles.js';
 import { ResponsesProvider } from './responses.js';
@@ -27,7 +28,11 @@ export function createRuntimeProvider(
 ): Provider {
     const profile = getProviderProfile(providerId);
     const runtime = resolveProviderRuntime(providerId, config);
-    const effectiveConfig = { ...config, url: runtime.url };
+    const effectiveConfig = {
+        ...config,
+        url: runtime.url,
+        model: providerId === 'opencode' ? normalizeOpenCodeModelId(config.model) : config.model,
+    };
 
     if (runtime.apiMode === 'bedrock_converse') {
         throw new Error(`${profile.label} requires AWS SDK authentication, which is not configured in Mei.`);
@@ -35,7 +40,7 @@ export function createRuntimeProvider(
     if (runtime.apiMode === 'responses') {
         return new ResponsesProvider(
             session,
-            config.model,
+            effectiveConfig.model,
             config.apiKey ?? '',
             profile.label,
             runtime.url,

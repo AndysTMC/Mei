@@ -119,12 +119,17 @@ export function resolveProviderId(value: string): ProviderId | null {
 }
 
 export function getOpenCodeApiMode(model: string, mode: string): ProviderApiMode {
-    const normalized = model.trim().toLowerCase().replace(/^opencode(?:-go)?\//, '');
+    const normalized = normalizeOpenCodeModelId(model).toLowerCase();
+    const normalizedMode = mode.trim().toLowerCase();
     if (!normalized) return 'chat_completions';
     if (/^(?:gpt-|grok-|muse-spark)/.test(normalized)) return 'responses';
-    if (mode === 'zen' && normalized.startsWith('claude-')) return 'anthropic_messages';
-    if (mode !== 'zen' && /^(?:minimax-|qwen)/.test(normalized)) return 'anthropic_messages';
+    if (normalizedMode === 'zen' && /^(?:claude-|qwen)/.test(normalized)) return 'anthropic_messages';
+    if (normalizedMode !== 'zen' && /^(?:minimax-|qwen)/.test(normalized)) return 'anthropic_messages';
     return 'chat_completions';
+}
+
+export function normalizeOpenCodeModelId(model: string): string {
+    return model.trim().split('/').at(-1) ?? '';
 }
 
 export function getOpenCodeBaseUrl(mode: string): string {

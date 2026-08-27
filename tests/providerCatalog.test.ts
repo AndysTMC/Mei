@@ -22,6 +22,7 @@ import { getOpenCodeApiMode, resolveProviderId } from '../src/providers/profiles
 test('OpenCode model ids strip provider prefixes consistently', () => {
     assert.equal(getOpenCodeModelId('opencode-go/kimi-k2.7-code'), 'kimi-k2.7-code');
     assert.equal(getOpenCodeModelId('opencode/glm-5.2'), 'glm-5.2');
+    assert.equal(getOpenCodeModelId('opencode-zen/qwen3.8-max'), 'qwen3.8-max');
     assert.equal(getOpenCodeModelId('deepseek-v4-pro'), 'deepseek-v4-pro');
 });
 
@@ -41,6 +42,7 @@ test('OpenCode routes model families without a finite allowlist', () => {
     assert.equal(getOpenCodeApiMode('opencode-go/kimi-k2.7-code', 'go'), 'chat_completions');
     assert.equal(getOpenCodeApiMode('opencode-go/minimax-m4-future', 'go'), 'anthropic_messages');
     assert.equal(getOpenCodeApiMode('opencode-go/qwen4-future', 'go'), 'anthropic_messages');
+    assert.equal(getOpenCodeApiMode('opencode-zen/qwen4-future', 'ZEN'), 'anthropic_messages');
     assert.equal(getOpenCodeApiMode('opencode/grok-5-future', 'zen'), 'responses');
     assert.equal(getOpenCodeApiMode('opencode/claude-5-future', 'zen'), 'anthropic_messages');
     assert.equal(getOpenCodeApiMode('opencode/future-model', 'zen'), 'chat_completions');

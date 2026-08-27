@@ -200,7 +200,7 @@ export function getNextPageUrl(currentUrl: string, text: string, kind: ModelEndp
         return null;
     }
 
-    if (typeof root.next === 'string' && /^https?:\/\//i.test(root.next)) return root.next;
+    if (typeof root.next === 'string' && hasSameHttpOrigin(currentUrl, root.next)) return root.next;
     const token = root.nextPageToken ?? root.next_page_token;
     if (typeof token === 'string' && token) {
         return withQueryParam(currentUrl, kind === 'gemini' ? 'pageToken' : 'page_token', token);
@@ -216,6 +216,36 @@ export function getNextPageUrl(currentUrl: string, text: string, kind: ModelEndp
 }
 
 function withQueryParam(url: string, key: string, value: string): string {
-    const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+    const hashIndex = url.indexOf('#');
+    const hash = hashIndex >= 0 ? url.slice(hashIndex) : '';
+    const withoutHash = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+    const queryIndex = withoutHash.indexOf('?');
+    const base = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash;
+    const query = queryIndex >= 0 ? withoutHash.slice(queryIndex + 1) : '';
+    const encodedKey = encodeURIComponent(key);
+    const parts = query
+        .split('&')
+        .filter(Boolean)
+        .filter(part => getQueryKey(part) !== key);
+    parts.push(`${encodedKey}=${encodeURIComponent(value)}`);
+    return `${base}?${parts.join('&')}${hash}`;
+}
+
+function getQueryKey(part: string): string {
+    try {
+        return decodeURIComponent(part.split('=', 1)[0].replace(/\+/g, ' '));
+    } catch {
+        return '';
+    }
+}
+
+function hasSameHttpOrigin(currentUrl: string, nextUrl: string): boolean {
+    const currentOrigin = getHttpOrigin(currentUrl);
+    const nextOrigin = getHttpOrigin(nextUrl);
+    return currentOrigin !== null && nextOrigin !== null && currentOrigin === nextOrigin;
+}
+
+function getHttpOrigin(url: string): string | null {
+    const match = url.trim().match(/^(https?):\/\/([^/?#]+)/i);
+    return match ? `${match[1].toLowerCase()}://${match[2].toLowerCase()}` : null;
 }

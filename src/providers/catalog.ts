@@ -5,7 +5,7 @@
  */
 
 import type { ProviderId } from './types.js';
-import { PROVIDER_PROFILES, resolveProviderId, type ProviderType } from './profiles.js';
+import { normalizeOpenCodeModelId, PROVIDER_PROFILES, resolveProviderId, type ProviderType } from './profiles.js';
 
 export type { ProviderType } from './profiles.js';
 export type OpenCodeMode = 'go' | 'zen';
@@ -65,7 +65,7 @@ export function getOpenCodeModelsUrl(mode: OpenCodeMode): string {
 }
 
 export function getOpenCodeModelId(model: string): string {
-    return model.replace(/^opencode-go\//, '').replace(/^opencode\//, '');
+    return normalizeOpenCodeModelId(model);
 }
 
 export function getModelListUrl(chatUrl: string, modelPath: '/api/tags' | '/v1/models'): string {

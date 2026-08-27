@@ -110,18 +110,26 @@ test('parseModelList keeps OpenCode models for runtime API-mode routing', () => 
     assert.deepEqual(parseModelList(response, 'openai', 'zen'), expected);
 });
 
-test('model pagination supports Gemini tokens, OpenAI cursors, and absolute next URLs', () => {
+test('model pagination replaces cursors and accepts only same-origin absolute next URLs', () => {
     assert.equal(
-        getNextPageUrl('https://models.test/list?pageSize=10', '{"nextPageToken":"abc"}', 'gemini'),
+        getNextPageUrl('https://models.test/list?pageSize=10&pageToken=old', '{"nextPageToken":"abc"}', 'gemini'),
         'https://models.test/list?pageSize=10&pageToken=abc'
     );
     assert.equal(
-        getNextPageUrl('https://models.test/list', '{"has_more":true,"data":[{"id":"last"}]}', 'openai'),
+        getNextPageUrl('https://models.test/list?after_id=old', '{"has_more":true,"data":[{"id":"last"}]}', 'openai'),
         'https://models.test/list?after_id=last'
     );
     assert.equal(
         getNextPageUrl('https://models.test/list', '{"next":"https://models.test/page/2"}', 'openai'),
         'https://models.test/page/2'
+    );
+    assert.equal(
+        getNextPageUrl('https://models.test/list', '{"next":"https://attacker.test/collect"}', 'openai'),
+        null
+    );
+    assert.equal(
+        getNextPageUrl('https://models.test/list', '{"next":"http://models.test/page/2"}', 'openai'),
+        null
     );
 });
 

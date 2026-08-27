@@ -9,7 +9,14 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonSse } from '../utils/http.js';
 import { getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type SendMessageOptions, type TokenUsage } from './types.js';
-import { parseResponsesResult, parseResponsesUsage } from './responsesPayload.js';
+import {
+    appendIncompleteNotice,
+    buildResponsesBody,
+    getResponsesFailure,
+    getResponsesIncompleteReason,
+    parseResponsesResult,
+    parseResponsesUsage,
+} from './responsesPayload.js';
 
 export class ResponsesProvider implements Provider {
     readonly name: string;
@@ -32,13 +39,7 @@ export class ResponsesProvider implements Provider {
         cancellable: Gio.Cancellable,
         options: SendMessageOptions = {}
     ): Promise<ChatResponse> {
-        const body = {
-            model: this._model,
-            input: messages.map(({ role, content }) => ({
-                role: role === 'system' ? 'developer' : role,
-                content,
-            })),
-        };
+        const body = buildResponsesBody(this._model, messages);
         const headers = {
             ...this._headers,
             ...(this._apiKey ? { Authorization: `Bearer ${this._apiKey}` } : {}),
@@ -51,6 +52,8 @@ export class ResponsesProvider implements Provider {
         let content = '';
         let thinking = '';
         let usage: TokenUsage | undefined;
+        let terminalError: string | null = null;
+        let incompleteReason: string | null = null;
         await postJsonSse(
             this._session,
             this.defaultUrl,
@@ -62,15 +65,28 @@ export class ResponsesProvider implements Provider {
                 if (!event) return;
                 const type = getStringAtPath(event, ['type']);
                 const delta = getStringAtPath(event, ['delta']) ?? '';
-                const contentDelta = type === 'response.output_text.delta' ? delta : '';
+                const contentDelta = type === 'response.output_text.delta' || type === 'response.refusal.delta'
+                    ? delta
+                    : '';
                 const thinkingDelta = type === 'response.reasoning_summary_text.delta' ? delta : '';
-                if (type === 'response.completed') usage = parseResponsesUsage(event);
+                if (type === 'response.completed' || type === 'response.incomplete') {
+                    usage = parseResponsesUsage(event);
+                }
+                terminalError = getResponsesFailure(event) ?? terminalError;
+                incompleteReason = getResponsesIncompleteReason(event) ?? incompleteReason;
                 if (!contentDelta && !thinkingDelta) return;
                 content += contentDelta;
                 thinking += thinkingDelta;
                 options.onUpdate?.({ contentDelta, thinkingDelta });
             }
         );
+        if (terminalError) throw new Error(terminalError);
+        if (incompleteReason && !content.trim()) throw new Error(incompleteReason);
+        if (incompleteReason) {
+            const noticeDelta = `\n\n[${incompleteReason}]`;
+            content = appendIncompleteNotice(content, incompleteReason);
+            options.onUpdate?.({ contentDelta: noticeDelta });
+        }
         return {
             content: content.trim() || '(no response)',
             thinking: thinking.trim() || undefined,

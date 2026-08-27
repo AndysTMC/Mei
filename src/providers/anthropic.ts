@@ -59,11 +59,14 @@ export class AnthropicProvider implements Provider {
 
         Logger.debug(Tag.Provider, `${this.name} sending ${body.messages.length} message(s)${body.system ? ' + system prompt' : ''}`);
 
+        const authHeaders: Record<string, string> = !this._apiKey
+            ? {}
+            : this._bearerAuth
+                ? { Authorization: `Bearer ${this._apiKey}` }
+                : { 'x-api-key': this._apiKey };
         const headers: Record<string, string> = {
             ...this._defaultHeaders,
-            ...(this._bearerAuth
-                ? { Authorization: `Bearer ${this._apiKey}` }
-                : { 'x-api-key': this._apiKey }),
+            ...authHeaders,
             'anthropic-version': '2023-06-01',
         };
 
