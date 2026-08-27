@@ -13,6 +13,7 @@
 import Gio from 'gi://Gio';
 
 import { ensureLogDir, LOG_FILE, setPrivateMode } from './logFile.js';
+import { redactSensitiveText } from './redaction.js';
 
 /* ── Log levels ───────────────────────────────────── */
 
@@ -49,10 +50,9 @@ function truncate(s: string, max: number): string {
     return s.slice(0, max) + '…';
 }
 
-/** Mask an API key, showing only the last 4 characters. */
+/** Describe whether an API key is present without exposing any fragment. */
 export function maskKey(key: string | undefined): string {
-    if (!key || key.length <= 8) return '***';
-    return '***' + key.slice(-4);
+    return key ? 'configured' : 'not set';
 }
 
 /* ── File Logging ─────────────────────────────────── */
@@ -66,7 +66,7 @@ function writeToFile(level: string, tag: string, msg: string): void {
 
         const now = new Date();
         const timestamp = now.toISOString();
-        const safeMessage = msg.replace(/[\r\n]+/g, '\\n');
+        const safeMessage = redactSensitiveText(msg).replace(/[\r\n]+/g, '\\n');
         const line = `[${timestamp}] [${level}] [${tag}] ${safeMessage}\n`;
 
         const encodedLine = new TextEncoder().encode(line);
@@ -133,32 +133,36 @@ export class Logger {
 
     static debug(tag: TagName, msg: string): void {
         if (this.minLevel > LogLevel.DEBUG) return;
-        writeToFile('DEBUG', tag, msg);
-        if (__DEV__) console.log(`[Mei:DEBUG] [${tag}] ${msg}`);
+        const safeMessage = redactSensitiveText(msg);
+        writeToFile('DEBUG', tag, safeMessage);
+        if (__DEV__) console.log(`[Mei:DEBUG] [${tag}] ${safeMessage}`);
     }
 
     static info(tag: TagName, msg: string): void {
         if (this.minLevel > LogLevel.INFO) return;
-        writeToFile('INFO', tag, msg);
-        if (__DEV__) console.log(`[Mei:INFO]  [${tag}] ${msg}`);
+        const safeMessage = redactSensitiveText(msg);
+        writeToFile('INFO', tag, safeMessage);
+        if (__DEV__) console.log(`[Mei:INFO]  [${tag}] ${safeMessage}`);
     }
 
     static warn(tag: TagName, msg: string): void {
         if (this.minLevel > LogLevel.WARN) return;
-        writeToFile('WARN', tag, msg);
-        console.warn(`[Mei:WARN]  [${tag}] ${msg}`);
+        const safeMessage = redactSensitiveText(msg);
+        writeToFile('WARN', tag, safeMessage);
+        console.warn(`[Mei:WARN]  [${tag}] ${safeMessage}`);
     }
 
     static error(tag: TagName, msg: string, err?: unknown): void {
         if (this.minLevel > LogLevel.ERROR) return;
         const suffix = err instanceof Error ? `: ${err.message}` : '';
-        const fullMsg = `${msg}${suffix}`;
+        const fullMsg = redactSensitiveText(`${msg}${suffix}`);
         writeToFile('ERROR', tag, fullMsg);
 
         console.error(`[Mei:ERROR] [${tag}] ${fullMsg}`);
         if (__DEV__ && err instanceof Error && err.stack) {
-            console.error(err.stack);
-            writeToFile('ERROR', tag, `Stack:\n${err.stack}`);
+            const safeStack = redactSensitiveText(err.stack);
+            console.error(safeStack);
+            writeToFile('ERROR', tag, `Stack:\n${safeStack}`);
         }
     }
 

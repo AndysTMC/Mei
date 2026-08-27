@@ -9,6 +9,8 @@ import { normalizeOpenCodeModelId, PROVIDER_PROFILES, resolveProviderId, type Pr
 
 export type { ProviderType } from './profiles.js';
 export type OpenCodeMode = 'go' | 'zen';
+export type DeepSeekThinking = 'default' | 'enabled' | 'disabled';
+export type DeepSeekReasoningEffort = 'low' | 'high' | 'max';
 
 export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
     local: 'Local',
@@ -24,12 +26,26 @@ export const PROVIDER_TYPE_IDS: ProviderType[] = ['local', 'cloud', 'custom'];
 export const LOCAL_PROVIDER_IDS = providerIdsOfType('local');
 export const CLOUD_PROVIDER_IDS = providerIdsOfType('cloud');
 export const CUSTOM_PROVIDER_IDS = providerIdsOfType('custom');
+export const LEGACY_PROVIDER_IDS = Object.values(PROVIDER_PROFILES)
+    .filter(profile => profile.selectable === false)
+    .map(profile => profile.id);
 
 export const OPEN_CODE_MODE_LABELS: Record<OpenCodeMode, string> = {
     go: 'Go',
     zen: 'Zen',
 };
 
+export const DEEPSEEK_THINKING_LABELS: Record<DeepSeekThinking, string> = {
+    default: 'Default',
+    enabled: 'On',
+    disabled: 'Off',
+};
+
+export const DEEPSEEK_REASONING_EFFORT_LABELS: Record<DeepSeekReasoningEffort, string> = {
+    low: 'Low',
+    high: 'High',
+    max: 'Max',
+};
 export function getProviderType(value: string): ProviderType {
     return value === 'local' || value === 'custom' ? value : 'cloud';
 }
@@ -50,6 +66,15 @@ export function getProviderLabel(provider: string): string {
 
 export function getOpenCodeMode(value: string | undefined): OpenCodeMode {
     return value === 'zen' ? 'zen' : 'go';
+}
+
+export function getDeepSeekThinking(value: string | undefined): DeepSeekThinking {
+    return value === 'enabled' || value === 'disabled' ? value : 'default';
+}
+
+export function getDeepSeekReasoningEffort(value: string | undefined): DeepSeekReasoningEffort {
+    if (value === 'low' || value === 'max') return value;
+    return 'high';
 }
 
 export function getOpenCodeChatCompletionsUrl(mode: OpenCodeMode): string {
@@ -85,6 +110,6 @@ export function getModelListUrl(chatUrl: string, modelPath: '/api/tags' | '/v1/m
 
 function providerIdsOfType(type: ProviderType): ProviderId[] {
     return Object.values(PROVIDER_PROFILES)
-        .filter(profile => profile.type === type)
+        .filter(profile => profile.type === type && profile.selectable !== false)
         .map(profile => profile.id);
 }

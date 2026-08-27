@@ -31,3 +31,8 @@ export function buildGeminiContentBody(messages: ChatMessage[], includeThoughts 
         ...(includeThoughts ? { generationConfig: { thinkingConfig: { includeThoughts: true } } } : {}),
     };
 }
+
+export function buildGeminiGenerateUrl(baseUrl: string, model: string, stream: boolean): string {
+    const action = stream ? 'streamGenerateContent?alt=sse' : 'generateContent';
+    return `${baseUrl.replace(/\/+$/, '')}/models/${encodeURIComponent(model)}:${action}`;
+}

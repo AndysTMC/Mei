@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 loadEnvFile('.env');
 
 const timeoutMs = numberEnv('MEI_LIVE_TIMEOUT_MS', 15000);
+const maxTokens = numberEnv('MEI_LIVE_MAX_TOKENS', 128);
 const runChat = process.env.MEI_LIVE_CHAT === '1';
 
 const providers = [
@@ -12,7 +13,9 @@ const providers = [
     openAiProvider('Groq', 'GROQ', 'https://api.groq.com/openai/v1'),
     openAiProvider('Mistral', 'MISTRAL', 'https://api.mistral.ai/v1'),
     openAiProvider('OpenRouter', 'OPENROUTER', 'https://openrouter.ai/api/v1'),
-    githubProvider(),
+    openAiProvider('DeepSeek', 'DEEPSEEK', 'https://api.deepseek.com'),
+    openAiProvider('Fireworks AI', 'FIREWORKS', 'https://api.fireworks.ai/inference/v1'),
+    openAiProvider('NVIDIA NIM', 'NVIDIA', 'https://integrate.api.nvidia.com/v1'),
     openCodeProvider('Go', 'OPENCODE_GO', 'https://opencode.ai/zen/go/v1'),
     openCodeProvider('Zen', 'OPENCODE_ZEN', 'https://opencode.ai/zen/v1'),
     optionalOpenAiProvider('llama.cpp', 'LLAMACPP', 'http://127.0.0.1:8080/v1'),
@@ -72,8 +75,14 @@ async function runCheck(name, request, parse) {
         console.log(`PASS ${name}${Array.isArray(value) ? `: ${value.length} model(s)` : ''}`);
         return value;
     } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (name.includes(' chat ') && /insufficient balance/i.test(message)) {
+            skipped++;
+            console.log(`SKIP ${name}: provider account has insufficient balance`);
+            return null;
+        }
         failures++;
-        console.error(`FAIL ${name}: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`FAIL ${name}: ${message}`);
         return null;
     }
 }
@@ -91,7 +100,7 @@ function openAiProvider(name, prefix, defaultBaseUrl) {
         chatRequest: model => jsonRequest(`${baseUrl}/chat/completions`, bearer(apiKey), {
             model,
             messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
-            max_tokens: 16,
+            max_tokens: maxTokens,
         }),
         parseChat: parseOpenAiChat,
     };
@@ -108,7 +117,7 @@ function optionalOpenAiProvider(name, prefix, defaultBaseUrl) {
     provider.chatRequest = model => jsonRequest(`${stripSlash(configuredUrl)}/chat/completions`, bearer(apiKey), {
         model,
         messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
-        max_tokens: 16,
+        max_tokens: maxTokens,
     });
     return provider;
 }
@@ -126,7 +135,7 @@ function anthropicProvider() {
         parseModels: json => Array.isArray(json?.data) ? json.data.map(item => item?.id).filter(Boolean) : [],
         chatRequest: model => jsonRequest(`${baseUrl}/messages`, headers(), {
             model,
-            max_tokens: 16,
+            max_tokens: maxTokens,
             messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
         }),
         parseChat: json => Array.isArray(json?.content) && json.content.some(part => part?.type === 'text' && part.text),
@@ -157,30 +166,6 @@ function geminiProvider() {
     };
 }
 
-function githubProvider() {
-    const apiKey = firstEnv('GITHUB_MODELS_TOKEN', 'GITHUB_TOKEN');
-    const headers = () => ({
-        ...bearer(apiKey),
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2026-03-10',
-    });
-    return {
-        ...openAiProvider('GitHub Models', 'GITHUB_MODELS', 'https://models.github.ai/inference'),
-        model: process.env.GITHUB_MODELS_MODEL || '',
-        enabled: () => Boolean(apiKey),
-        skipReason: 'missing GITHUB_MODELS_TOKEN or GITHUB_TOKEN',
-        listRequest: () => ({ url: 'https://models.github.ai/catalog/models', headers: headers() }),
-        parseModels: json => (Array.isArray(json) ? json : json?.models || json?.data || [])
-            .map(item => item?.id || item?.name)
-            .filter(Boolean),
-        chatRequest: model => jsonRequest('https://models.github.ai/inference/chat/completions', headers(), {
-            model,
-            messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
-            max_tokens: 16,
-        }),
-    };
-}
-
 function openCodeProvider(mode, prefix, baseUrl) {
     const apiKey = firstEnv(`${prefix}_API_KEY`, 'OPENCODE_API_KEY', 'OPENCODE_TOKEN');
     const headers = () => ({
@@ -206,7 +191,7 @@ function openCodeChatRequest(baseUrl, mode, configuredModel, headers) {
             model,
             store: false,
             input: [{ role: 'user', content: 'Reply with exactly: OK' }],
-            max_output_tokens: 16,
+            max_output_tokens: maxTokens,
         });
     }
     if (apiMode === 'anthropic_messages') {
@@ -216,13 +201,13 @@ function openCodeChatRequest(baseUrl, mode, configuredModel, headers) {
         }, {
             model,
             messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
-            max_tokens: 16,
+            max_tokens: maxTokens,
         });
     }
     return jsonRequest(`${baseUrl}/chat/completions`, headers, {
         model,
         messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
-        max_tokens: 16,
+        max_tokens: maxTokens,
     });
 }
 
@@ -270,7 +255,13 @@ function parseOpenAiModels(json) {
 }
 
 function parseOpenAiChat(json) {
-    return typeof json?.choices?.[0]?.message?.content === 'string' && json.choices[0].message.content.length > 0;
+    const message = json?.choices?.[0]?.message;
+    if (!message) return false;
+    if (typeof message.content === 'string' && message.content.length > 0) return true;
+    if (Array.isArray(message.content) && message.content.some(part => typeof part?.text === 'string' && part.text.length > 0)) {
+        return true;
+    }
+    return typeof message.reasoning_content === 'string' && message.reasoning_content.length > 0;
 }
 
 function jsonRequest(url, headers, body) {
@@ -285,10 +276,17 @@ function safeApiError(text) {
     try {
         const json = JSON.parse(text);
         const message = json?.error?.message || json?.error || json?.detail;
-        return typeof message === 'string' ? `: ${message.slice(0, 300)}` : '';
+        return typeof message === 'string' ? `: ${redactSecrets(message.slice(0, 300))}` : '';
     } catch {
         return '';
     }
+}
+
+function redactSecrets(text) {
+    return text
+        .replace(/\b(https?:\/\/)[^/?#\s@]+@/gi, '$1***@')
+        .replace(/([?&](?:api[_-]?key|access[_-]?token|token|key)=)[^&#\s]+/gi, '$1***')
+        .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 ***');
 }
 
 function firstEnv(...names) {

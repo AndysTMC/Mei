@@ -13,7 +13,7 @@ import Gio from 'gi://Gio';
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
 import { createTokenUsage, getNumberAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
-import { buildGeminiContentBody } from './geminiPayload.js';
+import { buildGeminiContentBody, buildGeminiGenerateUrl } from './geminiPayload.js';
 
 export class GeminiProvider implements Provider {
     readonly name = 'Gemini';
@@ -41,14 +41,14 @@ export class GeminiProvider implements Provider {
 
         Logger.debug(Tag.Provider, `${this.name} sending ${body.contents.length} message(s)${body.systemInstruction ? ' + system instruction' : ''}`);
 
-        const url = `${this._baseUrl}/models/${this._model}:generateContent`;
+        const url = buildGeminiGenerateUrl(this._baseUrl, this._model, false);
         const headers: Record<string, string> = this._apiKey ? { 'x-goog-api-key': this._apiKey } : {};
 
         if (options.stream) {
             let content = '';
             let thinking = '';
             let usage: TokenUsage | undefined;
-            const streamUrl = `${this._baseUrl}/models/${this._model}:streamGenerateContent?alt=sse`;
+            const streamUrl = buildGeminiGenerateUrl(this._baseUrl, this._model, true);
             await postJsonSse(
                 this._session,
                 streamUrl,

@@ -22,7 +22,9 @@ test('schema provider documentation matches the selectable provider catalog', ()
     const description = schema.match(/<description>The AI provider to use: ([^<]+)<\/description>/)?.[1];
     assert.ok(description);
     assert.deepEqual(new Set(description.split(/,\s*/)), new Set(Object.keys(PROVIDER_LABELS)));
-    assert.doesNotMatch(description, /deepseek/i);
+    assert.match(description, /deepseek/i);
+    assert.match(description, /fireworks/i);
+    assert.match(description, /nvidia/i);
 });
 
 test('sensitive local environment files are ignored while the template is committed', () => {

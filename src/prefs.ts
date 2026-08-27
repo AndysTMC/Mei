@@ -14,6 +14,10 @@ import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 import {
+    DEEPSEEK_REASONING_EFFORT_LABELS,
+    DEEPSEEK_THINKING_LABELS,
+    getDeepSeekReasoningEffort,
+    getDeepSeekThinking,
     getOpenCodeMode,
     getProviderIdsForType,
     getProviderLabel,
@@ -21,6 +25,8 @@ import {
     OPEN_CODE_MODE_LABELS,
     PROVIDER_TYPE_IDS,
     PROVIDER_TYPE_LABELS,
+    type DeepSeekReasoningEffort,
+    type DeepSeekThinking,
     type OpenCodeMode,
 } from './providers/catalog.js';
 import { fetchProviderModels, type ModelListResult } from './providers/modelList.js';
@@ -29,6 +35,7 @@ import {
     createEmptyProviderConfig,
     isApiKeyPlaceholderLike,
     mergeMigratedApiKeyConfigs,
+    mergeProviderConfigEdits,
     parseProviderConfigs,
     type ProviderConfigKey,
     type ProviderConfigs,
@@ -185,6 +192,7 @@ export default class MeiPreferences extends ExtensionPreferences {
 
         let providerConfigSaveTimeout = 0;
         let pendingProviderConfigs: ProviderConfigs | null = null;
+        let pendingProviderConfigsBase: ProviderConfigs | null = null;
         const apiKeyCache = new Map<string, string>();
         let refreshingProviderUi = false;
 
@@ -195,11 +203,19 @@ export default class MeiPreferences extends ExtensionPreferences {
         }
 
         function saveProviderConfigsNow(configs: ProviderConfigs): void {
-            settings.set_string('provider-configs', JSON.stringify(configs));
+            const current = parseProviderConfigs(settings.get_string('provider-configs'));
+            const merged = pendingProviderConfigsBase
+                ? mergeProviderConfigEdits(pendingProviderConfigsBase, configs, current)
+                : configs;
+            settings.set_string('provider-configs', JSON.stringify(merged));
             pendingProviderConfigs = null;
+            pendingProviderConfigsBase = null;
         }
 
         function queueSaveProviderConfigs(configs: ProviderConfigs): void {
+            if (!pendingProviderConfigs) {
+                pendingProviderConfigsBase = parseProviderConfigs(settings.get_string('provider-configs'));
+            }
             pendingProviderConfigs = configs;
             if (providerConfigSaveTimeout) {
                 GLib.source_remove(providerConfigSaveTimeout);
@@ -324,6 +340,41 @@ export default class MeiPreferences extends ExtensionPreferences {
             }
         });
         providerModeGroup.add(openCodeModeRow);
+
+        const deepSeekThinkingModel = new Gtk.StringList();
+        const deepSeekThinkingIds: DeepSeekThinking[] = ['default', 'enabled', 'disabled'];
+        deepSeekThinkingModel.splice(0, 0, deepSeekThinkingIds.map(id => DEEPSEEK_THINKING_LABELS[id]));
+        const deepSeekThinkingRow = new Adw.ComboRow({
+            title: 'DeepSeek Thinking',
+            subtitle: 'Default follows the model; On and Off send an explicit thinking mode.',
+            model: deepSeekThinkingModel,
+        });
+        providerModeGroup.add(deepSeekThinkingRow);
+
+        const deepSeekEffortModel = new Gtk.StringList();
+        const deepSeekEffortIds: DeepSeekReasoningEffort[] = ['low', 'high', 'max'];
+        deepSeekEffortModel.splice(0, 0, deepSeekEffortIds.map(id => DEEPSEEK_REASONING_EFFORT_LABELS[id]));
+        const deepSeekEffortRow = new Adw.ComboRow({
+            title: 'DeepSeek Reasoning Effort',
+            subtitle: 'DeepSeek may map requested effort differently by model.',
+            model: deepSeekEffortModel,
+        });
+        providerModeGroup.add(deepSeekEffortRow);
+
+        deepSeekThinkingRow.connect('notify::selected', () => {
+            const idx = deepSeekThinkingRow.get_selected();
+            if (idx >= 0 && idx < deepSeekThinkingIds.length) {
+                const thinking = deepSeekThinkingIds[idx];
+                void updateCurrentProviderConfig('thinking', thinking);
+                deepSeekEffortRow.set_visible(thinking === 'enabled');
+            }
+        });
+        deepSeekEffortRow.connect('notify::selected', () => {
+            const idx = deepSeekEffortRow.get_selected();
+            if (idx >= 0 && idx < deepSeekEffortIds.length) {
+                void updateCurrentProviderConfig('reasoningEffort', deepSeekEffortIds[idx]);
+            }
+        });
 
         let modelEntryTimeout = 0;
         const modelEntryRow = new Adw.EntryRow({ title: 'Model' });
@@ -592,6 +643,12 @@ export default class MeiPreferences extends ExtensionPreferences {
                 const openCodeModeIdx = openCodeModeIds.indexOf(getOpenCodeMode(config.mode));
                 if (openCodeModeRow.get_selected() !== openCodeModeIdx) openCodeModeRow.set_selected(openCodeModeIdx);
 
+                const deepSeekThinkingIdx = deepSeekThinkingIds.indexOf(getDeepSeekThinking(config.thinking));
+                if (deepSeekThinkingRow.get_selected() !== deepSeekThinkingIdx) deepSeekThinkingRow.set_selected(deepSeekThinkingIdx);
+
+                const deepSeekEffortIdx = deepSeekEffortIds.indexOf(getDeepSeekReasoningEffort(config.reasoningEffort));
+                if (deepSeekEffortRow.get_selected() !== deepSeekEffortIdx) deepSeekEffortRow.set_selected(deepSeekEffortIdx);
+
             } finally {
                 refreshingProviderUi = false;
             }
@@ -602,8 +659,10 @@ export default class MeiPreferences extends ExtensionPreferences {
             apiKeyActionRow.set_subtitle(hasSavedApiKey ? 'API key is saved.' : 'No API key saved.');
             apiKeyActionRow.set_visible(!editingApiKey);
             apiKeyRow.set_visible(editingApiKey);
-            providerModeGroup.set_visible(provider === 'opencode');
+            providerModeGroup.set_visible(provider === 'opencode' || provider === 'deepseek');
             openCodeModeRow.set_visible(provider === 'opencode');
+            deepSeekThinkingRow.set_visible(provider === 'deepseek');
+            deepSeekEffortRow.set_visible(provider === 'deepseek' && getDeepSeekThinking(config.thinking) === 'enabled');
 
             if (pType === 'local' || pType === 'custom') {
                 modelEntryRow.set_visible(true);

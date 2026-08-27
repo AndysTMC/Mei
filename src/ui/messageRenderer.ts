@@ -86,6 +86,7 @@ export interface ListBlock extends BaseBlock {
         checked?: boolean;
         task: boolean;
     }>;
+    originalItemCount?: number;
 }
 
 export interface TableBlock extends BaseBlock {
@@ -96,6 +97,8 @@ export interface TableBlock extends BaseBlock {
     markdown: string;
     plainText: string;
     csv: string;
+    originalRowCount?: number;
+    originalColumnCount?: number;
 }
 
 export interface HorizontalRuleBlock extends BaseBlock {
@@ -141,8 +144,15 @@ const COMPACT_TABLE_CONTENT_WIDTH = 300;
 const EXPANDED_TABLE_CONTENT_WIDTH = 610;
 const MAX_LINK_ACTIONS = 4;
 const MAX_CODE_CHARS = 30000;
+const MAX_RENDER_ACTOR_UNITS = 1000;
+const MAX_RENDERED_TABLE_COLUMNS = 12;
+const MAX_RENDERED_TABLE_ROWS = 40;
+const RENDER_NOTICE_ACTOR_UNITS = 10;
 const MAX_PARSE_CACHE_ENTRIES = 100;
 const MAX_CACHE_MARKDOWN_CHARS = 100000;
+const MAX_PREVIEW_MARKDOWN_CHARS = 100000;
+const MAX_THINKING_PREVIEW_CHARS = 50000;
+const PREVIEW_OMISSION_TEXT = 'Additional content omitted from the popup preview for popup performance; copy the full response to view it.';
 const SELECTION_COLOR = makeColor('#cfc4a6cc');
 const SELECTED_TEXT_COLOR = makeColor('#171717ff');
 
@@ -160,11 +170,15 @@ export function renderMessageBlocks(
         return parseCache.get(cacheKey)!;
     }
 
-    const stabilized = stabilizeMarkdown(markdown, options.streaming ?? false);
-    const blocks = sanitizeBlocks(parseMarkdownBlocks(stabilized.text, {
+    const previewMarkdown = markdown.length > MAX_PREVIEW_MARKDOWN_CHARS
+        ? markdown.slice(0, MAX_PREVIEW_MARKDOWN_CHARS)
+        : markdown;
+    const previewTruncated = previewMarkdown.length < markdown.length;
+    const stabilized = stabilizeMarkdown(previewMarkdown, options.streaming ?? false);
+    const blocks = appendPreviewOmissionNotice(sanitizeBlocks(parseMarkdownBlocks(stabilized.text, {
         ...options,
         streaming: stabilized.streaming,
-    }), options);
+    }), options), previewTruncated);
 
     const model: MessageModel = {
         role: options.role,
@@ -186,6 +200,11 @@ export function renderMessageBlocks(
     }
 
     return model;
+}
+
+export function formatThinkingPreview(thinking: string): string {
+    if (thinking.length <= MAX_THINKING_PREVIEW_CHARS) return thinking;
+    return `${thinking.slice(0, MAX_THINKING_PREVIEW_CHARS)}\n\n… thinking preview truncated for popup performance …`;
 }
 
 export function createMessageActor(
@@ -528,7 +547,9 @@ function renderTableBlock(block: TableBlock, options: MessageRendererOptions): S
         style_class: 'mei-md-table-actions',
     });
     header.add_child(new St.Label({
-        text: 'table',
+        text: block.originalRowCount || block.originalColumnCount
+            ? `table preview (${block.rows.length}/${block.originalRowCount ?? block.rows.length} rows, ${block.headers.length}/${block.originalColumnCount ?? block.headers.length} columns)`
+            : 'table',
         style_class: 'mei-md-table-label',
         x_expand: true,
     }));
@@ -597,6 +618,12 @@ function renderListBlock(block: ListBlock): St.Widget {
         row.add_child(makeMarkupLabel(inlineMarkup(item.text), 'mei-md-list-text'));
         box.add_child(row);
     });
+    if (block.originalItemCount) {
+        box.add_child(makePlainLabel(
+            `${block.originalItemCount - block.items.length} more items omitted from the popup preview`,
+            'mei-md-list-overflow'
+        ));
+    }
     return box;
 }
 
@@ -761,7 +788,7 @@ function createTableBlock(headers: string[], rows: string[][], alignments: Inlin
 }
 
 function sanitizeBlocks(blocks: MessageBlock[], options: MessageRendererOptions): MessageBlock[] {
-    return blocks.flatMap(block => {
+    const sanitized = blocks.flatMap(block => {
         if (block.type === 'paragraph') {
             return sanitizeParagraph(block, options);
         }
@@ -775,6 +802,96 @@ function sanitizeBlocks(blocks: MessageBlock[], options: MessageRendererOptions)
         }
         return [block];
     });
+    return enforceRenderBudget(sanitized);
+}
+
+function enforceRenderBudget(blocks: MessageBlock[]): MessageBlock[] {
+    const rendered: MessageBlock[] = [];
+    let remaining = MAX_RENDER_ACTOR_UNITS - RENDER_NOTICE_ACTOR_UNITS;
+    let truncated = false;
+
+    for (const block of blocks) {
+        const fitted = fitBlockToBudget(block, remaining);
+        if (!fitted) {
+            truncated = true;
+            break;
+        }
+
+        rendered.push(fitted.block);
+        remaining -= fitted.actorUnits;
+        truncated ||= fitted.truncated;
+    }
+
+    if (rendered.length < blocks.length) truncated = true;
+    if (truncated) {
+        rendered.push({ type: 'paragraph', source: PREVIEW_OMISSION_TEXT, text: PREVIEW_OMISSION_TEXT });
+    }
+
+    return rendered;
+}
+
+function appendPreviewOmissionNotice(blocks: MessageBlock[], truncated: boolean): MessageBlock[] {
+    if (!truncated || blocks.some(block => block.source === PREVIEW_OMISSION_TEXT)) return blocks;
+    return [
+        ...blocks,
+        { type: 'paragraph', source: PREVIEW_OMISSION_TEXT, text: PREVIEW_OMISSION_TEXT },
+    ];
+}
+
+function fitBlockToBudget(
+    block: MessageBlock,
+    remaining: number
+): { block: MessageBlock; actorUnits: number; truncated: boolean } | null {
+    const baseActorUnits = 10;
+
+    if (block.type === 'orderedList' || block.type === 'unorderedList') {
+        const maxItems = Math.floor((remaining - baseActorUnits) / 2);
+        if (maxItems < 1) return null;
+
+        const itemCount = Math.min(block.items.length, maxItems);
+        return {
+            block: itemCount < block.items.length
+                ? { ...block, items: block.items.slice(0, itemCount), originalItemCount: block.items.length }
+                : block,
+            actorUnits: baseActorUnits + itemCount * 2,
+            truncated: itemCount < block.items.length,
+        };
+    }
+
+    if (block.type === 'table') {
+        const availableCellUnits = remaining - baseActorUnits;
+        if (availableCellUnits < 2) return null;
+
+        const columnCount = Math.min(
+            block.headers.length,
+            MAX_RENDERED_TABLE_COLUMNS,
+            Math.floor(availableCellUnits / 2)
+        );
+        if (columnCount < 1) return null;
+
+        const rowSlots = Math.floor(availableCellUnits / (columnCount * 2));
+        const rowCount = Math.min(block.rows.length, MAX_RENDERED_TABLE_ROWS, Math.max(0, rowSlots - 1));
+        const tableTruncated = columnCount < block.headers.length || rowCount < block.rows.length;
+        const fittedTable: TableBlock = tableTruncated
+            ? {
+                ...block,
+                headers: block.headers.slice(0, columnCount),
+                rows: block.rows.slice(0, rowCount).map(row => row.slice(0, columnCount)),
+                alignments: block.alignments.slice(0, columnCount),
+                originalRowCount: block.rows.length,
+                originalColumnCount: block.headers.length,
+            }
+            : block;
+
+        return {
+            block: fittedTable,
+            actorUnits: baseActorUnits + (rowCount + 1) * columnCount * 2,
+            truncated: tableTruncated,
+        };
+    }
+
+    if (remaining < baseActorUnits) return null;
+    return { block, actorUnits: baseActorUnits, truncated: false };
 }
 
 function sanitizeParagraph(block: ParagraphBlock, options: MessageRendererOptions): MessageBlock[] {

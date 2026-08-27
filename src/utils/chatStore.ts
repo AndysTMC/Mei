@@ -11,10 +11,12 @@ import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 
 import type { ChatMessage } from '../providers/types.js';
-import { generateChatId, generateChatTitle, parseChatSessions, type ChatSession } from './chatSession.js';
+import { generateChatId, generateChatTitle, MAX_CHAT_SESSIONS, parseChatSessions, type ChatSession } from './chatSession.js';
 import { Logger, Tag } from './logger.js';
 
 export type { ChatSession } from './chatSession.js';
+
+const MAX_CHAT_STORE_BYTES = 16 * 1024 * 1024;
 
 export class ChatStore {
     private _filePath: string;
@@ -37,14 +39,42 @@ export class ChatStore {
                 this._sessions = [];
                 return;
             }
+            const info = file.query_info(
+                Gio.FILE_ATTRIBUTE_STANDARD_SIZE,
+                Gio.FileQueryInfoFlags.NONE,
+                null
+            );
+            if (info.get_size() > MAX_CHAT_STORE_BYTES) {
+                throw new Error('Chat history exceeds the 16 MiB safety limit');
+            }
             const [ok, contents] = file.load_contents(null);
             if (ok && contents) {
                 const decoder = new TextDecoder();
-                this._sessions = parseChatSessions(JSON.parse(decoder.decode(contents)));
+                const raw = JSON.parse(decoder.decode(contents)) as unknown;
+                if (!Array.isArray(raw)) throw new Error('Chat history root was not an array');
+                this._sessions = parseChatSessions(raw);
+                if (this._sessions.length !== raw.length) {
+                    Logger.warn(Tag.Extension, 'Chat history contained invalid, duplicate, or excess sessions');
+                    this._quarantine(file);
+                }
             }
         } catch (e) {
             Logger.warn(Tag.Extension, `Failed to load chat history: ${e}`);
+            this._quarantine(Gio.File.new_for_path(this._filePath));
             this._sessions = [];
+        }
+    }
+
+    private _quarantine(file: Gio.File): void {
+        try {
+            if (!file.query_exists(null)) return;
+            const quarantinePath = `${this._filePath}.corrupt-${Date.now()}`;
+            const quarantine = Gio.File.new_for_path(quarantinePath);
+            file.move(quarantine, Gio.FileCopyFlags.NOFOLLOW_SYMLINKS, null, null);
+            setPrivateMode(quarantinePath, 0o600);
+            Logger.warn(Tag.Extension, `Preserved unreadable chat history at ${quarantinePath}`);
+        } catch (e) {
+            Logger.warn(Tag.Extension, `Failed to preserve unreadable chat history: ${e}`);
         }
     }
 
@@ -53,6 +83,10 @@ export class ChatStore {
             const json = JSON.stringify(this._sessions);
             const file = Gio.File.new_for_path(this._filePath);
             const bytes = new TextEncoder().encode(json);
+            if (bytes.length > MAX_CHAT_STORE_BYTES) {
+                Logger.error(Tag.Extension, 'Chat history was not saved because it exceeds the 16 MiB safety limit');
+                return;
+            }
 
             this._saveChain = this._saveChain
                 .then(() => replaceFileContentsAsync(file, bytes))
@@ -65,10 +99,18 @@ export class ChatStore {
     }
 
     saveChat(session: ChatSession): void {
+        if (parseChatSessions([session]).length !== 1) {
+            Logger.error(Tag.Extension, 'Chat history was not saved because the session is invalid or too large');
+            return;
+        }
         const index = this._sessions.findIndex(s => s.id === session.id);
         if (index >= 0) {
             this._sessions[index] = session;
         } else {
+            if (this._sessions.length >= MAX_CHAT_SESSIONS) {
+                Logger.error(Tag.Extension, `Chat history was not saved because it reached the ${MAX_CHAT_SESSIONS}-session limit`);
+                return;
+            }
             this._sessions.unshift(session);
         }
         this._save();

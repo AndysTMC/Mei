@@ -77,7 +77,7 @@ export interface Provider {
 }
 
 /** Supported provider identifiers. */
-export type ProviderId = 'ollama' | 'llamacpp' | 'lmstudio' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'mistral' | 'openrouter' | 'custom' | 'opencode' | 'githubcopilot';
+export type ProviderId = 'ollama' | 'llamacpp' | 'lmstudio' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'mistral' | 'openrouter' | 'deepseek' | 'fireworks' | 'nvidia' | 'custom' | 'opencode' | 'githubcopilot';
 
 export function getStringAtPath(
     root: unknown,
@@ -96,6 +96,33 @@ export function getStringAtPath(
     }
 
     return typeof current === 'string' ? current : null;
+}
+
+export function getTextContentAtPath(
+    root: unknown,
+    path: readonly (string | number)[]
+): string | null {
+    let current = root;
+
+    for (const segment of path) {
+        if (typeof segment === 'number') {
+            if (!Array.isArray(current)) return null;
+            current = current[segment];
+        } else {
+            if (typeof current !== 'object' || current === null || Array.isArray(current)) return null;
+            current = (current as Record<string, unknown>)[segment];
+        }
+    }
+
+    if (typeof current === 'string') return current;
+    if (!Array.isArray(current)) return null;
+
+    const text = current.flatMap(part => {
+        if (typeof part !== 'object' || part === null || Array.isArray(part)) return [];
+        const value = (part as Record<string, unknown>).text;
+        return typeof value === 'string' ? [value] : [];
+    }).join('');
+    return text || null;
 }
 
 export function getNumberAtPath(

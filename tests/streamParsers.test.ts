@@ -7,14 +7,21 @@ import {
     getSseSeparatorLength,
     getStreamErrorMessage,
     parseSseDataBlock,
+    throwIfStreamError,
     Utf8StreamDecoder,
 } from '../src/utils/streamParsers.js';
 
-test('findSseSeparator handles LF, CRLF, and incomplete blocks', () => {
+test('findSseSeparator handles every valid SSE line ending and incomplete blocks', () => {
     assert.equal(findSseSeparator('data: one\n\nrest'), 9);
     assert.equal(getSseSeparatorLength('data: one\n\nrest', 9), 2);
     assert.equal(findSseSeparator('data: one\r\n\r\nrest'), 9);
     assert.equal(getSseSeparatorLength('data: one\r\n\r\nrest', 9), 4);
+    assert.equal(findSseSeparator('data: one\r\rrest'), 9);
+    assert.equal(getSseSeparatorLength('data: one\r\rrest', 9), 2);
+    assert.equal(findSseSeparator('data: one\r\n\nrest'), 9);
+    assert.equal(getSseSeparatorLength('data: one\r\n\nrest', 9), 3);
+    assert.equal(findSseSeparator('data: one\n\r\nrest'), 9);
+    assert.equal(getSseSeparatorLength('data: one\n\r\nrest', 9), 3);
     assert.equal(findSseSeparator('data: one\nstill open'), -1);
     assert.equal(findSseSeparator('\r\n\r\nthen\n\n'), 0);
 });
@@ -25,6 +32,7 @@ test('parseSseDataBlock joins multi-line data and ignores non-data fields', () =
         ['{"a":1}\n{"b":2}']
     );
     assert.deepEqual(parseSseDataBlock('data: {"final":true}'), ['{"final":true}']);
+    assert.deepEqual(parseSseDataBlock('event: message\rdata: first\rdata: second'), ['first\nsecond']);
     assert.deepEqual(parseSseDataBlock(': keepalive\nevent: ping'), []);
     assert.deepEqual(parseSseDataBlock('data:\ndata: second'), ['\nsecond']);
 });
@@ -49,17 +57,27 @@ test('getStreamErrorMessage recognizes standard streamed API errors', () => {
     assert.equal(getStreamErrorMessage('not json'), null);
 });
 
+test('throwIfStreamError rejects provider errors and permits normal events', () => {
+    assert.throws(
+        () => throwIfStreamError('{"error":"model unloaded"}'),
+        /model unloaded/
+    );
+    assert.doesNotThrow(() => throwIfStreamError('{"message":{"content":"ok"}}'));
+});
+
 test('Utf8StreamDecoder preserves characters split across network chunks', () => {
-    const bytes = new TextEncoder().encode('Hello 🌸 café');
-    const decoder = new Utf8StreamDecoder();
-    const parts = [
-        decoder.decode(bytes.slice(0, 7)),
-        decoder.decode(bytes.slice(7, 9)),
-        decoder.decode(bytes.slice(9, 12)),
-        decoder.decode(bytes.slice(12)),
-        decoder.decode(),
-    ];
-    assert.equal(parts.join(''), 'Hello 🌸 café');
+    const input = 'Hello 🌸 café — नमस्ते — 你好';
+    const bytes = new TextEncoder().encode(input);
+
+    for (let split = 0; split <= bytes.length; split++) {
+        const decoder = new Utf8StreamDecoder();
+        const decoded = [
+            decoder.decode(bytes.slice(0, split)),
+            decoder.decode(bytes.slice(split)),
+            decoder.decode(),
+        ].join('');
+        assert.equal(decoded, input, `split at byte ${split}`);
+    }
 });
 
 test('Utf8StreamDecoder flushes incomplete and invalid byte sequences safely', () => {

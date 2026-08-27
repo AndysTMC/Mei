@@ -86,3 +86,36 @@ export function mergeMigratedApiKeyConfigs(
     }
     return merged;
 }
+
+const PROVIDER_CONFIG_KEYS: readonly (keyof StoredProviderConfig)[] = [
+    'url',
+    'modelName',
+    'apiKey',
+    'apiKeyStorage',
+    'mode',
+    'thinking',
+    'reasoningEffort',
+];
+
+export function mergeProviderConfigEdits(
+    original: ProviderConfigs,
+    edited: ProviderConfigs,
+    current: ProviderConfigs
+): ProviderConfigs {
+    const merged = { ...current };
+
+    for (const [provider, editedConfig] of Object.entries(edited)) {
+        const originalConfig = original[provider] || createEmptyProviderConfig();
+        const currentConfig = current[provider] || createEmptyProviderConfig();
+        const nextConfig = { ...currentConfig };
+
+        for (const key of PROVIDER_CONFIG_KEYS) {
+            if (editedConfig[key] !== originalConfig[key]) {
+                nextConfig[key] = editedConfig[key] as never;
+            }
+        }
+        merged[provider] = nextConfig;
+    }
+
+    return merged;
+}

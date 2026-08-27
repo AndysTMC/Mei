@@ -12,7 +12,7 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, toApiMessages, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
+import { createTokenUsage, getNumberAtPath, getStringAtPath, getTextContentAtPath, parseJsonObject, toApiMessages, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
 
 export class LlamaCppProvider implements Provider {
     readonly name = 'llama.cpp';
@@ -59,7 +59,7 @@ export class LlamaCppProvider implements Provider {
                     const parsed = parseJsonObject(data);
                     if (!parsed) return;
                     usage = parseOpenAIStyleUsage(parsed) ?? usage;
-                    const contentDelta = getStringAtPath(parsed, ['choices', 0, 'delta', 'content']) ?? '';
+                    const contentDelta = getTextContentAtPath(parsed, ['choices', 0, 'delta', 'content']) ?? '';
                     const thinkingDelta = getStringAtPath(parsed, ['choices', 0, 'delta', 'reasoning_content']) ??
                         getStringAtPath(parsed, ['choices', 0, 'delta', 'reasoning']) ?? '';
                     if (!contentDelta && !thinkingDelta) return;
@@ -83,7 +83,7 @@ export class LlamaCppProvider implements Provider {
             cancellable
         );
 
-        const content = getStringAtPath(json, ['choices', 0, 'message', 'content'])?.trim() || '(no response)';
+        const content = getTextContentAtPath(json, ['choices', 0, 'message', 'content'])?.trim() || '(no response)';
         const thinking = getStringAtPath(json, ['choices', 0, 'message', 'reasoning_content'])?.trim() ||
             getStringAtPath(json, ['choices', 0, 'message', 'reasoning'])?.trim();
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);

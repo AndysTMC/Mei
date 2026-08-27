@@ -24,6 +24,7 @@ export interface ProviderProfile {
     modelsUrl?: string;
     modelKind: ModelEndpointKind;
     modelAuthRequired: boolean;
+    selectable: boolean;
     headers?: Readonly<Record<string, string>>;
     fallbackModels?: readonly string[];
 }
@@ -65,13 +66,26 @@ export const PROVIDER_PROFILES: Record<ProviderId, ProviderProfile> = {
         headers: { 'HTTP-Referer': 'https://github.com/AndysTMC/Mei', 'X-Title': 'Mei' },
         fallbackModels: ['anthropic/claude-sonnet-4.6', 'openai/gpt-5.4', 'deepseek/deepseek-chat'],
     }),
+    deepseek: profile('deepseek', 'DeepSeek', 'cloud', 'openai', 'bearer', 'https://api.deepseek.com/chat/completions', 'openai', {
+        modelsUrl: 'https://api.deepseek.com/models',
+    }),
+    fireworks: profile('fireworks', 'Fireworks AI', 'cloud', 'openai', 'bearer', 'https://api.fireworks.ai/inference/v1/chat/completions', 'openai', {
+        modelsUrl: 'https://api.fireworks.ai/inference/v1/models',
+        headers: { 'HTTP-Referer': 'https://github.com/AndysTMC/Mei', 'X-Title': 'Mei' },
+    }),
+    nvidia: profile('nvidia', 'NVIDIA NIM', 'cloud', 'openai', 'bearer', 'https://integrate.api.nvidia.com/v1/chat/completions', 'openai', {
+        aliases: ['nim'],
+        modelsUrl: 'https://integrate.api.nvidia.com/v1/models',
+        headers: { 'X-BILLING-INVOKE-ORIGIN': 'Mei' },
+    }),
     opencode: profile('opencode', 'OpenCode', 'cloud', 'openai', 'bearer', 'https://opencode.ai/zen/go/v1/chat/completions', 'openai', {
         aliases: ['opencode-go', 'opencode-zen', 'go', 'zen'],
         headers: { 'HTTP-Referer': 'https://github.com/AndysTMC/Mei', 'X-Title': 'Mei' },
     }),
-    githubcopilot: profile('githubcopilot', 'GitHub Models', 'cloud', 'openai', 'bearer', 'https://models.github.ai/inference/chat/completions', 'github', {
+    githubcopilot: profile('githubcopilot', 'GitHub Models (retired)', 'cloud', 'openai', 'bearer', 'https://models.github.ai/inference/chat/completions', 'github', {
         aliases: ['github', 'github-models'],
         modelsUrl: 'https://models.github.ai/catalog/models',
+        selectable: false,
         headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' },
     }),
     custom: profile('custom', 'Custom', 'custom', 'openai', 'none', 'http://127.0.0.1:8080/v1/chat/completions', 'openai', {
@@ -102,6 +116,7 @@ function profile(
         chatUrl,
         modelKind,
         modelAuthRequired: authType !== 'none',
+        selectable: true,
         ...options,
     };
 }

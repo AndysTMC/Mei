@@ -7,14 +7,14 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
 import { Logger, Tag } from './logger.js';
-import { extractJsonLines, findSseSeparator, getSseSeparatorLength, getStreamErrorMessage, parseSseDataBlock, Utf8StreamDecoder } from './streamParsers.js';
+import { redactSensitiveText } from './redaction.js';
+import { ResponseSizeGuard } from './responseLimits.js';
+import { readBytesAsync, readStreamText, sendMessageText, sendStreamAsync } from './soupText.js';
+import { extractJsonLines, findSseSeparator, getSseSeparatorLength, parseSseDataBlock, throwIfStreamError, Utf8StreamDecoder } from './streamParsers.js';
 import type { JsonObject } from '../providers/types.js';
 
 function redactSensitiveUrl(url: string): string {
-    return url.replace(
-        /([?&](?:api[_-]?key|access[_-]?token|token|key)=)[^&]+/gi,
-        '$1***'
-    );
+    return redactSensitiveText(url);
 }
 
 /**
@@ -51,8 +51,7 @@ export async function postJsonSse(
                     done = true;
                     return false;
                 }
-                const errorMessage = getStreamErrorMessage(data);
-                if (errorMessage) throw new Error(errorMessage);
+                throwIfStreamError(data);
                 onData(data);
             }
             separatorIndex = findSseSeparator(buffer);
@@ -62,8 +61,7 @@ export async function postJsonSse(
     if (!done && buffer.trim()) {
         for (const data of parseSseDataBlock(buffer)) {
             if (data === '[DONE]') continue;
-            const errorMessage = getStreamErrorMessage(data);
-            if (errorMessage) throw new Error(errorMessage);
+            throwIfStreamError(data);
             onData(data);
         }
     }
@@ -82,10 +80,16 @@ export async function postJsonLines(
         buffer += chunk;
         const extracted = extractJsonLines(buffer);
         buffer = extracted.rest;
-        for (const line of extracted.lines) onLine(line);
+        for (const line of extracted.lines) {
+            throwIfStreamError(line);
+            onLine(line);
+        }
     });
     const rest = buffer.trim();
-    if (rest) onLine(rest);
+    if (rest) {
+        throwIfStreamError(rest);
+        onLine(rest);
+    }
 }
 
 async function sendJsonRequest(
@@ -115,13 +119,7 @@ async function sendJsonRequest(
     Logger.time(Tag.HTTP, logUrl);
 
     try {
-        const respBytes = await session.send_and_read_async(
-            msg,
-            GLib.PRIORITY_DEFAULT,
-            cancellable
-        );
-        const data = respBytes.get_data();
-        const text = data ? new TextDecoder().decode(data) : '';
+        const text = await sendMessageText(session, msg, cancellable);
         const elapsed = Logger.timeEnd(Tag.HTTP, logUrl);
         const status = msg.get_status();
         Logger.debug(Tag.HTTP, `POST ${logUrl} → ${status} (${elapsed}ms) responseBytes=${text.length}`);
@@ -195,10 +193,11 @@ async function postJsonTextStream(
         stream = await sendStreamAsync(session, msg, cancellable);
         const status = msg.get_status();
         const decoder = new Utf8StreamDecoder();
+        const responseSize = new ResponseSizeGuard();
         let keepReading = true;
 
         if (status >= 400) {
-            const text = await readStreamText(stream, decoder, cancellable);
+            const text = await readStreamText(stream, cancellable);
             throw new Error(parseHttpError(status, text));
         }
 
@@ -206,6 +205,7 @@ async function postJsonTextStream(
             const chunk = await readBytesAsync(stream, cancellable);
             const data = chunk.get_data();
             if (!data || data.length === 0) break;
+            responseSize.add(data.length);
             keepReading = onChunk(decoder.decode(data)) !== false;
         }
 
@@ -231,55 +231,6 @@ async function postJsonTextStream(
             }
         }
     }
-}
-
-function sendStreamAsync(
-    session: Soup.Session,
-    msg: Soup.Message,
-    cancellable: Gio.Cancellable
-): Promise<Gio.InputStream> {
-    return new Promise((resolve, reject) => {
-        session.send_async(msg, GLib.PRIORITY_DEFAULT, cancellable, (source, result) => {
-            try {
-                const sourceSession = source ?? session;
-                resolve(sourceSession.send_finish(result) as unknown as Gio.InputStream);
-            } catch (e) {
-                reject(e);
-            }
-        });
-    });
-}
-
-function readBytesAsync(
-    stream: Gio.InputStream,
-    cancellable: Gio.Cancellable
-): Promise<GLib.Bytes> {
-    return new Promise((resolve, reject) => {
-        stream.read_bytes_async(8192, GLib.PRIORITY_DEFAULT, cancellable, (source, result) => {
-            try {
-                const sourceStream = source ?? stream;
-                resolve(sourceStream.read_bytes_finish(result));
-            } catch (e) {
-                reject(e);
-            }
-        });
-    });
-}
-
-async function readStreamText(
-    stream: Gio.InputStream,
-    decoder: Utf8StreamDecoder,
-    cancellable: Gio.Cancellable
-): Promise<string> {
-    let text = '';
-    while (!cancellable.is_cancelled()) {
-        const chunk = await readBytesAsync(stream, cancellable);
-        const data = chunk.get_data();
-        if (!data || data.length === 0) break;
-        text += decoder.decode(data);
-    }
-    text += decoder.decode();
-    return text;
 }
 
 function parseHttpError(status: number, text: string): string {

@@ -6,6 +6,7 @@ import {
     createEmptyProviderConfig,
     isApiKeyPlaceholder,
     isApiKeyPlaceholderLike,
+    mergeProviderConfigEdits,
     mergeMigratedApiKeyConfigs,
     parseProviderConfigs,
     withSecretApiKeyFallback,
@@ -20,6 +21,40 @@ test('createEmptyProviderConfig returns all supported fields', () => {
         mode: '',
         thinking: '',
         reasoningEffort: '',
+    });
+});
+
+test('mergeProviderConfigEdits preserves concurrent changes to other fields and providers', () => {
+    const original = {
+        openai: {
+            ...createEmptyProviderConfig(),
+            url: 'https://old.test',
+            modelName: 'old-model',
+        },
+    };
+    const edited = {
+        openai: {
+            ...original.openai,
+            url: 'https://edited.test',
+        },
+    };
+    const latest = {
+        openai: {
+            ...original.openai,
+            modelName: 'concurrent-model',
+        },
+        gemini: {
+            ...createEmptyProviderConfig(),
+            modelName: 'gemini-current',
+        },
+    };
+
+    assert.deepEqual(mergeProviderConfigEdits(original, edited, latest), {
+        openai: {
+            ...latest.openai,
+            url: 'https://edited.test',
+        },
+        gemini: latest.gemini,
     });
 });
 

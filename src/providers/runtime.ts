@@ -10,7 +10,13 @@ import { AnthropicProvider } from './anthropic.js';
 import { GeminiProvider } from './gemini.js';
 import { LlamaCppProvider } from './llamacpp.js';
 import { OllamaProvider } from './ollama.js';
-import { OpenAICompatibleProvider } from './openai.js';
+import {
+    DeepSeekProvider,
+    FireworksProvider,
+    GitHubCopilotProvider,
+    NvidiaProvider,
+    OpenAICompatibleProvider,
+} from './openai.js';
 import {
     getProviderProfile,
     normalizeOpenCodeModelId,
@@ -57,6 +63,11 @@ export function createRuntimeProvider(
             profile.headers
         );
     }
+
+    if (providerId === 'deepseek') return new DeepSeekProvider(session, effectiveConfig);
+    if (providerId === 'fireworks') return new FireworksProvider(session, effectiveConfig);
+    if (providerId === 'nvidia') return new NvidiaProvider(session, effectiveConfig);
+    if (providerId === 'githubcopilot') return new GitHubCopilotProvider(session, effectiveConfig);
 
     switch (profile.transport) {
         case 'ollama':

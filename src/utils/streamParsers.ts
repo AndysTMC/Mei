@@ -3,20 +3,17 @@
  */
 
 export function findSseSeparator(text: string): number {
-    const lf = text.indexOf('\n\n');
-    const crlf = text.indexOf('\r\n\r\n');
-    if (lf === -1) return crlf;
-    if (crlf === -1) return lf;
-    return Math.min(lf, crlf);
+    return text.search(/(?:\r\n|\r|\n)(?:\r\n|\r|\n)/);
 }
 
 export function getSseSeparatorLength(text: string, separatorIndex: number): number {
-    return text.startsWith('\r\n\r\n', separatorIndex) ? 4 : 2;
+    const match = text.slice(separatorIndex).match(/^(?:\r\n|\r|\n)(?:\r\n|\r|\n)/);
+    return match?.[0].length ?? 0;
 }
 
 export function parseSseDataBlock(block: string): string[] {
     const dataLines = block
-        .split(/\r?\n/)
+        .split(/\r\n|\r|\n/)
         .filter(line => line.startsWith('data:'))
         .map(line => line.slice(5).trimStart());
     return dataLines.length > 0 ? [dataLines.join('\n')] : [];
@@ -38,6 +35,11 @@ export function getStreamErrorMessage(data: string): string | null {
         // Non-JSON event data is provider-specific and is handled by the caller.
     }
     return null;
+}
+
+export function throwIfStreamError(data: string): void {
+    const message = getStreamErrorMessage(data);
+    if (message) throw new Error(message);
 }
 
 export function extractJsonLines(buffer: string): { lines: string[]; rest: string } {

@@ -23,7 +23,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
 
-import { createMessageActor, type MessageRole, type RenderedMessageActor } from './messageRenderer.js';
+import { createMessageActor, formatThinkingPreview, type MessageRole, type RenderedMessageActor } from './messageRenderer.js';
 import { createMessageInfoPanel, styleMessageInfoPanel } from './messageInfoPanel.js';
 import { renderHistoryList, styleHistoryList, type ChatSummary } from './historyListView.js';
 import { PopupLogPanel } from './popupLogPanel.js';
@@ -38,6 +38,10 @@ import {
 import { ThemeManager, type ThemedWidgets } from '../utils/theme.js';
 import { Logger, Tag } from '../utils/logger.js';
 import {
+    DEEPSEEK_REASONING_EFFORT_LABELS,
+    DEEPSEEK_THINKING_LABELS,
+    getDeepSeekReasoningEffort,
+    getDeepSeekThinking,
     getOpenCodeMode,
     getProviderIdsForType,
     getProviderLabel,
@@ -45,6 +49,8 @@ import {
     OPEN_CODE_MODE_LABELS,
     PROVIDER_TYPE_IDS,
     PROVIDER_TYPE_LABELS,
+    type DeepSeekReasoningEffort,
+    type DeepSeekThinking,
     type OpenCodeMode,
     type ProviderType,
 } from '../providers/catalog.js';
@@ -1016,7 +1022,7 @@ export class ChatPopup {
         }));
 
         const body = new St.Label({
-            text: thinking,
+            text: formatThinkingPreview(thinking),
             visible: false,
             x_expand: true,
             style_class: 'mei-thinking-details',
@@ -1357,7 +1363,7 @@ export class ChatPopup {
             this._thinkingTitleLabel.visible = hasThinking;
         }
         if (this._thinkingDetailsLabel) {
-            this._thinkingDetailsLabel.set_text(hasThinking ? thinking.trim() : '');
+            this._thinkingDetailsLabel.set_text(hasThinking ? formatThinkingPreview(thinking.trim()) : '');
             this._thinkingDetailsLabel.visible = hasThinking && this._thinkingExpanded;
         }
         if (this._thinkingToggleBtn) {
@@ -1689,6 +1695,28 @@ export class ChatPopup {
                 id => OPEN_CODE_MODE_LABELS[id],
                 id => void this._updateCurrentProviderConfig('mode', id)
             );
+        }
+
+        if (provider === 'deepseek') {
+            const thinkingIds: DeepSeekThinking[] = ['default', 'enabled', 'disabled'];
+            const thinking = getDeepSeekThinking(config.thinking);
+            this._addSettingsSegmentRow(
+                'Thinking',
+                thinkingIds,
+                thinking,
+                id => DEEPSEEK_THINKING_LABELS[id],
+                id => void this._updateCurrentProviderConfig('thinking', id)
+            );
+            if (thinking === 'enabled') {
+                const effortIds: DeepSeekReasoningEffort[] = ['low', 'high', 'max'];
+                this._addSettingsSegmentRow(
+                    'Reasoning effort',
+                    effortIds,
+                    getDeepSeekReasoningEffort(config.reasoningEffort),
+                    id => DEEPSEEK_REASONING_EFFORT_LABELS[id],
+                    id => void this._updateCurrentProviderConfig('reasoningEffort', id)
+                );
+            }
         }
 
         this._addSettingsSection('Connection');

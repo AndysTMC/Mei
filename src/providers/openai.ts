@@ -12,8 +12,11 @@ import Gio from 'gi://Gio';
 
 import { postJson, postJsonSse } from '../utils/http.js';
 import { Logger, Tag, maskKey } from '../utils/logger.js';
-import { createTokenUsage, getNumberAtPath, getStringAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
-import { buildOpenAIChatBody } from './openaiPayload.js';
+import { createTokenUsage, getNumberAtPath, parseJsonObject, type ChatMessage, type ChatResponse, type Provider, type ProviderConfig, type SendMessageOptions, type TokenUsage } from './types.js';
+import { getDeepSeekReasoningEffort, getDeepSeekThinking } from './catalog.js';
+import { buildDeepSeekChatBody, buildOpenAIChatBody } from './openaiPayload.js';
+import { extractOpenAIResponseParts, OpenAIStreamNormalizer } from './openaiResponse.js';
+import { buildBearerHeaders, buildFireworksHeaders, buildNvidiaHeaders } from './openaiHeaders.js';
 
 export class OpenAICompatibleProvider implements Provider {
     readonly name: string;
@@ -67,12 +70,9 @@ export class OpenAICompatibleProvider implements Provider {
             cancellable
         );
 
-        const content = getStringAtPath(json, ['choices', 0, 'message', 'content'])?.trim() || '(no response)';
-        const thinking = getFirstStringAtPaths(json, [
-            ['choices', 0, 'message', 'reasoning_content'],
-            ['choices', 0, 'message', 'reasoning'],
-            ['choices', 0, 'message', 'thinking'],
-        ])?.trim();
+        const response = extractOpenAIResponseParts(json);
+        const content = response.content.trim() || '(no response)';
+        const thinking = response.thinking.trim() || undefined;
         Logger.debug(Tag.Provider, `${this.name} reply: ${Logger.truncate(content, 500)}`);
         return { content, thinking, usage: parseOpenAIUsage(json) };
     }
@@ -84,7 +84,7 @@ export class OpenAICompatibleProvider implements Provider {
     protected _buildHeaders(): Record<string, string> {
         return {
             ...this._defaultHeaders,
-            ...(this._apiKey ? { Authorization: `Bearer ${this._apiKey}` } : {}),
+            ...buildBearerHeaders(this._apiKey),
         };
     }
 
@@ -98,6 +98,14 @@ export class OpenAICompatibleProvider implements Provider {
         let thinking = '';
         let usage: TokenUsage | undefined;
         const streamBody = { ...body, stream: true };
+        const normalizer = new OpenAIStreamNormalizer();
+
+        const applyUpdate = (contentDelta: string, thinkingDelta: string): void => {
+            if (!contentDelta && !thinkingDelta) return;
+            content += contentDelta;
+            thinking += thinkingDelta;
+            options.onUpdate?.({ contentDelta, thinkingDelta });
+        };
 
         await postJsonSse(
             this._session,
@@ -109,18 +117,12 @@ export class OpenAICompatibleProvider implements Provider {
                 const parsed = parseJsonObject(data);
                 if (!parsed) return;
                 usage = parseOpenAIUsage(parsed) ?? usage;
-                const contentDelta = getStringAtPath(parsed, ['choices', 0, 'delta', 'content']) ?? '';
-                const thinkingDelta = getFirstStringAtPaths(parsed, [
-                    ['choices', 0, 'delta', 'reasoning_content'],
-                    ['choices', 0, 'delta', 'reasoning'],
-                    ['choices', 0, 'delta', 'thinking'],
-                ]) ?? '';
-                if (!contentDelta && !thinkingDelta) return;
-                content += contentDelta;
-                thinking += thinkingDelta;
-                options.onUpdate?.({ contentDelta, thinkingDelta });
+                const update = normalizer.consume(parsed);
+                applyUpdate(update.contentDelta ?? '', update.thinkingDelta ?? '');
             }
         );
+        const tail = normalizer.flush();
+        applyUpdate(tail.contentDelta ?? '', tail.thinkingDelta ?? '');
 
         return {
             content: content.trim() || '(no response)',
@@ -130,18 +132,67 @@ export class OpenAICompatibleProvider implements Provider {
     }
 }
 
+export class DeepSeekProvider extends OpenAICompatibleProvider {
+    private _thinking: string;
+    private _reasoningEffort: string;
+
+    constructor(session: Soup.Session, config: ProviderConfig) {
+        super(session, config, 'DeepSeek', 'https://api.deepseek.com/chat/completions');
+        this._thinking = getDeepSeekThinking(config.thinking);
+        this._reasoningEffort = getDeepSeekReasoningEffort(config.reasoningEffort);
+    }
+
+    protected override _buildBody(messages: ChatMessage[]): Record<string, unknown> {
+        return buildDeepSeekChatBody(this._model, messages, this._thinking, this._reasoningEffort);
+    }
+}
+
+export class FireworksProvider extends OpenAICompatibleProvider {
+    constructor(session: Soup.Session, config: ProviderConfig) {
+        super(session, config, 'Fireworks AI', 'https://api.fireworks.ai/inference/v1/chat/completions');
+    }
+
+    protected override _buildHeaders(): Record<string, string> {
+        return buildFireworksHeaders(this._apiKey);
+    }
+}
+
+export class NvidiaProvider extends OpenAICompatibleProvider {
+    constructor(session: Soup.Session, config: ProviderConfig) {
+        super(session, config, 'NVIDIA NIM', 'https://integrate.api.nvidia.com/v1/chat/completions');
+    }
+
+    protected override _buildHeaders(): Record<string, string> {
+        return buildNvidiaHeaders(this._apiKey);
+    }
+}
+
+export class GitHubCopilotProvider extends OpenAICompatibleProvider {
+    constructor(session: Soup.Session, config: ProviderConfig) {
+        super(session, config, 'GitHub Models', 'https://models.github.ai/inference/chat/completions');
+    }
+
+    protected override _buildHeaders(): Record<string, string> {
+        return {
+            ...super._buildHeaders(),
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2026-03-10',
+        };
+    }
+
+    override async sendMessage(
+        _messages: ChatMessage[],
+        _cancellable: Gio.Cancellable,
+        _options: SendMessageOptions = {}
+    ): Promise<ChatResponse> {
+        throw new Error('GitHub Models retired on July 30, 2026. Choose another cloud provider.');
+    }
+}
+
 function parseOpenAIUsage(root: unknown): TokenUsage | undefined {
     return createTokenUsage(
         getNumberAtPath(root, ['usage', 'prompt_tokens']) ?? getNumberAtPath(root, ['usage', 'input_tokens']),
         getNumberAtPath(root, ['usage', 'completion_tokens']) ?? getNumberAtPath(root, ['usage', 'output_tokens']),
         getNumberAtPath(root, ['usage', 'total_tokens'])
     );
-}
-
-function getFirstStringAtPaths(root: unknown, paths: readonly (readonly (string | number)[])[]): string | null {
-    for (const path of paths) {
-        const value = getStringAtPath(root, path);
-        if (value !== null) return value;
-    }
-    return null;
 }

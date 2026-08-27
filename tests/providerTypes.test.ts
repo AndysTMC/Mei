@@ -5,6 +5,7 @@ import {
     createTokenUsage,
     getNumberAtPath,
     getStringAtPath,
+    getTextContentAtPath,
     mergeTokenUsage,
     parseJsonObject,
     toApiMessages,
@@ -34,6 +35,27 @@ test('getStringAtPath and getNumberAtPath traverse objects and arrays safely', (
     assert.equal(getNumberAtPath(root, ['choices', 0, 'message', 'invalidNumber']), null);
     assert.equal(getNumberAtPath(root, ['choices', 'bad', 'message']), null);
     assert.equal(getNumberAtPath(root, ['choices', -1]), null);
+});
+
+test('getTextContentAtPath accepts string and typed text-part responses', () => {
+    assert.equal(
+        getTextContentAtPath({ message: { content: 'plain' } }, ['message', 'content']),
+        'plain'
+    );
+    assert.equal(
+        getTextContentAtPath({
+            message: {
+                content: [
+                    { type: 'text', text: 'hello ' },
+                    { type: 'citation', sources: [] },
+                    { type: 'text', text: 'world' },
+                ],
+            },
+        }, ['message', 'content']),
+        'hello world'
+    );
+    assert.equal(getTextContentAtPath({ message: { content: [] } }, ['message', 'content']), null);
+    assert.equal(getTextContentAtPath({ message: { content: [{ text: 42 }] } }, ['message', 'content']), null);
 });
 
 test('toApiMessages strips local-only metadata fields', () => {

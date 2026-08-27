@@ -4,6 +4,10 @@ import test from 'node:test';
 import {
     CLOUD_PROVIDER_IDS,
     CUSTOM_PROVIDER_IDS,
+    DEEPSEEK_REASONING_EFFORT_LABELS,
+    DEEPSEEK_THINKING_LABELS,
+    getDeepSeekReasoningEffort,
+    getDeepSeekThinking,
     getOpenCodeChatCompletionsUrl,
     getOpenCodeModelId,
     getOpenCodeMode,
@@ -13,6 +17,7 @@ import {
     getProviderLabel,
     getProviderType,
     isProviderId,
+    LEGACY_PROVIDER_IDS,
     LOCAL_PROVIDER_IDS,
     PROVIDER_LABELS,
     PROVIDER_TYPE_IDS,
@@ -48,19 +53,25 @@ test('OpenCode routes model families without a finite allowlist', () => {
     assert.equal(getOpenCodeApiMode('opencode/future-model', 'zen'), 'chat_completions');
 });
 
-test('GitHub provider is labelled for the API it uses', () => {
-    assert.equal(PROVIDER_LABELS.githubcopilot, 'GitHub Models');
+test('retired providers remain recognized for legacy settings but are not selectable', () => {
+    assert.equal(PROVIDER_LABELS.githubcopilot, 'GitHub Models (retired)');
+    assert.deepEqual(LEGACY_PROVIDER_IDS, ['githubcopilot']);
+    assert.equal(CLOUD_PROVIDER_IDS.includes('githubcopilot'), false);
+    assert.equal(isProviderId('githubcopilot'), true);
 });
 
 test('provider catalog partitions every provider exactly once', () => {
     const grouped = [...LOCAL_PROVIDER_IDS, ...CLOUD_PROVIDER_IDS, ...CUSTOM_PROVIDER_IDS];
+    const recognized = [...grouped, ...LEGACY_PROVIDER_IDS];
     assert.deepEqual(PROVIDER_TYPE_IDS, ['local', 'cloud', 'custom']);
     assert.equal(new Set(grouped).size, grouped.length);
-    assert.deepEqual(new Set(grouped), new Set(Object.keys(PROVIDER_LABELS)));
+    assert.deepEqual(new Set(recognized), new Set(Object.keys(PROVIDER_LABELS)));
     assert.deepEqual(getProviderIdsForType('local'), LOCAL_PROVIDER_IDS);
     assert.deepEqual(getProviderIdsForType('cloud'), CLOUD_PROVIDER_IDS);
     assert.deepEqual(getProviderIdsForType('custom'), CUSTOM_PROVIDER_IDS);
-    assert.equal(CLOUD_PROVIDER_IDS.includes('deepseek' as never), false);
+    assert.equal(CLOUD_PROVIDER_IDS.includes('deepseek'), true);
+    assert.equal(CLOUD_PROVIDER_IDS.includes('fireworks'), true);
+    assert.equal(CLOUD_PROVIDER_IDS.includes('nvidia'), true);
 });
 
 test('provider catalog normalizes types, ids, labels, and OpenCode modes', () => {
@@ -68,9 +79,11 @@ test('provider catalog normalizes types, ids, labels, and OpenCode modes', () =>
     assert.equal(getProviderType('custom'), 'custom');
     assert.equal(getProviderType('anything-else'), 'cloud');
     assert.equal(isProviderId('gemini'), true);
-    assert.equal(isProviderId('deepseek'), false);
+    assert.equal(isProviderId('deepseek'), true);
     assert.equal(resolveProviderId('github-models'), 'githubcopilot');
     assert.equal(resolveProviderId('llama.cpp'), 'llamacpp');
+    assert.equal(getProviderLabel('fireworks'), 'Fireworks AI');
+    assert.equal(getProviderLabel('nvidia'), 'NVIDIA NIM');
     assert.equal(getProviderLabel('gemini'), 'Gemini');
     assert.equal(getProviderLabel('future-provider'), 'future-provider');
     assert.equal(getOpenCodeMode('zen'), 'zen');
@@ -79,6 +92,12 @@ test('provider catalog normalizes types, ids, labels, and OpenCode modes', () =>
     assert.equal(getOpenCodeChatCompletionsUrl('zen'), 'https://opencode.ai/zen/v1/chat/completions');
     assert.equal(getOpenCodeModelsUrl('go'), 'https://opencode.ai/zen/go/v1/models');
     assert.equal(getOpenCodeModelsUrl('zen'), 'https://opencode.ai/zen/v1/models');
+    assert.equal(getDeepSeekThinking('enabled'), 'enabled');
+    assert.equal(getDeepSeekThinking('invalid'), 'default');
+    assert.equal(getDeepSeekReasoningEffort('low'), 'low');
+    assert.equal(getDeepSeekReasoningEffort('invalid'), 'high');
+    assert.equal(DEEPSEEK_THINKING_LABELS.disabled, 'Off');
+    assert.equal(DEEPSEEK_REASONING_EFFORT_LABELS.max, 'Max');
 });
 
 test('model-list URL handling is safe for malformed and non-chat URLs', () => {

@@ -6,7 +6,8 @@
 
 import Soup from 'gi://Soup?version=3.0';
 import Gio from 'gi://Gio';
-import GLib from 'gi://GLib';
+
+import { sendMessageText } from '../utils/soupText.js';
 
 import {
     getOpenCodeMode,
@@ -155,9 +156,7 @@ async function readModelPage(
     msg: Soup.Message,
     cancellable: Gio.Cancellable
 ): Promise<string> {
-    const bytes = await session.send_and_read_async(msg, GLib.PRIORITY_DEFAULT, cancellable);
-    const data = bytes.get_data();
-    const text = data ? new TextDecoder().decode(data) : '';
+    const text = await sendMessageText(session, msg, cancellable);
     if (msg.get_status() >= 400) {
         const detail = getErrorDetail(text);
         throw new Error(`HTTP ${msg.get_status()}${detail ? `: ${detail}` : ''}`);
