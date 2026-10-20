@@ -6,3 +6,6 @@ dist/
 !.env.example
 PLAN.md
 
+__pycache__/
+*.pyc
+.venv/
