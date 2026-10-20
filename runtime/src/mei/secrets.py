@@ -1,15 +1,22 @@
 """Provider API keys from the Secret Service, under the schema the extension already uses.
 
-Stage 0a: a locked collection makes GetSecrets return nothing *without an error*, so locked items
-are checked explicitly and reported as `KeyringLocked`, never as a missing key.
+Keys cross the bus encrypted (see secret_session.py), as libsecret does it. Stage 0a: a locked
+collection makes GetSecrets return nothing *without an error*, so locked items are checked
+explicitly and reported as `KeyringLocked`, never as a missing key.
 """
 
 import asyncio
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from dbus_fast import Message, MessageType, Variant
 from dbus_fast.aio import MessageBus
 
 from mei.protocol import EXTENSION_UUID
+from mei.secret_session import ALGORITHM, KeyExchange, Transport
+
+log = logging.getLogger("mei.secrets")
 
 SERVICE = "org.freedesktop.secrets"
 SERVICE_PATH = "/org/freedesktop/secrets"
@@ -33,36 +40,60 @@ async def _call(bus: MessageBus, path: str, iface: str, member: str, signature: 
     return reply.body
 
 
+@asynccontextmanager
+async def _session(bus: MessageBus) -> AsyncIterator[tuple[str, Transport]]:
+    """An encrypted session (or plain, with a warning, if the keyring offers nothing else)."""
+    exchange = KeyExchange()
+    try:
+        output, path = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "OpenSession", "sv",
+                                   [ALGORITHM, Variant("ay", exchange.public)])
+        try:
+            transport = Transport(exchange.session_key(bytes(output.value)))
+        except ValueError as e:
+            await _call(bus, path, "org.freedesktop.Secret.Session", "Close")
+            raise KeyringUnavailable(str(e)) from None
+    except KeyringUnavailable as e:
+        if "NotSupported" not in str(e):
+            raise
+        log.warning("the keyring doesn't support encrypted transfer; API keys cross the session bus unencrypted")
+        _output, path = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "OpenSession", "sv", ["plain", Variant("s", "")])
+        transport = Transport(None)
+    try:
+        yield path, transport
+    finally:
+        await _call(bus, path, "org.freedesktop.Secret.Session", "Close")
+
+
 async def lookup_provider_key(bus: MessageBus, provider_id: str) -> str | None:
     attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_UUID, "provider": provider_id}
-    _output, session = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "OpenSession", "sv", ["plain", Variant("s", "")])
-    try:
+    async with _session(bus) as (session, transport):
         unlocked, locked = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "SearchItems", "a{ss}", [attrs])
         if unlocked:
             (secrets,) = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "GetSecrets", "aoo", [unlocked[:1], session])
             if secrets:
-                _session, _params, value, _content_type = next(iter(secrets.values()))
-                return bytes(value).decode("utf-8")
+                _session_path, params, value, _content_type = next(iter(secrets.values()))
+                try:
+                    return transport.open(bytes(params), bytes(value)).decode("utf-8")
+                except ValueError:  # bad padding or not UTF-8: a broken reply, not a key
+                    raise KeyringUnavailable("the keyring returned a key Mei couldn't decrypt") from None
         if locked:
             raise KeyringLocked("the keyring is locked")
         return None
-    finally:
-        await _call(bus, session, "org.freedesktop.Secret.Session", "Close")
 
 
 async def store_provider_key(bus: MessageBus, provider_id: str, value: str) -> None:
     """Store (or replace) a provider key in the default collection. Raises KeyringLocked if locked."""
     attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_UUID, "provider": provider_id}
-    _output, session = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "OpenSession", "sv", ["plain", Variant("s", "")])
-    try:
-        (collection,) = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "ReadAlias", "s", ["default"])
-        if collection == "/":
+    async with _session(bus) as (session, transport):
+        collection = await _default_collection(bus)
+        if collection is None:
             raise KeyringUnavailable("no default keyring collection")
         props = {"org.freedesktop.Secret.Item.Label": Variant("s", f"Mei {provider_id} API key"),
                  "org.freedesktop.Secret.Item.Attributes": Variant("a{ss}", attrs)}
+        params, sealed = transport.seal(value.encode())
         try:
             _item, prompt = await _call(bus, collection, "org.freedesktop.Secret.Collection", "CreateItem",
-                                        "a{sv}(oayays)b", [props, [session, b"", value.encode(), "text/plain"], True])
+                                        "a{sv}(oayays)b", [props, [session, params, sealed, "text/plain"], True])
         except KeyringUnavailable as e:
             if "locked" in str(e).lower():
                 raise KeyringLocked("the keyring is locked") from None
@@ -70,8 +101,6 @@ async def store_provider_key(bus: MessageBus, provider_id: str, value: str) -> N
         if prompt != "/":
             await _call(bus, prompt, "org.freedesktop.Secret.Prompt", "Dismiss")
             raise KeyringLocked("the keyring is locked")
-    finally:
-        await _call(bus, session, "org.freedesktop.Secret.Session", "Close")
 
 
 async def delete_provider_keys(bus: MessageBus) -> tuple[int, int]:

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "GPL-3.0-only"
 dependencies = [
+    "cryptography>=44,<50",
     # Pinned: mei.ipc.dbus_patch fixes an EAGAIN bug in exactly this version (ADR 0003).
     "dbus-fast==5.2.0",
     "httpx>=0.28,<1",

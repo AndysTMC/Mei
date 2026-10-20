@@ -14,7 +14,7 @@ main() {
     real_ext="$HOME/.local/share/gnome-shell/extensions/mei@andystmc.com"
     before=$(fingerprint "$real_dconf" "$real_unit" "$real_ext")
 
-    "$root/scripts/build-release.sh" "$work/release" >/dev/null
+    MEI_RELEASE_OFFLINE=1 "$root/scripts/build-release.sh" "$work/release" >/dev/null  # uv is already here
     rm -rf "$work/home" "$work/run"
     mkdir -p "$work/home/.local/share/dbus-1/services" "$work/run"
     chmod 700 "$work/run"
@@ -23,6 +23,7 @@ main() {
     printf '[D-BUS Service]\nName=org.freedesktop.secrets\nExec=/bin/false\n' \
         > "$work/home/.local/share/dbus-1/services/org.freedesktop.secrets.service"
 
+    uv_download_checks "$root" || fails=1
     echo "install test in $work"
     env -i PATH="$PATH" HOME="$work/home" USER="$USER" LANG=C.UTF-8 \
         XDG_RUNTIME_DIR="$work/run" XDG_SESSION_TYPE=wayland GSETTINGS_BACKEND=keyfile \
@@ -35,6 +36,32 @@ main() {
     after=$(fingerprint "$real_dconf" "$real_unit" "$real_ext")
     if [ "$before" = "$after" ]; then echo "ok    the real session is unchanged"; else echo "FAIL  the real session changed"; fails=1; fi
     return $fails
+}
+
+# ensure_uv from install.sh, run against a fake uv archive (curl is stubbed: no network): a matching
+# checksum installs the program; a mismatch installs nothing.
+uv_download_checks() {
+    local root=$1 dir good fails=0
+    [ "$(uname -m)" = x86_64 ] || { echo "skip  uv download checks (not x86_64)"; return 0; }
+    dir=$(mktemp -d)
+    mkdir -p "$dir/pkg/uv-x86_64-unknown-linux-gnu" "$dir/work"
+    printf '#!/bin/sh\necho fake-uv\n' > "$dir/pkg/uv-x86_64-unknown-linux-gnu/uv"
+    chmod +x "$dir/pkg/uv-x86_64-unknown-linux-gnu/uv"
+    tar -czf "$dir/uv.tar.gz" -C "$dir/pkg" .
+    good=$(sha256sum "$dir/uv.tar.gz" | cut -d' ' -f1)
+    (
+        curl() { while [ $# -gt 0 ]; do [ "$1" = -o ] && { cp "$dir/uv.tar.gz" "$2"; return 0; }; shift; done; return 1; }
+        eval "$(sed -n '/^ensure_uv() {/,/^}/p' "$root/install.sh")"
+        uv_cmd() { echo "$tool_bin/uv"; }
+        local UV_VERSION=0.0.0 UV_SHA256_AARCH64="" work="$dir/work"
+        local tool_bin="$dir/good" UV_SHA256_X86_64=$good
+        ensure_uv >/dev/null && [ "$("$dir/good/uv")" = fake-uv ] || exit 1
+        tool_bin="$dir/bad" UV_SHA256_X86_64=$(printf '0%.0s' {1..64})
+        ! ensure_uv 2>/dev/null && [ ! -e "$dir/bad/uv" ] || exit 2
+    ) || fails=$?
+    rm -rf "$dir"
+    if [ $fails = 0 ]; then echo "ok    uv: a verified download is installed, a tampered one is refused"
+    else echo "FAIL  uv download checks ($fails)"; return 1; fi
 }
 
 fingerprint() {
@@ -64,8 +91,12 @@ inside() {
     echo "$out" > "$work/install-1.log"
     bin=$(uv tool dir --bin)
     check "mei-runtime is installed as a uv tool" '[ -x "$bin/mei-runtime" ]'
-    check "service files point at the tool's python" \
-        'grep -q "ExecStart=$(uv tool dir)/mei-runtime/bin/python" "$unit" && grep -q "Name=com.andystmc.Mei1" "$svc"'
+    points_at_tool() {  # ExecStart= quotes the program and doubles any % (a systemd specifier)
+        local python
+        python="$(uv tool dir)/mei-runtime/bin/python"
+        grep -qxF "ExecStart=\"${python//%/%%}\" -m mei serve" "$unit" && grep -q "Name=com.andystmc.Mei1" "$svc"
+    }
+    check "service files point at the tool's python" points_at_tool
     check "the bundled extension is installed" \
         '[ -f "$ext/metadata.json" ] && [ -f "$ext/extension.js" ] && [ -f "$ext/schemas/gschemas.compiled" ]'
     check "the bundle is the production build" '! grep -q "MEI_DEV_HOOKS" "$ext/extension.js"'

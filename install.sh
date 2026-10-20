@@ -17,6 +17,8 @@ main() {
     local MEI_VERSION=0.1.0
     local MEI_WHEEL_SHA256=  # set by scripts/build-release.sh; empty in a source checkout
     local UV_VERSION=0.11.32
+    local UV_SHA256_X86_64=  # uv's published checksums for UV_VERSION, set by scripts/build-release.sh
+    local UV_SHA256_AARCH64=
     local RELEASES=https://github.com/AndysTMC/Mei/releases/download
 
     local mode=install purge=0 wheel=""
@@ -48,6 +50,9 @@ main() {
     fi
     [ "$mode" = check ] && return 0
 
+    local work  # downloads land here; removed however the script ends
+    work=$(mktemp -d)
+    trap "rm -rf $(printf %q "$work")" EXIT
     ensure_uv
     install_runtime
     local bin
@@ -95,7 +100,7 @@ check_system() {
     else
         miss "keyring (Secret Service), where Mei keeps API keys" keyring
     fi
-    if [ -z "$wheel" ] && ! have curl; then miss "curl" curl; fi
+    if ! have curl && { [ -z "$wheel" ] || [ ! -x "$(uv_cmd)" ]; }; then miss "curl (to download Mei and uv)" curl; fi
 
     if [ ${#problems[@]} -gt 0 ]; then
         echo; echo "Mei can't be installed here:"; printf '  - %s\n' "${problems[@]}"
@@ -132,17 +137,39 @@ uv_cmd() {
     if command -v uv >/dev/null 2>&1; then command -v uv; else echo "$tool_bin/uv"; fi
 }
 
+# Gets the uv program itself (no install script is run): a pinned version from uv's GitHub
+# releases, checked against a checksum pinned in this file, unpacked into ~/.local/bin.
 ensure_uv() {
     [ -x "$(uv_cmd)" ] && return 0
-    echo "Installing uv $UV_VERSION into $tool_bin"
-    # Pinned version; UV_NO_MODIFY_PATH keeps it from editing your shell profile.
-    curl -fsSL --proto '=https' --tlsv1.2 "https://astral.sh/uv/$UV_VERSION/install.sh" |
-        env UV_INSTALL_DIR="$tool_bin" UV_NO_MODIFY_PATH=1 sh >/dev/null
-    [ -x "$tool_bin/uv" ] || { echo "uv didn't install" >&2; return 1; }
+    local target sha binary
+    case "$(uname -m)" in
+        x86_64) target=x86_64-unknown-linux-gnu; sha=$UV_SHA256_X86_64 ;;
+        aarch64|arm64) target=aarch64-unknown-linux-gnu; sha=$UV_SHA256_AARCH64 ;;
+        *) echo "uv is needed and this installer can't get it for $(uname -m); install uv" \
+                "(https://docs.astral.sh/uv/), then run the installer again." >&2; return 1 ;;
+    esac
+    if [ -z "$sha" ]; then
+        echo "uv is needed, and this install.sh has no pinned checksum for it (it isn't from a release)." >&2
+        echo "Install uv (https://docs.astral.sh/uv/), then run the installer again." >&2
+        return 1
+    fi
+    echo "Downloading uv $UV_VERSION"
+    curl -fsSL --proto '=https' --tlsv1.2 -o "$work/uv.tar.gz" \
+        "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$target.tar.gz"
+    if [ "$(sha256sum "$work/uv.tar.gz" | cut -d' ' -f1)" != "$sha" ]; then
+        echo "The uv download doesn't match its pinned checksum; nothing was installed." >&2
+        return 1
+    fi
+    mkdir -p "$work/uv" "$tool_bin"
+    tar -xzf "$work/uv.tar.gz" -C "$work/uv"
+    binary=$(find "$work/uv" -type f -name uv | head -n 1)
+    [ -n "$binary" ] || { echo "The uv download has no uv program in it." >&2; return 1; }
+    install -m 0755 "$binary" "$tool_bin/uv"
+    echo "Installed uv into $tool_bin"
 }
 
 install_runtime() {
-    local tmp file
+    local file
     if [ -n "$wheel" ]; then
         [ -f "$wheel" ] || { echo "no such file: $wheel" >&2; return 1; }
         file=$(cd "$(dirname "$wheel")" && pwd)/$(basename "$wheel")
@@ -153,9 +180,7 @@ install_runtime() {
             echo "Build one with scripts/build-release.sh, or pass --wheel FILE." >&2
             return 1
         fi
-        tmp=$(mktemp -d)
-        trap "rm -rf $(printf %q "$tmp")" EXIT  # also when a step below fails
-        file="$tmp/mei_runtime-$MEI_VERSION-py3-none-any.whl"
+        file="$work/mei_runtime-$MEI_VERSION-py3-none-any.whl"
         echo "Downloading mei-runtime $MEI_VERSION"
         curl -fsSL --proto '=https' --tlsv1.2 -o "$file" "$RELEASES/v$MEI_VERSION/$(basename "$file")"
         if [ "$(sha256sum "$file" | cut -d' ' -f1)" != "$MEI_WHEEL_SHA256" ]; then

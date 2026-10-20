@@ -30,6 +30,13 @@ class MockOpenAI(BaseHTTPRequestHandler):
     def do_POST(self):
         self._auth()
         body = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))))
+        if "fail inside the stream" in body["messages"][-1]["content"]:
+            # An error frame inside a successful (200) stream, also repeating the key.
+            self.send_response(200)
+            self.send_header("content-type", "text/event-stream")
+            self.end_headers()
+            self.wfile.write(b"data: " + json.dumps({"error": {"message": f"Invalid key {KEY}"}}).encode() + b"\n\n")
+            return
         if "fail" in body["messages"][-1]["content"]:
             # Like OpenAI's 401, which repeats the key it was given.
             self._json(401, {"error": {"message": f"Incorrect API key provided: {KEY}"}})
@@ -104,10 +111,11 @@ async def main() -> None:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{server.server_address[1]}/v1/chat/completions"
 
+    port = server.server_address[1]
     bus = await MessageBus(bus_type=BusType.SESSION).connect()
-    await store_provider_key(bus, "openai", KEY)  # what Settings does, through the keyring only
     monitor = Monitor()
     await monitor.start()
+    await store_provider_key(bus, "openai", KEY)  # what Settings does, through the keyring only
 
     finished: dict[str, dict] = {}
 
@@ -124,22 +132,35 @@ async def main() -> None:
     await call(bus, "UpdateConfig", {"revision": cfg["revision"], "config": {
         "active": "openai", "providers": {"openai": {"url": url, "model": "mock-1"}}}})
     models = await call(bus, "ListModels", {"provider": "openai", "url": url})
+    # Another local process asking Mei to list models somewhere else must not get the key sent there.
+    sent_before = SEEN_AUTH.count(f"Bearer {KEY}")
+    deputy = await call(bus, "ListModels", {"provider": "openai", "url": f"http://localhost:{port}/v1/chat/completions"})
+    key_sent_elsewhere = SEEN_AUTH.count(f"Bearer {KEY}") - sent_before
     setup = await call(bus, "SetupStatus")
     test = await call(bus, "TestProvider", {}, timeout=60)
     ok = await turn(bus, finished, "hello")
     failed = await turn(bus, finished, "please fail", ok["conversation_id"])
+    failed_in_stream = await turn(bus, finished, "please fail inside the stream", ok["conversation_id"])
     conversation = await call(bus, "GetConversation", {"conversation_id": ok["conversation_id"]})
     logs = await call(bus, "GetLogs", {"after": 0})
     await asyncio.sleep(0.5)  # let the monitor catch the last replies
     server.shutdown()
 
+    def leaks_in(messages: list[Message]) -> list[str]:
+        return [f"{m.message_type.name} {m.sender}->{m.destination} {m.member or ''}" for m in messages
+                if KEY.encode() in repr(m.body).encode() or KEY in json.dumps(m.body, default=str)]
+
     mei = monitor.mei_messages()
-    leaks = [f"{m.message_type.name} {m.member or ''} {m.reply_serial or ''}" for m in mei
-             if KEY in json.dumps(m.body, default=str)]
     print(json.dumps({
         "mei_messages": len(mei),
         "mei_signals": sum(m.message_type == MessageType.SIGNAL for m in mei),
-        "leaks": leaks,
+        "leaks": leaks_in(mei),
+        # Keyring traffic included: keys cross the bus encrypted, so the key is in no message at all.
+        "leaks_anywhere": leaks_in(monitor.messages),
+        "bus_messages": len(monitor.messages),
+        "deputy_error": deputy.get("error", ""),
+        "key_sent_elsewhere": key_sent_elsewhere,
+        "failed_in_stream_error": failed_in_stream["finished"].get("error", ""),
         "key_used_upstream": SEEN_AUTH.count(f"Bearer {KEY}"),
         "models": models["models"],
         "setup_has_key": next(s for s in setup["steps"] if s["id"] == "models")["has_key"],
