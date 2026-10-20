@@ -14,6 +14,7 @@ import Clutter from 'gi://Clutter';
 import Atk from 'gi://Atk';
 import GLib from 'gi://GLib';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 
 import { Logger, Tag } from '../utils/logger.js';
 
@@ -31,6 +32,8 @@ export class MeiIndicator {
     private _activityActive: boolean = false;
     private _stopControlVisible: boolean = false;
     private _centerBox: St.BoxLayout | null = null;
+    /** Holds the button when the panel's center box isn't reachable (see _placeInPanel). */
+    private _statusArea: PanelMenu.Button | null = null;
     private _stableWidth = 0;
     private _glintTimeoutId = 0;
     private _glintDimmed = false;
@@ -104,12 +107,24 @@ export class MeiIndicator {
             this._showLabel();
         });
 
+        this._placeInPanel();
+    }
+
+    /**
+     * The button sits at the end of the panel's center box, next to the clock. That box is private
+     * Shell API; if a Shell release renames it, fall back to the public status area (center), so
+     * Mei moves a little but never disappears.
+     */
+    private _placeInPanel(): void {
         this._centerBox = getPanelCenterBox();
         if (this._centerBox) {
             this._centerBox.insert_child_at_index(this._button, -1);
-        } else {
-            Logger.error(Tag.Indicator, 'Unable to add Mei indicator: panel center box unavailable');
+            return;
         }
+        Logger.warn(Tag.Indicator, 'The panel center box is unavailable; adding Mei through the status area instead');
+        this._statusArea = new PanelMenu.Button(0.5, 'Mei', true);
+        this._statusArea.add_child(this._button);
+        Main.panel.addToStatusArea('mei', this._statusArea, -1, 'center');
     }
 
     private _setLabelText(text: string): void {
@@ -249,15 +264,20 @@ export class MeiIndicator {
         if (this._destroyed) return;
         this._destroyed = true;
         this.stopGlint();
-        if (this._button) {
+        if (this._statusArea) {
+            this._statusArea.destroy(); // takes the button with it
+        } else {
             this._centerBox?.remove_child(this._button);
             this._button.destroy();
         }
         this._centerBox = null;
+        this._statusArea = null;
     }
 }
 
 function getPanelCenterBox(): St.BoxLayout | null {
+    // Dev builds can pretend it's gone, to test the fallback (MEI_DEV_NO_CENTER_BOX=1).
+    if (__DEV__ && GLib.getenv('MEI_DEV_NO_CENTER_BOX') === '1') return null;
     const panel = Main.panel as unknown as Partial<PanelWithCenterBox>;
     return panel._centerBox ?? null;
 }
