@@ -5,7 +5,7 @@
  */
 
 import type { ProviderId } from './types.js';
-import { normalizeOpenCodeModelId, PROVIDER_PROFILES, resolveProviderId, type ProviderType } from './profiles.js';
+import { PROVIDER_PROFILES, resolveProviderId, type ProviderType } from './profiles.js';
 
 export type { ProviderType } from './profiles.js';
 export type OpenCodeMode = 'go' | 'zen';
@@ -77,36 +77,9 @@ export function getDeepSeekReasoningEffort(value: string | undefined): DeepSeekR
     return 'high';
 }
 
-export function getOpenCodeChatCompletionsUrl(mode: OpenCodeMode): string {
-    return mode === 'zen'
-        ? 'https://opencode.ai/zen/v1/chat/completions'
-        : 'https://opencode.ai/zen/go/v1/chat/completions';
-}
 
-export function getOpenCodeModelsUrl(mode: OpenCodeMode): string {
-    return mode === 'zen'
-        ? 'https://opencode.ai/zen/v1/models'
-        : 'https://opencode.ai/zen/go/v1/models';
-}
 
-export function getOpenCodeModelId(model: string): string {
-    return normalizeOpenCodeModelId(model);
-}
 
-export function getModelListUrl(chatUrl: string, modelPath: '/api/tags' | '/v1/models'): string {
-    const match = chatUrl.trim().match(/^(https?:\/\/[^/?#]+)([^?#]*)/i);
-    if (!match) return chatUrl;
-
-    const origin = match[1];
-    const currentPath = (match[2] || '').replace(/\/+$/, '');
-    const chatSuffix = modelPath === '/api/tags' ? '/api/chat' : '/v1/chat/completions';
-    if (currentPath.endsWith(chatSuffix)) {
-        return `${origin}${currentPath.slice(0, -chatSuffix.length)}${modelPath}`;
-    }
-    if (!currentPath || currentPath === '/') return `${origin}${modelPath}`;
-    const basePath = currentPath.endsWith('/v1') ? currentPath : `${currentPath}/v1`;
-    return `${origin}${basePath}${modelPath.replace('/v1', '')}`;
-}
 
 function providerIdsOfType(type: ProviderType): ProviderId[] {
     return Object.values(PROVIDER_PROFILES)

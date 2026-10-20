@@ -31,12 +31,6 @@ export function isApiKeyPlaceholderLike(value: string | undefined): boolean {
     return typeof value === 'string' && /^\*{1,8}$/.test(value);
 }
 
-export function withSecretApiKeyFallback(
-    config: StoredProviderConfig,
-    apiKey: string
-): StoredProviderConfig {
-    return { ...config, apiKey, apiKeyStorage: 'secret' };
-}
 
 export function parseProviderConfigs(json: string): ProviderConfigs {
     try {
@@ -65,27 +59,6 @@ export function parseProviderConfigs(json: string): ProviderConfigs {
     }
 }
 
-export function mergeMigratedApiKeyConfigs(
-    original: ProviderConfigs,
-    migrated: ProviderConfigs,
-    current: ProviderConfigs
-): ProviderConfigs {
-    const merged = { ...current };
-    for (const [provider, before] of Object.entries(original)) {
-        const after = migrated[provider];
-        const latest = current[provider];
-        if (!after || !latest) continue;
-        if (before.apiKey === after.apiKey && before.apiKeyStorage === after.apiKeyStorage) continue;
-        if (latest.apiKey !== before.apiKey || latest.apiKeyStorage !== before.apiKeyStorage) continue;
-
-        merged[provider] = {
-            ...latest,
-            apiKey: after.apiKey,
-            apiKeyStorage: after.apiKeyStorage,
-        };
-    }
-    return merged;
-}
 
 const PROVIDER_CONFIG_KEYS: readonly (keyof StoredProviderConfig)[] = [
     'url',

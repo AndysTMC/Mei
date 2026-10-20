@@ -11,7 +11,6 @@ import Adw from 'gi://Adw';
 import Gio from 'gi://Gio';
 import Gtk from 'gi://Gtk';
 import GLib from 'gi://GLib';
-import Soup from 'gi://Soup?version=3.0';
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 import {
     DEEPSEEK_REASONING_EFFORT_LABELS,
@@ -29,35 +28,44 @@ import {
     type DeepSeekThinking,
     type OpenCodeMode,
 } from './providers/catalog.js';
-import { fetchProviderModels, type ModelListResult } from './providers/modelList.js';
 import type { ProviderId } from './providers/types.js';
 import {
     createEmptyProviderConfig,
     isApiKeyPlaceholderLike,
-    mergeMigratedApiKeyConfigs,
     mergeProviderConfigEdits,
     parseProviderConfigs,
     type ProviderConfigKey,
     type ProviderConfigs,
     type StoredProviderConfig,
 } from './providers/configStore.js';
-import {
-    migratePlaintextApiKeys,
-    resolveStoredProviderConfig,
-    updateStoredProviderApiKey,
-} from './providers/apiKeys.js';
+import { resolveStoredProviderConfig, updateStoredProviderApiKey } from './providers/apiKeys.js';
 import { lookupProviderApiKey } from './utils/secretStore.js';
 import { Logger, Tag } from './utils/logger.js';
-import { LOG_FILE, replaceLogFileTextAsync } from './utils/logFile.js';
+import { RuntimeClient } from './runtime/client.js';
+import { RuntimeSettings, type ModelListResult } from './runtime/settings.js';
 
 export default class MeiPreferences extends ExtensionPreferences {
     override async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
-        const settings = this.getSettings();
+        // Settings live in the Mei runtime (ADR 0002); calls activate it if it isn't running.
+        const client = new RuntimeClient(() => 0);
+        const settings = new RuntimeSettings((method, args) => client.call(method, args));
         const settingsSignalIds: number[] = [];
         let destroyed = false;
 
         // Put main window title
         window.set_title('Manage Mei');
+        try {
+            await settings.reload();
+        } catch (e) {
+            const page = new Adw.PreferencesPage({ title: 'Manage Mei', icon_name: 'preferences-system-symbolic' });
+            const group = new Adw.PreferencesGroup({
+                title: 'Mei runtime unavailable',
+                description: `Mei's settings live in its runtime service, which could not be reached: ${e instanceof Error ? e.message : e}`,
+            });
+            page.add(group);
+            window.add(page);
+            return;
+        }
 
         /* ── Main Page ────────────────────────────────── */
         const mainPage = new Adw.PreferencesPage({
@@ -249,30 +257,16 @@ export default class MeiPreferences extends ExtensionPreferences {
             const config = getProviderConfigs()[provider] || createEmptyProviderConfig();
             return isApiKeyPlaceholderLike(config.apiKey) ? apiKeyCache.get(provider) || '' : config.apiKey || apiKeyCache.get(provider) || '';
         }
-        async function migrateProviderConfigsToSecret(): Promise<void> {
-            const configs = getProviderConfigs();
-            const result = await migratePlaintextApiKeys(configs);
-            if (destroyed) return;
-            const finalConfigs = result.changed
-                ? mergeMigratedApiKeyConfigs(configs, result.configs, getProviderConfigs())
-                : configs;
-            if (result.changed) {
-                saveProviderConfigsNow(finalConfigs);
-            }
-
-            // Pre-warm apiKeyCache
-            for (const [provider, config] of Object.entries(finalConfigs)) {
-                if (config.apiKeyStorage === 'secret') {
-                    try {
-                        const key = await lookupProviderApiKey(provider);
-                        if (key && !destroyed) {
-                            apiKeyCache.set(provider, key);
-                        }
-                    } catch (e) {
-                        Logger.warn(Tag.Extension, `Failed to pre-warm ${provider} API key: ${e}`);
-                    }
+        async function prewarmApiKeyCache(): Promise<void> {
+            for (const provider of Object.keys(getProviderConfigs())) {
+                try {
+                    const key = await lookupProviderApiKey(provider);
+                    if (key && !destroyed) apiKeyCache.set(provider, key);
+                } catch (e) {
+                    Logger.warn(Tag.Extension, `Failed to read the ${provider} API key: ${e}`);
                 }
             }
+            if (!destroyed) updateVisibility();
         }
 
         async function getResolvedProviderConfig(provider: string, config: StoredProviderConfig): Promise<StoredProviderConfig> {
@@ -292,7 +286,12 @@ export default class MeiPreferences extends ExtensionPreferences {
             if (!configs[provider]) configs[provider] = createEmptyProviderConfig();
             if (key === 'apiKey' && isApiKeyPlaceholderLike(value.trim())) return;
             if (key === 'apiKey') {
-                configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
+                try {
+                    configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
+                } catch (e) {
+                    apiKeyActionRow.set_subtitle(`Not saved: ${e instanceof Error ? e.message : e}`);
+                    return;
+                }
                 if (value.trim()) {
                     apiKeyCache.set(provider, value.trim());
                 } else {
@@ -313,7 +312,6 @@ export default class MeiPreferences extends ExtensionPreferences {
             }
         }
 
-        void migrateProviderConfigsToSecret();
 
         const providerModeGroup = new Adw.PreferencesGroup({
             title: 'Provider Options',
@@ -478,20 +476,10 @@ export default class MeiPreferences extends ExtensionPreferences {
         });
         connectionGroup.add(apiKeyRow);
 
-        const session = new Soup.Session({ timeout: 15 });
         let modelFetchCancellable: Gio.Cancellable | null = null;
 
-        async function fetchModels(provider: string, config: StoredProviderConfig, cancellable: Gio.Cancellable): Promise<ModelListResult> {
-            return fetchProviderModels(
-                session,
-                provider as ProviderId,
-                {
-                    url: config.url || '',
-                    apiKey: config.apiKey || '',
-                    mode: config.mode || '',
-                },
-                cancellable
-            );
+        async function fetchModels(provider: string, config: StoredProviderConfig, _cancellable: Gio.Cancellable): Promise<ModelListResult> {
+            return settings.listModels(provider as ProviderId, { url: config.url || '' });
         }
 
         let fetchTimeout = 0;
@@ -702,6 +690,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         settingsSignalIds.push(settings.connect('changed::provider', updateVisibility));
         settingsSignalIds.push(settings.connect('changed::provider-type', updateVisibility));
         updateVisibility();
+        void prewarmApiKeyCache();
 
         const providerSubpage = new Adw.NavigationPage({
             title: 'AI Provider Configurations',
@@ -830,45 +819,25 @@ export default class MeiPreferences extends ExtensionPreferences {
 
         /* ── Load/Clear/Update View Logic ──────────────── */
         function loadLogs() {
-            try {
-                const file = Gio.File.new_for_path(LOG_FILE);
-                if (file.query_exists(null)) {
-                    const [success, contents] = file.load_contents(null);
-                    if (success) {
-                        const text = new TextDecoder().decode(contents);
-                        logLines = text.split('\n').filter(l => l.trim().length > 0);
-                        updateView();
-                    }
-                } else {
-                    buffer.set_text('No logs found at ' + LOG_FILE, -1);
-                }
-            } catch (e) {
-                buffer.set_text(`Failed to load logs: ${e}`, -1);
-            }
+            settings.fetchLogs().then(entries => {
+                if (destroyed) return;
+                logLines = entries.map(e => {
+                    const time = GLib.DateTime.new_from_unix_local(e.t)?.format('%H:%M:%S') ?? String(e.t);
+                    return `${time} [${e.level.toUpperCase()}] [${e.logger}] ${e.msg}`;
+                });
+                updateView();
+            }).catch(e => {
+                if (!destroyed) buffer.set_text(`Failed to load logs: ${e instanceof Error ? e.message : e}`, -1);
+            });
         }
 
         function clearLogs() {
-            try {
-                const file = Gio.File.new_for_path(LOG_FILE);
-                if (!file.query_exists(null)) return;
-
-                if (currentFilter === 'All') {
-                    void replaceLogFileTextAsync('').catch(e => {
-                        buffer.set_text(`Failed to clear logs: ${e}`, -1);
-                    });
-                    logLines = [];
-                } else {
-                    const levelStr = `[${currentFilter.toUpperCase()}]`;
-                    logLines = logLines.filter(line => !line.includes(levelStr));
-                    const newText = logLines.join('\n') + (logLines.length ? '\n' : '');
-                    void replaceLogFileTextAsync(newText).catch(e => {
-                        buffer.set_text(`Failed to clear logs: ${e}`, -1);
-                    });
-                }
-                updateView();
-            } catch (e) {
-                buffer.set_text(`Failed to clear logs: ${e}`, -1);
-            }
+            settings.clearLogs().then(() => {
+                logLines = [];
+                if (!destroyed) updateView();
+            }).catch(e => {
+                if (!destroyed) buffer.set_text(`Failed to clear logs: ${e instanceof Error ? e.message : e}`, -1);
+            });
         }
 
         function updateView() {
@@ -923,7 +892,6 @@ export default class MeiPreferences extends ExtensionPreferences {
             modelFetchSeq++;
             modelFetchCancellable?.cancel();
             modelFetchCancellable = null;
-            session.abort();
 
             if (timeoutId) {
                 GLib.source_remove(timeoutId);

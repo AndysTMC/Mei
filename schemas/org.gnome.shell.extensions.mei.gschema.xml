@@ -1,26 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
+    <!-- Provider, model, and privacy settings live in the Mei runtime (ADR 0002), not here. -->
     <schema id="org.gnome.shell.extensions.mei"
             path="/org/gnome/shell/extensions/mei/">
-        <key name="provider-type" type="s">
-            <default>'local'</default>
-            <summary>Provider Type</summary>
-            <description>The category of AI provider: local, cloud, custom</description>
-        </key>
-        <key name="provider" type="s">
-            <default>'ollama'</default>
-            <summary>AI Provider</summary>
-            <description>The AI provider to use: ollama, llamacpp, lmstudio, openai, anthropic, gemini, groq, mistral, openrouter, deepseek, fireworks, nvidia, custom, opencode, githubcopilot</description>
-        </key>
-        <key name="experimental-runtime" type="b">
-            <default>false</default>
-            <summary>Use the Mei runtime (experimental)</summary>
-            <description>Send chats through the separate Mei runtime service instead of calling providers from GNOME Shell. Takes effect when the extension is next enabled.</description>
-        </key>
-        <key name="provider-configs" type="s">
-            <default>'{}'</default>
-            <summary>Provider Configurations</summary>
-            <description>JSON string containing per-provider configuration like model-name, url, and API key storage metadata</description>
-        </key>
     </schema>
 </schemalist>

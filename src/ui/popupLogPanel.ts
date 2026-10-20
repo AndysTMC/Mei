@@ -4,11 +4,16 @@
 
 import Atk from 'gi://Atk';
 import Clutter from 'gi://Clutter';
-import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import St from 'gi://St';
 
-import { LOG_FILE, replaceLogFileTextAsync } from '../utils/logFile.js';
-import { Logger, Tag } from '../utils/logger.js';
+import type { LogEntry } from '../runtime/protocol.js';
+
+/** Where the runtime's recent log entries come from (GetLogs / ClearLogs). */
+export interface LogSource {
+    fetchLogs(): Promise<LogEntry[]>;
+    clearLogs(): Promise<void>;
+}
 
 type LogFilter = 'All' | 'Info' | 'Debug' | 'Warn' | 'Error';
 
@@ -26,6 +31,7 @@ export class PopupLogPanel {
     private _filter: LogFilter = 'All';
     private _lines: string[] = [];
     private _page = 0;
+    source: LogSource | null = null;
 
     render(listBox: St.BoxLayout, callbacks: PopupLogPanelCallbacks): void {
         const filterRow = new St.BoxLayout({
@@ -58,13 +64,11 @@ export class PopupLogPanel {
             style_class: 'mei-settings-actions-row',
         });
         this._addActionButton(actionRow, 'view-refresh-symbolic', 'Refresh logs', () => {
-            this.load();
-            callbacks.refresh();
+            this.load(() => callbacks.refresh());
         }, callbacks);
         this._addActionButton(actionRow, 'edit-copy-symbolic', 'Copy visible logs', () => this.copyVisible(), callbacks);
-        this._addActionButton(actionRow, 'user-trash-symbolic', 'Clear visible logs', () => {
-            this.clearVisible();
-            callbacks.refresh();
+        this._addActionButton(actionRow, 'user-trash-symbolic', 'Clear logs', () => {
+            this.clearAll(() => callbacks.refresh());
         }, callbacks);
         this._addPagerControls(actionRow, callbacks);
         listBox.add_child(actionRow);
@@ -104,26 +108,19 @@ export class PopupLogPanel {
         listBox.add_child(logScroll);
     }
 
-    load(): void {
-        try {
-            const file = Gio.File.new_for_path(LOG_FILE);
-            if (!file.query_exists(null)) {
-                this._lines = [];
-                return;
-            }
-            const [ok, contents] = file.load_contents(null);
-            if (!ok || !contents) {
-                this._lines = [];
-                return;
-            }
-            const lines = new TextDecoder().decode(contents).split('\n')
-                .map(line => line.trimEnd())
-                .filter(line => line.trim().length > 0);
-            this._lines = this._trimLines(lines);
-            this._page = Math.min(this._page, this._getPageCount(this._getVisibleLines()) - 1);
-        } catch (e) {
-            this._lines = [`[ERROR] Failed to load logs: ${e}`];
+    /** Fetch the runtime's recent log entries, then call `done` to redraw. */
+    load(done: () => void): void {
+        if (!this.source) {
+            this._lines = ['[WARN] The Mei runtime is not connected.'];
+            done();
+            return;
         }
+        this.source.fetchLogs().then(entries => {
+            this._lines = entries.slice(-LOG_MAX_LINES).map(formatEntry);
+            this._page = Math.min(this._page, this._getPageCount(this._getVisibleLines()) - 1);
+        }).catch(e => {
+            this._lines = [`[ERROR] Failed to load logs: ${e instanceof Error ? e.message : e}`];
+        }).finally(done);
     }
 
     private _addActionButton(
@@ -175,27 +172,10 @@ export class PopupLogPanel {
         }, callbacks, this._page < totalPages - 1);
     }
 
-    private _trimLines(lines: string[]): string[] {
-        if (lines.length <= LOG_MAX_LINES) return lines;
-
-        const trimmed = lines.slice(-LOG_MAX_LINES);
-        const nextText = trimmed.length > 0 ? trimmed.join('\n') + '\n' : '';
-        void replaceLogFileTextAsync(nextText).catch(e => {
-            Logger.warn(Tag.UI, `Failed to trim logs: ${e}`);
-        });
-        return trimmed;
-    }
-
     private _getVisibleLines(): string[] {
         if (this._filter === 'All') return this._lines;
         const level = `[${this._filter.toUpperCase()}]`;
         return this._lines.filter(line => line.includes(level));
-    }
-
-    private _getVisibleIndexes(): number[] {
-        if (this._filter === 'All') return this._lines.map((_line, index) => index);
-        const level = `[${this._filter.toUpperCase()}]`;
-        return this._lines.flatMap((line, index) => line.includes(level) ? [index] : []);
     }
 
     private _getPageCount(lines: string[]): number {
@@ -223,22 +203,18 @@ export class PopupLogPanel {
         );
     }
 
-    private clearVisible(): void {
-        try {
-            const file = Gio.File.new_for_path(LOG_FILE);
-            if (!file.query_exists(null)) return;
-
-            const visibleIndexes = this._getVisibleIndexes();
-            const [pageStart, pageEnd] = this._getPageBounds(visibleIndexes.length);
-            const pageIndexes = new Set(visibleIndexes.slice(pageStart, pageEnd));
-            this._lines = this._lines.filter((_line, index) => !pageIndexes.has(index));
-            const nextText = this._lines.join('\n') + (this._lines.length > 0 ? '\n' : '');
-            void replaceLogFileTextAsync(nextText).catch(e => {
-                Logger.warn(Tag.UI, `Failed to clear logs: ${e}`);
-            });
-            this._page = Math.min(this._page, this._getPageCount(this._getVisibleLines()) - 1);
-        } catch (e) {
-            this._lines = [`[ERROR] Failed to clear logs: ${e}`];
-        }
+    private clearAll(done: () => void): void {
+        if (!this.source) return;
+        this.source.clearLogs().then(() => {
+            this._lines = [];
+            this._page = 0;
+        }).catch(e => {
+            this._lines = [`[ERROR] Failed to clear logs: ${e instanceof Error ? e.message : e}`];
+        }).finally(done);
     }
+}
+
+function formatEntry(entry: LogEntry): string {
+    const time = GLib.DateTime.new_from_unix_local(entry.t)?.format('%H:%M:%S') ?? String(entry.t);
+    return `${time} [${entry.level.toUpperCase()}] [${entry.logger}] ${entry.msg}`;
 }

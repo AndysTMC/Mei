@@ -1,5 +1,5 @@
 /**
- * Runtime-backed chat for the existing popup (Stage 1, behind `experimental-runtime`).
+ * Runtime-backed chat for the popup.
  *
  * The popup keeps its current API; this class decides what to show from the projection. All
  * conversation state lives in the runtime, so closing the popup, disabling the extension, or a
@@ -8,20 +8,16 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
-import { parseProviderConfigs } from '../providers/configStore.js';
-import { resolveProviderId } from '../providers/profiles.js';
+import { getProviderProfile, resolveProviderId } from '../providers/profiles.js';
 import type { ChatMessageMetadata, ProviderId } from '../providers/types.js';
 import type { ChatPopup } from '../ui/chatPopup.js';
 import { Logger, Tag } from '../utils/logger.js';
 import { RuntimeClient, RuntimeError, type ConnectionStatus } from './client.js';
 import { Projection } from './projection.js';
-import type { ConfigReply, ConversationReply, Envelope, MessageView, SubmitReply } from './protocol.js';
-import { sameProvider, toRuntimeProvider } from './providerBridge.js';
-
-const CONFIG_DEBOUNCE_MS = 300;
+import type { ConversationReply, Envelope, MessageView, SubmitReply } from './protocol.js';
+import { RuntimeSettings } from './settings.js';
 
 interface PopupMessage {
     role: string;
@@ -38,17 +34,19 @@ export class RuntimeChatController {
     private _current: string | null = null;
     private _status: ConnectionStatus = 'connecting';
     private _statusDetail = '';
-    private _unsupported: string | null = null;
-    private _settingsId = 0;
-    private _configTimeoutId = 0;
+    /** Provider settings owned by the runtime; the popup's settings view and prefs read and write these. */
+    readonly settings: RuntimeSettings;
     /** Index in the rendered list of the interrupted draft, which ↻ resumes. */
     private _draftIndex = -1;
 
-    constructor(private readonly _popup: ChatPopup, private readonly _settings: Gio.Settings) {
+    private _popup!: ChatPopup;
+
+    constructor() {
+        this.settings = new RuntimeSettings((method, args) => this._client.call(method, args));
         this._client.onAttached = reply => {
             this._projection.applyAttach(reply);
             if (reply.mode === 'snapshot' && this._current) void this._loadConversation(this._current);
-            this._queueConfigPush(0);
+            this._reloadSettings();
             this._render();
         };
         this._client.onEvent = event => this._onEvent(event);
@@ -83,21 +81,20 @@ export class RuntimeChatController {
             messages: conv?.messages.map(m => ({ role: m.role, content: m.content })) ?? [],
             stream: stream ? { text: stream.text, chunk: stream.chunk, stale: stream.stale } : null,
             interrupted: this._current ? this._projection.interruptedTask(this._current)?.draft ?? null : null,
-            unsupported: this._unsupported,
+            provider: this.settings.get_string('provider'),
         };
     }
 
+    /** The popup is built with `settings`, so it's bound after construction and before `start()`. */
+    bind(popup: ChatPopup): void {
+        this._popup = popup;
+    }
+
     start(): void {
-        this._settingsId = this._settings.connect('changed', (_s: Gio.Settings, key: string) => {
-            if (key === 'provider' || key === 'provider-configs') this._queueConfigPush(CONFIG_DEBOUNCE_MS);
-        });
         this._client.start();
     }
 
     destroy(): void {
-        if (this._settingsId) this._settings.disconnect(this._settingsId);
-        if (this._configTimeoutId) GLib.source_remove(this._configTimeoutId);
-        this._settingsId = this._configTimeoutId = 0;
         this._client.destroy();
     }
 
@@ -105,8 +102,9 @@ export class RuntimeChatController {
 
     send(text: string): void {
         this._popup.hideError();
-        if (this._unsupported) {
-            this._popup.showError(`⚠ ${this._unsupported}`);
+        const unusable = this._providerProblem();
+        if (unusable) {
+            this._popup.showError(`⚠ ${unusable}`);
             return;
         }
         if (this._status === 'unavailable' || this._status === 'incompatible') {
@@ -187,7 +185,7 @@ export class RuntimeChatController {
         }
         if (result !== 'applied') return;
         if (event.type === 'config.changed') {
-            this._queueConfigPush(CONFIG_DEBOUNCE_MS); // a no-op when the runtime already matches
+            this._reloadSettings();
             return;
         }
         if (this._current === null || event.conversation_id !== this._current) return;
@@ -276,41 +274,26 @@ export class RuntimeChatController {
         this._popup.open();
     }
 
-    // ── Provider config (Stage 1 bridge) ────────────────────────────────────
+    // ── Provider settings ───────────────────────────────────────────────────
 
-    private _queueConfigPush(delayMs: number): void {
-        if (this._configTimeoutId) GLib.source_remove(this._configTimeoutId);
-        this._configTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, delayMs, () => {
-            this._configTimeoutId = 0;
-            void this._pushProviderConfig();
-            return GLib.SOURCE_REMOVE;
-        });
+    private _reloadSettings(): void {
+        this.settings.reload().catch(e => Logger.warn(Tag.Extension, `Loading settings failed: ${(e as Error).message}`));
     }
 
-    private async _pushProviderConfig(): Promise<void> {
-        const providerId: ProviderId = resolveProviderId(this._settings.get_string('provider')) ?? 'openai';
-        let stored = {};
+    /** Why sending can't work with the current settings, if it can't. */
+    private _providerProblem(): string | null {
+        if (!this.settings.loaded) return null; // the runtime will answer for itself
+        const id = resolveProviderId(this.settings.get_string('provider'));
+        if (!id) return 'Choose a model provider in Mei\'s settings first.';
+        const profile = getProviderProfile(id);
+        if (!profile.selectable) return `${profile.label} is no longer available. Choose another provider in Mei's settings.`;
+        let model = '';
         try {
-            stored = parseProviderConfigs(this._settings.get_string('provider-configs'))[providerId] ?? {};
-        } catch (e) {
-            Logger.warn(Tag.Extension, `Failed to parse provider-configs: ${e}`);
+            model = JSON.parse(this.settings.get_string('provider-configs'))[id]?.modelName ?? '';
+        } catch {
+            model = '';
         }
-        const { config, unsupported } = toRuntimeProvider(providerId, stored);
-        this._unsupported = unsupported ?? null;
-        for (let attempt = 0; attempt < 2; attempt++) {
-            try {
-                const current = await this._client.call<ConfigReply>('GetConfig');
-                if (sameProvider(current.config.provider, config)) return;
-                await this._client.call('UpdateConfig', { revision: current.revision, config: { provider: config } });
-                Logger.info(Tag.Extension, `Runtime provider set to ${config.id || 'none'}`);
-                return;
-            } catch (e) {
-                if ((e as RuntimeError).code !== 'Conflict') {
-                    Logger.warn(Tag.Extension, `Could not configure the runtime provider: ${(e as Error).message}`);
-                    return;
-                }
-            }
-        }
+        return model.trim() ? null : `Choose a ${profile.label} model in Mei's settings first.`;
     }
 }
 

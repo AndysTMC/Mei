@@ -9,7 +9,7 @@ export const BUS_NAME = 'com.andystmc.Mei1';
 export const OBJECT_PATH = '/com/andystmc/Mei1';
 export const INTERFACE = 'com.andystmc.Mei1.Runtime';
 export const ERROR_PREFIX = 'com.andystmc.Mei1.Error.';
-export const PROTOCOL_VERSION: [number, number] = [1, 1];
+export const PROTOCOL_VERSION: [number, number] = [2, 0];
 
 export type TaskState =
     | 'ACCEPTED' | 'RUNNING' | 'WAITING_APPROVAL' | 'WAITING_INPUT' | 'WAITING_RESOURCE' | 'VERIFYING'
@@ -106,9 +106,8 @@ export interface SubmitReply {
     duplicate: boolean;
 }
 
-/** The user's provider preferences. The runtime resolves endpoint, format, auth, and headers. */
-export interface RuntimeProviderConfig {
-    id: string;
+/** What the user chose for one provider. The runtime resolves endpoint, format, auth, and headers. */
+export interface ProviderSettings {
     model: string;
     url: string;
     mode: string;
@@ -117,7 +116,28 @@ export interface RuntimeProviderConfig {
     options: Record<string, unknown>;
 }
 
+export interface ConfigDoc {
+    active: string;
+    providers: Record<string, ProviderSettings>;
+    privacy: { conversation_retention_days: number | null };
+}
+
 export interface ConfigReply {
     revision: number;
-    config: { provider: RuntimeProviderConfig };
+    config: ConfigDoc;
+}
+
+export interface ModelsReply {
+    models: string[];
+    requires_key: boolean;
+    from_fallback: boolean;
+    error?: string;
+}
+
+export interface LogEntry {
+    id: number;
+    t: number;
+    level: string;
+    logger: string;
+    msg: string;
 }

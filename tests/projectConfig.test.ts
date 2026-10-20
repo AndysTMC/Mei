@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { PROVIDER_LABELS } from '../src/providers/catalog.js';
-
 test('extension metadata and schema target the same extension identity', () => {
     const metadata = JSON.parse(readFileSync('metadata.json', 'utf8')) as {
         uuid?: string;
@@ -14,17 +12,12 @@ test('extension metadata and schema target the same extension identity', () => {
     assert.equal(metadata.uuid, 'mei@andystmc.com');
     assert.ok(metadata['shell-version']?.includes('50'));
     assert.match(schema, /id="org\.gnome\.shell\.extensions\.mei"/);
-    assert.match(schema, /<default>'ollama'<\/default>/);
 });
 
-test('schema provider documentation matches the selectable provider catalog', () => {
+test('the schema keeps no provider settings: the runtime owns them', () => {
     const schema = readFileSync('schemas/org.gnome.shell.extensions.mei.gschema.xml', 'utf8');
-    const description = schema.match(/<description>The AI provider to use: ([^<]+)<\/description>/)?.[1];
-    assert.ok(description);
-    assert.deepEqual(new Set(description.split(/,\s*/)), new Set(Object.keys(PROVIDER_LABELS)));
-    assert.match(description, /deepseek/i);
-    assert.match(description, /fireworks/i);
-    assert.match(description, /nvidia/i);
+    for (const key of ['provider', 'provider-type', 'provider-configs', 'experimental-runtime'])
+        assert.doesNotMatch(schema, new RegExp(`<key name="${key}"`));
 });
 
 test('sensitive local environment files are ignored while the template is committed', () => {

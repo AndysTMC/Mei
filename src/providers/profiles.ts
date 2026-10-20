@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import type { ProviderConfig, ProviderId } from './types.js';
+import type { ProviderId } from './types.js';
 
 export type ProviderType = 'local' | 'cloud' | 'custom';
 export type ProviderApiMode = 'chat_completions' | 'responses' | 'anthropic_messages' | 'bedrock_converse';
@@ -135,48 +135,8 @@ export function resolveProviderId(value: string): ProviderId | null {
     return null;
 }
 
-export function getOpenCodeApiMode(model: string, mode: string): ProviderApiMode {
-    const normalized = normalizeOpenCodeModelId(model).toLowerCase();
-    const normalizedMode = mode.trim().toLowerCase();
-    if (!normalized) return 'chat_completions';
-    if (/^(?:gpt-|grok-|muse-spark)/.test(normalized)) return 'responses';
-    if (normalizedMode === 'zen' && /^(?:claude-|qwen)/.test(normalized)) return 'anthropic_messages';
-    if (normalizedMode !== 'zen' && /^(?:minimax-|qwen)/.test(normalized)) return 'anthropic_messages';
-    return 'chat_completions';
-}
 
-export function normalizeOpenCodeModelId(model: string): string {
-    return model.trim().split('/').at(-1) ?? '';
-}
 
-export function getOpenCodeBaseUrl(mode: string): string {
-    return mode === 'zen' ? 'https://opencode.ai/zen/v1' : 'https://opencode.ai/zen/go/v1';
-}
 
-export function getApiModePath(apiMode: ProviderApiMode): string {
-    if (apiMode === 'responses') return '/responses';
-    if (apiMode === 'anthropic_messages') return '/messages';
-    return '/chat/completions';
-}
 
-export interface ResolvedProviderRuntime {
-    apiMode: ProviderApiMode;
-    url: string;
-}
 
-export function resolveProviderRuntime(
-    providerId: ProviderId,
-    config: Pick<ProviderConfig, 'url' | 'model' | 'mode'>
-): ResolvedProviderRuntime {
-    const profile = getProviderProfile(providerId);
-    const apiMode = providerId === 'opencode'
-        ? getOpenCodeApiMode(config.model, config.mode ?? '')
-        : profile.apiMode;
-    if (providerId === 'opencode') {
-        return {
-            apiMode,
-            url: `${getOpenCodeBaseUrl(config.mode ?? '')}${getApiModePath(apiMode)}`,
-        };
-    }
-    return { apiMode, url: config.url || profile.chatUrl };
-}

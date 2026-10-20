@@ -1,91 +1,42 @@
 /**
+ * Provider API keys live only in the keyring (ADR 0005, superseding ADR 0001). The runtime reads
+ * them there by provider id; nothing in settings ever holds a key.
+ *
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import {
-    createEmptyProviderConfig,
-    isApiKeyPlaceholderLike,
-    withSecretApiKeyFallback,
-    type ProviderConfigs,
-    type StoredProviderConfig,
-} from './configStore.js';
+import { isApiKeyPlaceholderLike, type StoredProviderConfig } from './configStore.js';
 import { clearProviderApiKey, lookupProviderApiKey, storeProviderApiKey } from '../utils/secretStore.js';
 import { Logger, Tag } from '../utils/logger.js';
 
+/** Fill in the stored key (for showing "a key is saved"), without writing it anywhere. */
 export async function resolveStoredProviderConfig(
     provider: string,
     config: StoredProviderConfig
 ): Promise<StoredProviderConfig> {
-    if (config.apiKeyStorage !== 'secret' && config.apiKey && !isApiKeyPlaceholderLike(config.apiKey)) {
-        return config;
-    }
-
     try {
         const apiKey = await lookupProviderApiKey(provider);
-        if (apiKey) return { ...config, apiKey };
-        return isApiKeyPlaceholderLike(config.apiKey) ? { ...config, apiKey: '' } : config;
+        return { ...config, apiKey: apiKey ?? '', apiKeyStorage: apiKey ? 'secret' : '' };
     } catch (e) {
         Logger.warn(Tag.Extension, `Failed to read ${provider} API key from keyring: ${e}`);
-        return isApiKeyPlaceholderLike(config.apiKey) ? { ...config, apiKey: '' } : config;
+        return { ...config, apiKey: '', apiKeyStorage: '' };
     }
 }
 
+/** Save or clear a key in the keyring. Throws if the keyring can't take it; there is no fallback. */
 export async function updateStoredProviderApiKey(
     provider: string,
     config: StoredProviderConfig,
     apiKey: string
 ): Promise<StoredProviderConfig> {
     const trimmedKey = apiKey.trim();
-    if (isApiKeyPlaceholderLike(trimmedKey)) {
-        return config;
-    }
+    if (isApiKeyPlaceholderLike(trimmedKey)) return config;
     if (!trimmedKey) {
-        try {
-            await clearProviderApiKey(provider);
-        } catch (e) {
-            Logger.warn(Tag.Extension, `Failed to clear ${provider} API key from keyring: ${e}`);
-        }
+        await clearProviderApiKey(provider);
         return { ...config, apiKey: '', apiKeyStorage: '' };
     }
-
-    try {
-        if (await storeProviderApiKey(provider, trimmedKey)) {
-            // Keep a GSettings fallback. Secret Service can be available while
-            // saving and unavailable after a Shell restart; without this copy,
-            // every cloud provider is recreated with an empty credential.
-            return withSecretApiKeyFallback(config, trimmedKey);
-        }
-    } catch (e) {
-        Logger.warn(Tag.Extension, `Failed to store ${provider} API key in keyring: ${e}`);
+    if (!await storeProviderApiKey(provider, trimmedKey)) {
+        throw new Error('The keyring is unavailable or locked, so the key was not saved.');
     }
-
-    Logger.warn(Tag.Extension, `Falling back to plaintext GSettings storage for ${provider} API key`);
-    return { ...config, apiKey: trimmedKey, apiKeyStorage: '' };
-}
-
-export async function migratePlaintextApiKeys(configs: ProviderConfigs): Promise<{ configs: ProviderConfigs; changed: boolean }> {
-    let changed = false;
-    const migrated: ProviderConfigs = {};
-
-    for (const [provider, rawConfig] of Object.entries(configs)) {
-        const config = { ...createEmptyProviderConfig(), ...rawConfig };
-        if (!config.apiKey || config.apiKeyStorage === 'secret') {
-            migrated[provider] = config;
-            continue;
-        }
-
-        try {
-            if (await storeProviderApiKey(provider, config.apiKey)) {
-                migrated[provider] = withSecretApiKeyFallback(config, config.apiKey);
-                changed = true;
-                continue;
-            }
-        } catch (e) {
-            Logger.warn(Tag.Extension, `Failed to migrate ${provider} API key to keyring: ${e}`);
-        }
-
-        migrated[provider] = config;
-    }
-
-    return { configs: migrated, changed };
+    return { ...config, apiKey: '', apiKeyStorage: 'secret' };
 }

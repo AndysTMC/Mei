@@ -18,7 +18,6 @@ import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import Atk from 'gi://Atk';
 import Gio from 'gi://Gio';
-import Soup from 'gi://Soup?version=3.0';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -55,18 +54,16 @@ import {
     type OpenCodeMode,
     type ProviderType,
 } from '../providers/catalog.js';
-import { fetchProviderModels } from '../providers/modelList.js';
+import type { RuntimeSettings } from '../runtime/settings.js';
 import type { ChatMessageMetadata, ProviderId } from '../providers/types.js';
 import {
     createEmptyProviderConfig,
     isApiKeyPlaceholderLike,
-    mergeMigratedApiKeyConfigs,
     parseProviderConfigs,
     type ProviderConfigKey,
     type StoredProviderConfig,
 } from '../providers/configStore.js';
 import {
-    migratePlaintextApiKeys,
     resolveStoredProviderConfig,
     updateStoredProviderApiKey,
 } from '../providers/apiKeys.js';
@@ -111,7 +108,7 @@ export class ChatPopup {
     private _settingsBtn: St.Button;
     private _popupItem: PopupMenu.PopupBaseMenuItem;
     private _themeManager: ThemeManager;
-    private _settings: Gio.Settings | null;
+    private _settings: RuntimeSettings | null;
     private _themeSignalId: number = 0;
     private _settingsSignalIds: number[] = [];
     private _lastReply: string | null = null;
@@ -163,7 +160,6 @@ export class ChatPopup {
     private _settingsSaveStatus = '';
     private _settingsScreen: SettingsScreen = 'main';
     private _settingsForcedWide: boolean = false;
-    private _modelFetchSession: Soup.Session;
     private _modelFetchCancellable: Gio.Cancellable | null = null;
     private _modelFetchSeq = 0;
     private _modelFetchKey = '';
@@ -208,11 +204,9 @@ export class ChatPopup {
     /** Called when a chat session is deleted from the history list. */
     onDeleteChat: ((id: string) => void) | null = null;
 
-    constructor(anchor: St.Widget, themeManager: ThemeManager, settings: Gio.Settings | null = null) {
+    constructor(anchor: St.Widget, themeManager: ThemeManager, settings: RuntimeSettings | null = null) {
         this._themeManager = themeManager;
         this._settings = settings;
-        this._modelFetchSession = new Soup.Session({ timeout: 10 });
-        this._migratePlaintextProviderKeys();
 
         const monitor = Main.layoutManager.primaryMonitor;
         const screenHeight = monitor ? monitor.height : 1080;
@@ -711,7 +705,7 @@ export class ChatPopup {
         this._container.add_child(this._settingsView);
 
         if (this._settings) {
-            this._settingsSignalIds.push(this._settings.connect('changed', (_settings: Gio.Settings, key: string) => {
+            this._settingsSignalIds.push(this._settings.connect('changed', (_settings: RuntimeSettings, key: string) => {
                 if (!this._isSettingsView || this._refreshingSettingsView) return;
                 if (key === 'provider-configs') return;
                 this._refreshSettingsView();
@@ -1653,7 +1647,8 @@ export class ChatPopup {
             });
             this._addSettingsNavRow('Manage Logs', 'format-justify-left-symbolic', () => {
                 this._settingsScreen = 'logs';
-                this._logPanel.load();
+                this._logPanel.source = this._settings;
+                this._logPanel.load(() => this._refreshSettingsView());
                 this._refreshSettingsViewAnimated();
             });
             this._updateSettingsScrollHeight();
@@ -2080,19 +2075,6 @@ export class ChatPopup {
         };
     }
 
-    private async _migratePlaintextProviderKeys(): Promise<void> {
-        const settings = this._settings;
-        if (!settings) return;
-
-        const original = this._getProviderConfigs();
-        const result = await migratePlaintextApiKeys(original);
-        if (this._destroyed || !result.changed) return;
-        const current = parseProviderConfigs(settings.get_string('provider-configs'));
-        settings.set_string('provider-configs', JSON.stringify(
-            mergeMigratedApiKeyConfigs(original, result.configs, current)
-        ));
-    }
-
     private async _resolveProviderConfig(provider: ProviderId, config: StoredProviderConfig): Promise<StoredProviderConfig> {
         if (config.apiKey && !isApiKeyPlaceholderLike(config.apiKey)) return config;
         const cachedKey = this._apiKeyCache.get(provider);
@@ -2121,9 +2103,16 @@ export class ChatPopup {
             this._refreshSettingsView();
             return;
         }
-        const nextSavedConfig = key === 'apiKey'
-            ? await updateStoredProviderApiKey(provider, savedConfig, value)
-            : { ...savedConfig, [key]: value };
+        let nextSavedConfig: StoredProviderConfig;
+        try {
+            nextSavedConfig = key === 'apiKey'
+                ? await updateStoredProviderApiKey(provider, savedConfig, value)
+                : { ...savedConfig, [key]: value };
+        } catch (e) {
+            this._settingsSaveStatus = `⚠ ${e instanceof Error ? e.message : String(e)}`;
+            this._refreshSettingsView();
+            return;
+        }
         const nextDraftConfig = key === 'apiKey'
             ? { ...visibleDraft, apiKey: nextSavedConfig.apiKey, apiKeyStorage: nextSavedConfig.apiKeyStorage }
             : { ...visibleDraft, [key]: value };
@@ -2186,7 +2175,12 @@ export class ChatPopup {
         if (key === 'apiKey' && isApiKeyPlaceholderLike(value.trim())) return;
         if (configs[provider][key] === value) return;
         if (key === 'apiKey') {
-            configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
+            try {
+                configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
+            } catch (e) {
+                Logger.warn(Tag.Extension, `Saving the ${provider} API key failed: ${e}`);
+                return;
+            }
             if (value.trim()) {
                 this._apiKeyCache.set(provider, value.trim());
             } else {
@@ -2232,16 +2226,8 @@ export class ChatPopup {
         const cancellable = new Gio.Cancellable();
         this._modelFetchCancellable = cancellable;
 
-        fetchProviderModels(
-            this._modelFetchSession,
-            provider,
-            {
-                url: resolvedConfig.url || '',
-                apiKey: resolvedConfig.apiKey || '',
-                mode: resolvedConfig.mode || '',
-            },
-            cancellable
-        )
+        if (!this._settings) return;
+        this._settings.listModels(provider, { url: resolvedConfig.url || '' })
             .then(result => {
                 if (this._destroyed || seq !== this._modelFetchSeq || cancellable.is_cancelled()) return;
                 this._modelFetchLoading = false;
@@ -2710,7 +2696,6 @@ export class ChatPopup {
         this._settingsSignalIds = [];
         this._modelFetchCancellable?.cancel();
         this._modelFetchCancellable = null;
-        this._modelFetchSession.abort();
         this._clearFocusTimeout();
         this._clearInputTimeouts();
         if (this._historyScrollTimeoutId !== 0) {

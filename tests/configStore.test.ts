@@ -7,9 +7,7 @@ import {
     isApiKeyPlaceholder,
     isApiKeyPlaceholderLike,
     mergeProviderConfigEdits,
-    mergeMigratedApiKeyConfigs,
     parseProviderConfigs,
-    withSecretApiKeyFallback,
 } from '../src/providers/configStore.ts';
 
 test('createEmptyProviderConfig returns all supported fields', () => {
@@ -58,29 +56,6 @@ test('mergeProviderConfigEdits preserves concurrent changes to other fields and 
     });
 });
 
-test('mergeMigratedApiKeyConfigs preserves concurrent configuration edits', () => {
-    const original = { openai: { ...createEmptyProviderConfig(), apiKey: 'plain' } };
-    const migrated = { openai: { ...original.openai, apiKeyStorage: 'secret' as const } };
-    const current = { openai: { ...original.openai, modelName: 'new-model' } };
-
-    assert.deepEqual(mergeMigratedApiKeyConfigs(original, migrated, current).openai, {
-        ...current.openai,
-        apiKey: 'plain',
-        apiKeyStorage: 'secret',
-    });
-
-    const keyChanged = { openai: { ...current.openai, apiKey: 'new-key' } };
-    assert.deepEqual(mergeMigratedApiKeyConfigs(original, migrated, keyChanged), keyChanged);
-
-    assert.deepEqual(mergeMigratedApiKeyConfigs(
-        original,
-        { openai: original.openai },
-        current
-    ), current);
-    assert.deepEqual(mergeMigratedApiKeyConfigs(original, {}, current), current);
-    assert.deepEqual(mergeMigratedApiKeyConfigs(original, migrated, {}), {});
-});
-
 test('API key placeholder is recognizable but distinct from an empty key', () => {
     assert.equal(API_KEY_PLACEHOLDER, '********');
     assert.equal(isApiKeyPlaceholder(API_KEY_PLACEHOLDER), true);
@@ -93,16 +68,6 @@ test('API key placeholder is recognizable but distinct from an empty key', () =>
     assert.equal(isApiKeyPlaceholderLike(''), false);
     assert.equal(isApiKeyPlaceholder('real-key'), false);
     assert.equal(isApiKeyPlaceholderLike('real-key'), false);
-});
-
-test('secret storage retains a fallback key for keyring outages', () => {
-    const config = { ...createEmptyProviderConfig(), modelName: 'gpt-test' };
-    assert.deepEqual(withSecretApiKeyFallback(config, 'sk-secret'), {
-        ...config,
-        apiKey: 'sk-secret',
-        apiKeyStorage: 'secret',
-    });
-    assert.deepEqual(config, { ...createEmptyProviderConfig(), modelName: 'gpt-test' });
 });
 
 test('parseProviderConfigs returns normalized provider configs', () => {
