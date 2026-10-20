@@ -23,12 +23,14 @@ const XML = `
     <method name="State"><arg type="s" direction="out" name="json"/></method>
     <method name="Screenshot"><arg type="s" direction="in" name="path"/></method>
     <method name="Click"><arg type="i" direction="in" name="x"/><arg type="i" direction="in" name="y"/></method>
+    <method name="PressOpenShortcut"/>
   </interface>
 </node>`;
 
 export class DevHooks {
     private readonly _exported: Gio.DBusExportedObject;
     private _pointer: Clutter.VirtualInputDevice | null = null;
+    private _keyboard: Clutter.VirtualInputDevice | null = null;
 
     constructor(private readonly _popup: ChatPopup, private readonly _runtime: RuntimeChatController) {
         this._exported = Gio.DBusExportedObject.wrapJSObject(XML, this);
@@ -76,6 +78,16 @@ export class DevHooks {
         this._pointer.notify_absolute_motion(t, x, y);
         this._pointer.notify_button(t + 10_000, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.PRESSED);
         this._pointer.notify_button(t + 20_000, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.RELEASED);
+    }
+
+    /** Presses Super+Alt+M (the default open-shortcut) the way a keyboard would. */
+    PressOpenShortcut(): void {
+        this._keyboard ??= Clutter.get_default_backend().get_default_seat()
+            .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+        const keys = [Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_m];
+        let t = GLib.get_monotonic_time();
+        for (const key of keys) this._keyboard.notify_keyval(t += 10_000, key, Clutter.KeyState.PRESSED);
+        for (const key of keys.reverse()) this._keyboard.notify_keyval(t += 10_000, key, Clutter.KeyState.RELEASED);
     }
 
     State(): string {

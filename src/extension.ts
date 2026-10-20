@@ -63,8 +63,9 @@ export default class MeiExtension extends Extension {
         runtime.onSetupNeeded = () => this.openPreferences();
 
         this._settings = this.getSettings();
+        // POPUP too: while Mei's popup is open it holds a grab, and the same keys should close it.
         Main.wm.addKeybinding('open-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
-            Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW, () => popup.toggle());
+            Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP, () => popup.toggle());
 
         runtime.start();
         if (__DEV__ && GLib.getenv('MEI_DEV_HOOKS') === '1') {

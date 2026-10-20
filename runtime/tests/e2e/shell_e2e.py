@@ -164,6 +164,13 @@ async def main() -> int:
                 and cfg["config"]["providers"]["custom"]["url"] == url
                 and st["controller"]["provider"] == "custom", cfg["config"])
 
+        # 1b. The default shortcut (Super+Alt+M) opens the popup from anywhere and closes it again.
+        await h.hook("PressOpenShortcut")
+        opened = (await h.until(lambda s: s["popup"]["open"], 5, "the shortcut to open the popup"))["popup"]["open"]
+        await h.hook("PressOpenShortcut")
+        await asyncio.sleep(0.5)
+        h.check("shortcut_toggles_popup", opened and not (await h.state())["popup"]["open"])
+
         # 2. Stream with the popup open, close it mid-stream, reopen: the partial answer is there at once.
         await h.hook("Popup", "open")
         await h.hook("Popup", "expand")
