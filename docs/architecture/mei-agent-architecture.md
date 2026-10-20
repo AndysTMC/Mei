@@ -1171,10 +1171,20 @@ Stage 1 limits, by design: runtime mode serves OpenAI-compatible chat providers 
 
 ### Stage 2a — Providers, config, and secrets in the runtime (M)
 
-Progress (2026-10-20):
-- **Provider parity: done.** The runtime owns Mei's provider profiles (`runtime/src/mei/providers/profiles.py`) and adapters for OpenAI-compatible chat (with `<think>`/reasoning normalization), Anthropic Messages, Gemini, Ollama, and OpenAI Responses; the extension sends only preferences. Transient refusals before any output are retried (3 attempts, backoff); nothing is retried after output starts. Live smoke (`runtime/tests/live_smoke.py`): Gemini, Groq, OpenRouter pass.
-- **Open question:** OpenCode now refuses non-OpenCode clients on Zen's free tier, and Go is meant for coding agents and moved to `/inference/go/`. Whether Mei keeps OpenCode is an owner decision.
-- Next: config in the runtime with prefs over IPC, `chats.json` import, ADR-10 key migration, removing the Shell provider path, install script and first setup steps.
+Progress (2026-10-20): **implemented; two acceptance items open** (see the table). The `experimental-runtime` flag is gone: the extension is UI only, and settings, conversations, model discovery, and logs live in the runtime (protocol 2.1).
+
+| Criterion | Evidence |
+|---|---|
+| Provider coverage matrix from recorded fixtures | **Partly.** Per-adapter fixtures in `runtime/tests/test_providers.py` (streaming text, reasoning, typed parts, error frames, usage, auth style, URL safety) and `test_models.py` (pagination, same-origin paging, fallbacks). Tool-call cells wait for Stage 3 tools; the matrix isn't written up as a table yet. |
+| Live smoke passes the same set as before | `npm run smoke:providers`: Gemini, Groq, OpenRouter list models and chat (the providers with keys in `.env`, as before) |
+| No `Soup.Session` or Mei-owned file writes in the bundle | `scripts/check-bundle.js`, part of `npm run check` |
+| Imported history matches the source; a second import is a no-op | `test_legacy.py` (content and counts, runs once, a changed file adds only new conversations); `test_legacy_process.py` with real dconf and keyring |
+| No API key on the Mei bus or in logs; none left in dconf | `test_key_privacy.py` (bus monitor, private keyring, a key echoed back by the upstream); `test_legacy_process.py` (`plaintext_left_in_dconf` false) |
+| Fresh VM: `curl … \| bash`, one log-out, setup reaches a working chat; re-run is a no-op; `--uninstall` leaves nothing | **Open.** `scripts/install-test.sh` covers install, re-run, uninstall, and purge in a private home (14 checks), and the nested-Shell e2e covers setup opening once and finishing. Needs a published release and the Ubuntu 26.04 / Fedora 44 VMs. |
+| Re-running setup changes nothing; every setup choice is a setting | `test_setup.py::test_rerunning_setup_without_changes_changes_nothing`, `test_ipc.py::test_setup_and_provider_test_over_the_bus` (revision unchanged); setup and Settings share the same rows (`src/prefs/rows.ts`) |
+| `npm run check` and `pytest` green | yes |
+
+Decisions along the way: OpenCode retired (it refuses non-OpenCode clients); keys keyring-only (ADR 0005); setup progress kept in the store, not in the config, since it isn't a setting; the open-Mei shortcut is the one GSettings key (keybindings must be). Also fixed: upstream error bodies that echo the request's key are scrubbed before they become a task error. Not yet: `mei-runtime setup` in a terminal (§18.3) and model roles.
 
 - Port all adapters and profiles; model discovery; config in SQLite with CAS; libsecret; prefs over IPC (config only, no approvals).
 - Idempotent import of `chats.json` and dconf provider settings (§14.3).

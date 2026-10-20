@@ -10,15 +10,16 @@
 - Lint / typecheck: `npm run typecheck` (`npm run lint` is the same)
 - Format: `npm run format:check`
 - Build: `npm run build`
-- Check (test + typecheck + format + build): `npm run check`
-- Live provider smoke: `npm run smoke:providers` (needs a local `.env` from `.env.example`; never commit `.env`)
+- Check (test + typecheck + format + build + UI-only bundle check): `npm run check`
+- Live provider smoke: `npm run smoke:providers` (runs `runtime/tests/live_smoke.py`; needs a local `.env` from `.env.example`; keys are never printed; never commit `.env`)
 - Runtime (Python, `runtime/`): `cd runtime && uv sync && uv run pytest` (process tests need `dbus-run-session`)
 - Protocol fixtures (after changing `runtime/src/mei/protocol.py` or event payloads): `cd runtime && uv run python tests/make_fixtures.py`
 - End-to-end in a nested Shell (dev build, private session, mock provider): `scripts/e2e-stage1.sh`
-- Runtime live provider smoke (keys from `.env`, never printed): `cd runtime && uv run python tests/live_smoke.py`
-- Try the runtime on your own session: `cd runtime && uv run mei-runtime install-dev`, then `/usr/bin/gsettings --schemadir dist/schemas set org.gnome.shell.extensions.mei experimental-runtime true` and re-enable the extension; undo with `uv run mei-runtime uninstall-dev`
+- Install test (install, upgrade, uninstall, purge in a private home): `scripts/install-test.sh`
+- Release build (wheel with the extension inside, plus a pinned `install.sh`): `scripts/build-release.sh`
+- Run this checkout on your own session: `npm run build && npm run install:ext` (links `dist/` as the extension), then `cd runtime && uv run mei-runtime install-dev` (this checkout's runtime becomes the service); log out and back in. Undo with `uv run mei-runtime uninstall-dev`. `mei-runtime install` leaves a symlinked extension alone unless `--force`.
 
-System deps for a real Shell install: GNOME Shell 50, `glib-compile-schemas`, optional mutter for nested sessions. Enable with `gnome-extensions enable mei@andystmc.com`.
+System deps for a real Shell install: GNOME Shell 50+, a keyring, `gsettings`/`gdbus`/`dconf` (checked by `install.sh --check`), `glib-compile-schemas` to build, optional mutter for nested sessions. Call system GLib tools by absolute path (`/usr/bin/gsettings`): Homebrew's can shadow them and silently ignore dconf.
 
 ## Hard rules
 

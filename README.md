@@ -7,82 +7,91 @@ Mei is a modern GNOME Shell extension powered by LLMs that understands your inte
 - **Native Markdown Rendering**: Responses are beautifully formatted with native GNOME widgets for code blocks, tables, lists, and syntax formatting.
 - **Deep System Integration**: Automatic GNOME dark/light mode syncing and responsive viewport constraints.
 
-## Dependencies
-Before building, ensure you have the following installed on your system:
-- **GNOME Shell 50**
-- **Node.js 20 or newer & npm** (for building from source)
-- **glib2.0-bin** or **glib2** (for `glib-compile-schemas` used in the build process)
-- **mutter-dev** or **mutter-bin-dev** (optional, required only for testing in a nested session)
+## How it fits together
 
-## Build & Install
+Mei has two parts: a GNOME Shell extension (the panel button, the chat popup, and Settings) and a
+small Python service, the Mei runtime, that keeps your conversations and settings and talks to the
+models. The extension is only the interface; the runtime starts on demand as a systemd user service.
+
+## Requirements
+
+- **GNOME Shell 50 or newer** in a Wayland session, with a systemd user session
+- **GNOME Keyring** (or another Secret Service) for API keys; local models work without one
+- `gsettings`, `gdbus`, and `dconf` (the `libglib2.0-bin`/`glib2` and `dconf` packages)
+
+The installer checks these and prints the exact package command for apt, dnf, pacman, or zypper. It
+never uses `sudo`; everything is installed for your user only. Python comes from
+[uv](https://docs.astral.sh/uv/), which the installer adds if it's missing.
+
+## Install
+
+From a source checkout (Node.js 20+ and uv needed to build):
 
 ```sh
-# Clone the repository
-git clone https://github.com/AndysTMC/Mei.git
-cd Mei
-
-# Install dependencies and build
+git clone https://github.com/AndysTMC/Mei.git && cd Mei
 npm install
-npm run build
-
-# Install the extension to your local GNOME extensions directory
-npm run install:ext
+scripts/build-release.sh           # builds release/: the runtime wheel with the extension inside
+bash release/install.sh --wheel release/mei_runtime-*.whl
 ```
 
-After installing, restart GNOME Shell:
-- **X11**: Press `Alt+F2`, type `r`, and press `Enter`
-- **Wayland**: Log out and log back in
+Then **log out and back in** (GNOME Shell only notices new extensions at login). Mei's setup opens
+at your next login. Run the installer again to upgrade in place. To remove Mei:
 
-Finally, enable the extension:
 ```sh
-gnome-extensions enable mei@andystmc.com
+bash release/install.sh --uninstall            # keeps your conversations and settings
+bash release/install.sh --uninstall --purge    # also deletes them and Mei's API keys
 ```
+
+Once releases are published, `install.sh` from a release downloads the pinned runtime and checks
+its sha256 before installing anything.
 
 ## Configuration & Usage
-To select your preferred AI provider and enter API keys, open the extension settings via the ⚙ (gear) icon in the chat popup, or run:
+
+Setup walks through the Mei service, your model provider and key, privacy, and the shortcut (by
+default `Super+Alt+M` opens Mei). Every choice can be changed later in Settings, opened from the ⚙
+(gear) icon in the chat popup or with:
+
 ```sh
 gnome-extensions prefs mei@andystmc.com
 ```
 
 ### Privacy & Local Data
 
-- Provider configuration is stored in GNOME GSettings under `org.gnome.shell.extensions.mei`. API keys are also stored in the desktop Secret Service/libsecret keyring when available, with a plaintext GSettings fallback retained because the Secret Service can become unavailable across Shell restarts. Use provider-side key restrictions where available and avoid sharing your desktop account.
-- For Gemini, prefer a Google API key restricted to the Gemini/Generative Language API and rotate it if your GSettings data may have been exposed. Mei sends Gemini keys in the `x-goog-api-key` header instead of embedding them in request URLs.
-- Chat history is stored at `~/.local/share/mei/chats.json`.
-- Logs are stored at `~/.local/state/mei/logs.txt`.
-- Logs avoid recording full request and response bodies by default, but error messages and operational metadata may still include sensitive context.
+- Conversations and settings live in `~/.local/share/mei/mei.db` (SQLite). They're kept until you
+  delete them, unless you choose a retention period in Settings → Privacy.
+- API keys are kept only in your keyring ([ADR 0005](docs/decisions/0005-keyring-only-api-keys.md)).
+  They never pass through Mei's settings, its D-Bus interface, or its logs.
+- Upgrading from an older Mei imports `~/.local/share/mei/chats.json` and your provider settings
+  once, moves any API keys stored in GSettings into the keyring, and removes the plaintext copies
+  after checking each key reads back.
+- Mei sends Gemini keys in the `x-goog-api-key` header, never in request URLs.
+- The runtime logs to the journal (`journalctl --user -u mei-runtime`); Settings → Show Logs shows
+  recent entries. Logs are redacted and don't record request or response bodies.
 
 ### Compatibility
 
-The published metadata currently targets GNOME Shell 50. Local validation was performed on GNOME Shell 50.1; support for older Shell versions should be restored only after smoke testing those versions.
+The published metadata targets GNOME Shell 50. Local validation was performed on GNOME Shell 50.1.
 
 ## Development
 
 ```sh
-npm test            # Run pure TypeScript/Node regression tests
-npm run test:coverage # Run the regression suite with Node coverage reporting
-npm run typecheck   # Type-check TypeScript files without emitting
-npm run lint        # Dependency-free static check alias for typecheck
-npm run format:check # Check source files for trailing whitespace/final newline drift
-npm run test:live   # Load .env and run live provider model-list checks
-npm run build       # Full build to the dist/ directory
-npm run check       # Run tests, static checks, formatting checks, and build
-npm run dev         # Build, install, and start a GNOME Shell devkit session
+npm test               # TypeScript/Node unit tests
+npm run check          # tests, typecheck, format check, build, and the UI-only bundle check
+npm run test:runtime   # the runtime's pytest suite (cd runtime && uv sync first)
+npm run test:e2e       # nested GNOME Shell + extension + runtime, on a private session
+npm run test:install   # install.sh install/upgrade/uninstall in a private home
+npm run smoke:providers # live provider checks using keys from .env
+npm run release        # scripts/build-release.sh
+npm run dev            # build, link dist/ as the extension, and start a devkit Shell
 ```
 
-For live provider validation, copy `.env.example` to `.env` and fill only the
-providers you want to test. Model-list checks are read-only. Text-generation
-checks are disabled by default because they can consume quota or incur charges;
-set `MEI_LIVE_CHAT=1` explicitly to enable them. Local providers are also
-opt-in so the suite does not fail merely because a local server is not running.
+For live provider checks, copy `.env.example` to `.env` and fill only the providers you want to
+test. By default the smoke lists each provider's models (read-only); `MEI_LIVE_CHAT=1` also sends
+one short message per provider, which can use quota. Local providers are skipped when they aren't
+running. Never commit `.env`; it is ignored by Git, and the smoke never prints key values.
 
-Never commit `.env`; it is ignored by Git. The live runner reports provider
-names and sanitized API errors but never prints credential values.
-
-To test the extension in an isolated development session (requires GNOME Shell development support):
-```sh
-dbus-run-session gnome-shell --devkit --wayland
-```
+To work on the runtime against your own session without installing a release, see
+[AGENTS.md](AGENTS.md).
 
 ## See also
 
