@@ -36,7 +36,7 @@ export default class MeiExtension extends Extension {
         this._runtime = runtime;
 
         this._indicator = new MeiIndicator();
-        const popup = new ChatPopup(this._indicator.actor, this._themeManager, runtime.settings);
+        const popup = new ChatPopup(this._indicator.actor, this._themeManager);
         this._popup = popup;
         runtime.bind(popup);
         runtime.onStateChanged = () => this._syncIndicatorState();

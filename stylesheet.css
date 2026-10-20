@@ -79,8 +79,7 @@
 }
 
 /* ── Scroll area ─────────────────────────────────── */
-.mei-scroll,
-.mei-settings-scroll {
+.mei-scroll {
     margin-bottom: 6px;
 }
 
@@ -91,13 +90,11 @@
 }
 
 .mei-scroll StScrollBar,
-.mei-settings-scroll StScrollBar,
 .mei-input-scroll StScrollBar {
     width: 6px;
 }
 
 .mei-scroll StScrollBar StBin#vhandle,
-.mei-settings-scroll StScrollBar StBin#vhandle,
 .mei-input-scroll StScrollBar StBin#vhandle {
     width: 4px;
     background-color: rgba(128, 128, 128, 0.5);
@@ -105,7 +102,6 @@
 }
 
 .mei-scroll StScrollBar StBin#trough,
-.mei-settings-scroll StScrollBar StBin#trough,
 .mei-input-scroll StScrollBar StBin#trough {
     background-color: transparent;
 }
@@ -335,8 +331,6 @@
     margin-bottom: 4px;
 }
 
-
-
 /* ── History Message Action Buttons ────────────── */
 .mei-action-bar {
     spacing: 8px;
@@ -503,133 +497,6 @@
     font-size: 13px;
     margin-top: 20px;
     opacity: 0.7;
-}
-
-/* ── Settings View ───────────────────────────────── */
-.mei-settings-list {
-    margin-left: 10px;
-    margin-right: 10px;
-    margin-bottom: 10px;
-    spacing: 8px;
-}
-
-.mei-settings-section-title {
-    font-size: 10px;
-    font-weight: bold;
-    margin-top: 6px;
-}
-
-.mei-settings-row {
-    spacing: 8px;
-}
-
-.mei-settings-label {
-    font-size: 12px;
-    font-weight: bold;
-    min-width: 76px;
-}
-
-.mei-settings-value-btn,
-.mei-settings-chip {
-    border: none;
-    border-radius: 8px;
-    padding: 5px 10px;
-    font-size: 11px;
-}
-
-.mei-settings-value-btn {
-    min-width: 112px;
-    text-align: center;
-}
-
-.mei-settings-segment-row {
-    spacing: 5px;
-}
-
-.mei-settings-chip.selected {
-    font-weight: bold;
-}
-
-.mei-settings-entry {
-    border: none;
-    border-radius: 8px;
-    padding: 5px 8px;
-    font-size: 12px;
-    min-width: 190px;
-}
-
-.mei-settings-save-field-btn {
-    border: none;
-    border-radius: 8px;
-    padding: 4px;
-    width: 26px;
-    height: 26px;
-}
-
-.mei-settings-nav-row {
-    border: none;
-    border-radius: 8px;
-    padding: 10px;
-}
-
-.mei-settings-nav-content {
-    spacing: 10px;
-}
-
-.mei-settings-nav-label {
-    font-size: 13px;
-    font-weight: bold;
-}
-
-.mei-settings-status {
-    font-size: 11px;
-    opacity: 170;
-}
-
-.mei-settings-actions-row {
-    spacing: 8px;
-}
-
-.mei-settings-fetch-row {
-    spacing: 8px;
-}
-
-.mei-log-page-label {
-    font-size: 11px;
-    opacity: 170;
-}
-
-.mei-model-dropdown {
-    border-radius: 8px;
-    padding: 4px;
-    spacing: 3px;
-}
-
-.mei-model-option {
-    border: none;
-    border-radius: 6px;
-    padding: 5px 8px;
-    font-size: 11px;
-    text-align: left;
-}
-
-.mei-model-option.selected {
-    font-weight: bold;
-}
-
-.mei-log-scroll {
-    border-radius: 8px;
-}
-
-.mei-log-box {
-    spacing: 0;
-}
-
-.mei-log-text {
-    border-radius: 8px;
-    padding: 8px;
-    font-family: monospace;
-    font-size: 10px;
 }
 
 /* ── Streaming / Thinking ─────────────────────────── */

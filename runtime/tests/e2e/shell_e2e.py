@@ -185,6 +185,8 @@ async def main() -> int:
                 f"{shown} chars shown immediately")
         st = await h.until(lambda s: not s["controller"]["streaming"], 30, "the first reply to finish")
         h.check("completed_reply_shown", any(t.strip() == REPLY for t in st["shown"]))
+        await asyncio.sleep(0.5)
+        await h.hook("Screenshot", os.path.join(OUT, "popup-expanded.png"))
 
         # 3. Disable and re-enable the extension mid-stream: the reattached view ends with the whole reply.
         await h.hook("Send", "second question")
@@ -225,6 +227,11 @@ async def main() -> int:
         h.check("resume_completes", st["controller"]["messages"][-1]["content"] == REPLY
                 and len(requests()) == before + 1)
         h.check("history_sent_to_provider", requests()[-1]["messages"] == 5)  # 3 user + 2 assistant
+        await h.hook("Popup", "collapse")
+        await asyncio.sleep(1.0)
+        st = await h.state()
+        h.check("compact_shows_the_last_reply", not st["popup"]["expanded"] and any(t.strip() == REPLY for t in st["shown"]))
+        await h.hook("Screenshot", os.path.join(OUT, "popup-compact.png"))
     except AssertionError as e:
         h.results["error"] = str(e)
     finally:
