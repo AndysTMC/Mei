@@ -1,0 +1,255 @@
+{
+ "description": "A new conversation, one streamed reply with thinking, completed.",
+ "attach": {
+  "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+  "seq": 1,
+  "mode": "snapshot",
+  "snapshot": {
+   "conversations": []
+  },
+  "streams": []
+ },
+ "events": [
+  {
+   "v": 1,
+   "type": "conversation.created",
+   "event_id": "98df835f-1b49-4920-ae4f-5711afedd860",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.049Z",
+   "required": true,
+   "seq": 2,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": null,
+   "payload": {
+    "conversation": {
+     "id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+     "title": "Remember this?",
+     "created_at": 1792494734049,
+     "updated_at": 1792494734049
+    }
+   }
+  },
+  {
+   "v": 1,
+   "type": "message.completed",
+   "event_id": "708512dc-bb6d-4cea-93e0-39f3a47d5be4",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.049Z",
+   "required": true,
+   "seq": 3,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": null,
+   "payload": {
+    "message": {
+     "id": "1afda9e0-1f92-4ebc-a18e-78c2490b67d4",
+     "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+     "task_id": null,
+     "role": "user",
+     "content": "Remember this?",
+     "thinking": null,
+     "metadata": {},
+     "created_at": 1792494734049
+    }
+   }
+  },
+  {
+   "v": 1,
+   "type": "task.accepted",
+   "event_id": "e66b80fa-cd1a-4aa3-ac04-add1036f3697",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.049Z",
+   "required": true,
+   "seq": 4,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+   "payload": {
+    "task": {
+     "id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+     "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+     "state": "ACCEPTED",
+     "input_message_id": "1afda9e0-1f92-4ebc-a18e-78c2490b67d4",
+     "error": null,
+     "created_at": 1792494734049,
+     "updated_at": 1792494734049
+    }
+   }
+  },
+  {
+   "v": 1,
+   "type": "task.state_changed",
+   "event_id": "17ca88cb-d62b-453b-af67-94eb0c00efa8",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.049Z",
+   "required": true,
+   "seq": 5,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+   "payload": {
+    "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+    "from": "ACCEPTED",
+    "to": "RUNNING",
+    "error": null
+   }
+  },
+  {
+   "v": 1,
+   "type": "model.started",
+   "event_id": "dfe4bab3-3e4d-4a56-b53c-1701dbf46ea6",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.049Z",
+   "required": true,
+   "seq": 6,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+   "payload": {
+    "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+    "turn_id": "e8386f84-6e22-4cd7-81d5-6ed6f37cdad7",
+    "attempt": 1,
+    "message_id": "593ed7ed-6ca2-4d04-aeae-b1f5364c3e9e",
+    "provider": {
+     "id": "",
+     "label": "Fake",
+     "model": "fake-1"
+    }
+   }
+  },
+  {
+   "v": 1,
+   "type": "message.delta",
+   "event_id": "a07783dd-5612-47f3-b208-61a8fa518582",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.096Z",
+   "required": false,
+   "seq": null,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+   "payload": {
+    "message_id": "593ed7ed-6ca2-4d04-aeae-b1f5364c3e9e",
+    "chunk": 1,
+    "text": "",
+    "thinking": "Let me think."
+   }
+  },
+  {
+   "v": 1,
+   "type": "message.delta",
+   "event_id": "0390163b-709f-4fc8-ab15-f77433dace52",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.134Z",
+   "required": false,
+   "seq": null,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+   "payload": {
+    "message_id": "593ed7ed-6ca2-4d04-aeae-b1f5364c3e9e",
+    "chunk": 2,
+    "text": "Mei keeps every",
+    "thinking": ""
+   }
+  },
+  {
+   "v": 1,
+   "type": "message.delta",
+   "event_id": "cc1b0bce-9af8-4df3-b029-a93a3e1bcb31",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.171Z",
+   "required": false,
+   "seq": null,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+   "payload": {
+    "message_id": "593ed7ed-6ca2-4d04-aeae-b1f5364c3e9e",
+    "chunk": 3,
+    "text": " word, even acr",
+    "thinking": ""
+   }
+  },
+  {
+   "v": 1,
+   "type": "message.delta",
+   "event_id": "351664c8-943a-442d-abba-77477855e8a6",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.200Z",
+   "required": false,
+   "seq": null,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+   "payload": {
+    "message_id": "593ed7ed-6ca2-4d04-aeae-b1f5364c3e9e",
+    "chunk": 4,
+    "text": "oss restarts.",
+    "thinking": ""
+   }
+  },
+  {
+   "v": 1,
+   "type": "message.completed",
+   "event_id": "055cfa85-73ec-4037-ac99-79113f5740b5",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.200Z",
+   "required": true,
+   "seq": 7,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+   "payload": {
+    "message": {
+     "id": "593ed7ed-6ca2-4d04-aeae-b1f5364c3e9e",
+     "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+     "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+     "role": "assistant",
+     "content": "Mei keeps every word, even across restarts.",
+     "thinking": "Let me think.",
+     "metadata": {
+      "id": "",
+      "label": "Fake",
+      "model": "fake-1",
+      "duration_ms": 150,
+      "tokens": {
+       "input": 14,
+       "output": 43
+      }
+     },
+     "created_at": 1792494734200
+    }
+   }
+  },
+  {
+   "v": 1,
+   "type": "task.state_changed",
+   "event_id": "a8f1c6a3-3624-40ba-8d3b-a94a28fd2723",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.201Z",
+   "required": true,
+   "seq": 8,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+   "payload": {
+    "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+    "from": "RUNNING",
+    "to": "COMPLETED",
+    "error": null
+   }
+  },
+  {
+   "v": 1,
+   "type": "task.finished",
+   "event_id": "ecf7167e-43f5-4aaf-bd1b-e34d64b16a55",
+   "epoch": "346d0c19-917e-41ff-97bc-e3bda49e9d46",
+   "at": "2026-10-20T11:12:14.201Z",
+   "required": true,
+   "seq": 9,
+   "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+   "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+   "payload": {
+    "task_id": "b85078e7-fc5d-4758-9d97-5bd7c580baba",
+    "state": "COMPLETED",
+    "error": null
+   }
+  }
+ ],
+ "expect": {
+  "conversation_id": "3eb9ca9e-538c-4d0f-b3d2-42fda08e1c9b",
+  "reply": "Mei keeps every word, even across restarts.",
+  "state": "COMPLETED"
+ }
+}

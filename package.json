@@ -14,6 +14,8 @@
     "lint": "npm run typecheck",
     "format:check": "node scripts/check-format.js",
     "smoke:providers": "node scripts/smoke-providers.js",
+    "test:runtime": "cd runtime && uv run pytest -q",
+    "test:e2e": "scripts/e2e-stage1.sh",
     "test:live": "node scripts/smoke-providers.js",
     "check": "npm test && npm run lint && npm run format:check && npm run build",
     "typecheck": "tsc --noEmit",

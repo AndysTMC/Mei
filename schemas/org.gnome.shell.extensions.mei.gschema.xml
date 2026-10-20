@@ -12,6 +12,11 @@
             <summary>AI Provider</summary>
             <description>The AI provider to use: ollama, llamacpp, lmstudio, openai, anthropic, gemini, groq, mistral, openrouter, deepseek, fireworks, nvidia, custom, opencode, githubcopilot</description>
         </key>
+        <key name="experimental-runtime" type="b">
+            <default>false</default>
+            <summary>Use the Mei runtime (experimental)</summary>
+            <description>Send chats through the separate Mei runtime service instead of calling providers from GNOME Shell. Takes effect when the extension is next enabled.</description>
+        </key>
         <key name="provider-configs" type="s">
             <default>'{}'</default>
             <summary>Provider Configurations</summary>

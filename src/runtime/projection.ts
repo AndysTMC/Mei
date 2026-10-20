@@ -1,0 +1,200 @@
+/**
+ * Pure reducer from runtime events to view state (architecture §18.1). The only place in the
+ * extension that interprets events; views read `Projection` and never the protocol directly.
+ *
+ * Durable events carry a global `seq`: anything at or below what we've applied is a duplicate,
+ * and a jump means we missed something, so the caller must re-attach. Deltas are ordered per
+ * message by `chunk`; a jump there marks the stream stale until its message completes.
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
+import {
+    TERMINAL_STATES,
+    type AttachReply,
+    type ConversationReply,
+    type ConversationSummary,
+    type Draft,
+    type Envelope,
+    type MessageView,
+    type StreamView,
+    type TaskState,
+    type TaskView,
+} from './protocol.js';
+
+export interface LoadedConversation {
+    summary: ConversationSummary;
+    messages: MessageView[];
+    tasks: Map<string, TaskView>;
+    /** Events for this conversation at or below this seq are already reflected. */
+    loadedSeq: number;
+}
+
+export interface LiveStream extends StreamView {
+    stale: boolean;
+}
+
+export type ApplyResult = 'applied' | 'duplicate' | 'gap' | 'ignored';
+
+export class Projection {
+    epoch: string | null = null;
+    seq = 0;
+    readonly conversations = new Map<string, ConversationSummary>();
+    readonly loaded = new Map<string, LoadedConversation>();
+    readonly streams = new Map<string, LiveStream>();
+
+    applyAttach(reply: AttachReply): ApplyResult[] {
+        this.epoch = reply.epoch;
+        const results: ApplyResult[] = [];
+        if (reply.mode === 'snapshot') {
+            this.conversations.clear();
+            this.loaded.clear();
+            for (const c of reply.snapshot?.conversations ?? []) this.conversations.set(c.id, c);
+            this.seq = reply.seq;
+        } else {
+            for (const event of reply.events ?? []) results.push(this.applyEvent(event));
+            this.seq = Math.max(this.seq, reply.seq);
+        }
+        this.streams.clear();
+        for (const s of reply.streams) this.streams.set(s.message_id, { ...s, stale: false });
+        return results;
+    }
+
+    applyConversation(reply: ConversationReply): void {
+        this.conversations.set(reply.conversation.id, reply.conversation);
+        this.loaded.set(reply.conversation.id, {
+            summary: reply.conversation,
+            messages: [...reply.messages],
+            tasks: new Map(reply.tasks.map(t => [t.id, { ...t }])),
+            loadedSeq: reply.seq,
+        });
+        for (const [id, s] of this.streams) {
+            if (s.conversation_id === reply.conversation.id) this.streams.delete(id);
+        }
+        for (const s of reply.streams) this.streams.set(s.message_id, { ...s, stale: false });
+    }
+
+    applyEvent(event: Envelope): ApplyResult {
+        if (event.seq === null) return this._applyEphemeral(event);
+        if (event.seq <= this.seq) return 'duplicate';
+        // A jump means events are missing. Don't apply or advance: the caller re-attaches from
+        // `seq`, and the replay brings back the missing events and this one in order.
+        if (this.seq > 0 && event.seq !== this.seq + 1) return 'gap';
+        this.seq = event.seq;
+        this._reduce(event);
+        return 'applied';
+    }
+
+    /** The task currently blocking input in a conversation, if any. */
+    activeTask(conversationId: string): TaskView | null {
+        const conv = this.loaded.get(conversationId);
+        if (!conv) return null;
+        let latest: TaskView | null = null;
+        for (const task of conv.tasks.values()) {
+            if (TERMINAL_STATES.has(task.state) || task.state === 'INTERRUPTED') continue;
+            if (!latest || task.created_at >= latest.created_at) latest = task;
+        }
+        return latest;
+    }
+
+    interruptedTask(conversationId: string): TaskView | null {
+        const conv = this.loaded.get(conversationId);
+        if (!conv) return null;
+        for (const task of conv.tasks.values()) if (task.state === 'INTERRUPTED') return task;
+        return null;
+    }
+
+    streamFor(conversationId: string): LiveStream | null {
+        for (const s of this.streams.values()) if (s.conversation_id === conversationId) return s;
+        return null;
+    }
+
+    summaries(): ConversationSummary[] {
+        return [...this.conversations.values()].sort((a, b) => b.updated_at - a.updated_at);
+    }
+
+    private _reduce(event: Envelope): void {
+        const p = event.payload;
+        const convId = event.conversation_id;
+        const conv = convId ? this.loaded.get(convId) : undefined;
+        const fresh = conv !== undefined && (event.seq ?? 0) > conv.loadedSeq;
+        switch (event.type) {
+        case 'conversation.created': {
+            const summary = p.conversation as ConversationSummary;
+            this.conversations.set(summary.id, summary);
+            // A conversation's first event: everything after it arrives as events, so track it now.
+            this.loaded.set(summary.id, { summary, messages: [], tasks: new Map(), loadedSeq: event.seq ?? 0 });
+            break;
+        }
+        case 'conversation.deleted': {
+            const id = p.conversation_id as string;
+            this.conversations.delete(id);
+            this.loaded.delete(id);
+            for (const [mid, s] of this.streams) if (s.conversation_id === id) this.streams.delete(mid);
+            break;
+        }
+        case 'message.completed': {
+            const message = p.message as MessageView;
+            const summary = this.conversations.get(message.conversation_id);
+            if (summary) summary.updated_at = Math.max(summary.updated_at, message.created_at);
+            this.streams.delete(message.id);
+            if (fresh && !conv.messages.some(m => m.id === message.id)) conv.messages.push(message);
+            break;
+        }
+        case 'task.accepted':
+            if (fresh) {
+                const task = p.task as TaskView;
+                conv.tasks.set(task.id, { ...task });
+            }
+            break;
+        case 'task.state_changed':
+            if (fresh) {
+                const task = conv.tasks.get(p.task_id as string);
+                if (task) {
+                    task.state = p.to as TaskState;
+                    task.error = (p.error as string | null) ?? null;
+                    if (task.state === 'RUNNING') delete task.draft;
+                }
+            }
+            break;
+        case 'model.started': {
+            const messageId = p.message_id as string;
+            if (convId && event.task_id) {
+                this.streams.set(messageId, {
+                    conversation_id: convId, task_id: event.task_id, message_id: messageId,
+                    text: '', thinking: '', chunk: 0, stale: false,
+                });
+            }
+            break;
+        }
+        case 'task.finished': {
+            for (const [mid, s] of this.streams) if (s.task_id === event.task_id) this.streams.delete(mid);
+            if (fresh) {
+                const task = conv.tasks.get(p.task_id as string);
+                if (task) {
+                    task.state = p.state as TaskState;
+                    task.error = (p.error as string | null) ?? null;
+                    if (p.draft) task.draft = p.draft as Draft;
+                }
+            }
+            break;
+        }
+        default:
+            break; // unknown durable events are skippable unless `required` (checked by the client)
+        }
+    }
+
+    private _applyEphemeral(event: Envelope): ApplyResult {
+        if (event.type !== 'message.delta') return 'ignored';
+        const p = event.payload;
+        const stream = this.streams.get(p.message_id as string);
+        if (!stream) return 'ignored';
+        const chunk = p.chunk as number;
+        if (chunk <= stream.chunk) return 'duplicate';
+        if (chunk !== stream.chunk + 1) stream.stale = true; // missed deltas; message.completed fixes it
+        stream.chunk = chunk;
+        stream.text += (p.text as string) ?? '';
+        stream.thinking += (p.thinking as string) ?? '';
+        return stream.stale ? 'gap' : 'applied';
+    }
+}

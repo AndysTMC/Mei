@@ -12,6 +12,10 @@
 - Build: `npm run build`
 - Check (test + typecheck + format + build): `npm run check`
 - Live provider smoke: `npm run smoke:providers` (needs a local `.env` from `.env.example`; never commit `.env`)
+- Runtime (Python, `runtime/`): `cd runtime && uv sync && uv run pytest` (process tests need `dbus-run-session`)
+- Protocol fixtures (after changing `runtime/src/mei/protocol.py` or event payloads): `cd runtime && uv run python tests/make_fixtures.py`
+- End-to-end in a nested Shell (dev build, private session, mock provider): `scripts/e2e-stage1.sh`
+- Try the runtime on your own session: `cd runtime && uv run mei-runtime install-dev`, then `/usr/bin/gsettings --schemadir dist/schemas set org.gnome.shell.extensions.mei experimental-runtime true` and re-enable the extension; undo with `uv run mei-runtime uninstall-dev`
 
 System deps for a real Shell install: GNOME Shell 50, `glib-compile-schemas`, optional mutter for nested sessions. Enable with `gnome-extensions enable mei@andystmc.com`.
 

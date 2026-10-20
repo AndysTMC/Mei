@@ -20,6 +20,7 @@ import Atk from 'gi://Atk';
 import Gio from 'gi://Gio';
 import Soup from 'gi://Soup?version=3.0';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
 
@@ -732,6 +733,11 @@ export class ChatPopup {
         return this._menu.isOpen;
     }
 
+    /** Root of the popup's content. Read by the dev-build test hooks only (src/runtime/devHooks.ts). */
+    get contentActor(): St.BoxLayout {
+        return this._container;
+    }
+
     open(): void {
         this._menu.open();
     }
@@ -1182,6 +1188,9 @@ export class ChatPopup {
         this._pendingStreamContent = '';
         this._pendingStreamThinking = '';
         this._returnSpinnerToContentBox();
+        // Release the streaming actors first: they live inside the bubble, and destroying the
+        // bubble first left them disposed, so the reset touched dead objects (Gjs-CRITICAL).
+        this._resetStreamingBubbleActors();
         if (this._loadingBubble) {
             const bubbleParent = this._loadingBubble.get_parent();
             if (bubbleParent) {
@@ -1190,7 +1199,6 @@ export class ChatPopup {
             this._loadingBubble.destroy();
             this._loadingBubble = undefined;
         }
-        this._resetStreamingBubbleActors();
     }
 
     private _attachLoadingBubbleForCurrentMode(): void {
@@ -2723,6 +2731,9 @@ export class ChatPopup {
         this._stopCursorBlink();
         this._resetCopyState();
         if (this._menu) {
+            // Close first: removing a menu that is still open leaves the panel's menu manager
+            // holding it, and the next popup to open touches the destroyed BoxPointer.
+            if (this._menu.isOpen) this._menu.close(BoxPointer.PopupAnimation.NONE);
             Main.panel.menuManager.removeMenu(this._menu);
             Main.uiGroup.remove_child(this._menu.actor);
             this._menu.destroy();

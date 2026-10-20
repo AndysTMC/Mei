@@ -24,6 +24,7 @@ import { migratePlaintextApiKeys, resolveStoredProviderConfig } from './provider
 import { createEmptyProviderConfig, mergeMigratedApiKeyConfigs, parseProviderConfigs, type StoredProviderConfig } from './providers/configStore.js';
 import { createRuntimeProvider, resolveProviderRuntime } from './providers/runtime.js';
 import { resolveProviderId } from './providers/profiles.js';
+import { RuntimeChatController } from './runtime/controller.js';
 
 interface ProviderBuildResult {
     provider: Provider;
@@ -48,6 +49,8 @@ export default class MeiExtension extends Extension {
     private _chatStore: ChatStore | null = null;
     private _chatSessionId: string | null = null;
     private _isStreamingResponse = false;
+    private _runtime: RuntimeChatController | null = null;
+    private _devHooks: { destroy(): void } | null = null;
 
     override enable(): void {
         Logger.info(Tag.Extension, 'Enabling Mei extension');
@@ -92,6 +95,7 @@ export default class MeiExtension extends Extension {
             this._syncIndicatorState();
         };
         this._popup.onOpenStateChanged = () => this._syncIndicatorState();
+        if (this._settings.get_boolean('experimental-runtime')) this._enableRuntime(this._popup, this._settings);
         this._syncIndicatorState();
 
         /* ── Re-create provider when settings change ──── */
@@ -106,6 +110,10 @@ export default class MeiExtension extends Extension {
     override disable(): void {
         Logger.info(Tag.Extension, 'Disabling Mei extension');
         const chatStore = this._chatStore;
+        this._devHooks?.destroy();
+        this._devHooks = null;
+        this._runtime?.destroy();
+        this._runtime = null;
 
         if (this._cancellable) {
             this._cancellable.cancel();
@@ -147,6 +155,37 @@ export default class MeiExtension extends Extension {
             Logger.error(Tag.Extension, 'Failed to flush chat history on disable', e);
         });
         Logger.info(Tag.Extension, 'Mei extension disabled');
+    }
+
+    /** Stage 1: route the popup through the Mei runtime instead of the in-Shell provider path. */
+    private _enableRuntime(popup: ChatPopup, settings: Gio.Settings): void {
+        Logger.info(Tag.Extension, 'Using the Mei runtime (experimental-runtime)');
+        const runtime = new RuntimeChatController(popup, settings);
+        runtime.onStateChanged = () => this._syncIndicatorState();
+        popup.onSend = text => runtime.send(text);
+        popup.onCancel = () => runtime.cancel();
+        popup.onReload = index => runtime.reload(index);
+        popup.onNewChat = () => runtime.newChat();
+        popup.onHistoryRequested = () => runtime.showHistoryList();
+        popup.onLoadChat = id => runtime.loadChat(id);
+        popup.onDeleteChat = id => runtime.deleteChat(id);
+        popup.onToggleExpand = isExpanded => {
+            runtime.toggleExpand(isExpanded);
+            this._syncIndicatorState();
+        };
+        if (this._indicator) {
+            this._indicator.onStopRequested = () => {
+                runtime.cancel();
+                popup.open();
+            };
+        }
+        this._runtime = runtime;
+        runtime.start();
+        if (__DEV__ && GLib.getenv('MEI_DEV_HOOKS') === '1') {
+            void import('./runtime/devHooks.js').then(({ DevHooks }) => {
+                if (this._runtime === runtime) this._devHooks = new DevHooks(popup, runtime);
+            });
+        }
     }
 
     /* ── Provider factory ─────────────────────────────── */
@@ -524,7 +563,7 @@ export default class MeiExtension extends Extension {
     private _syncIndicatorState(): void {
         if (!this._indicator) return;
 
-        const isStreaming = this._isStreamingResponse;
+        const isStreaming = this._runtime ? this._runtime.isStreaming : this._isStreamingResponse;
         const popupOpen = Boolean(this._popup?.isOpen);
         const popupExpanded = Boolean(this._popup?.isExpanded);
 
