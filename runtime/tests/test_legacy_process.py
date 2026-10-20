@@ -55,3 +55,4 @@ def test_import_and_key_migration_end_to_end(tmp_path):
     assert not r["plaintext_left_in_dconf"] and not r["legacy_api_key_left"] and r["non_secret_fields_kept"]
     assert r["imported_messages"] == ["hello", "hi"]
     assert r["second_run_revision_same"] and r["conversation_count_after_restart"] == 1
+    assert r["purge"] == {"deleted": 3, "left": 0, "keys_after": []}

@@ -24,6 +24,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mei"]
+# The built Shell extension, copied in by scripts/build-release.sh (gitignored, so listed here).
+artifacts = ["src/mei/extension/**"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

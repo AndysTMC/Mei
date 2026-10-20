@@ -16,6 +16,8 @@
     "smoke:providers": "cd runtime && uv run python tests/live_smoke.py",
     "test:runtime": "cd runtime && uv run pytest -q",
     "test:e2e": "scripts/e2e-stage1.sh",
+    "test:install": "scripts/install-test.sh",
+    "release": "scripts/build-release.sh",
     "test:live": "npm run smoke:providers",
     "check": "npm test && npm run lint && npm run format:check && npm run build && node scripts/check-bundle.js",
     "typecheck": "tsc --noEmit",

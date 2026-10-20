@@ -1,5 +1,7 @@
 node_modules/
 dist/
+release/
+runtime/src/mei/extension/
 *.compiled
 .env
 .env.*

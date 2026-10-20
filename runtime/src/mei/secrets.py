@@ -69,3 +69,18 @@ async def store_provider_key(bus: MessageBus, provider_id: str, value: str) -> N
             raise KeyringLocked("the keyring is locked")
     finally:
         await _call(bus, session, "org.freedesktop.Secret.Session", "Close")
+
+
+async def delete_provider_keys(bus: MessageBus) -> tuple[int, int]:
+    """Delete every Mei key (uninstall --purge). Returns (deleted, left); locked items are left."""
+    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_ID}
+    unlocked, locked = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "SearchItems", "a{ss}", [attrs])
+    deleted, left = 0, len(locked)
+    for item in unlocked:
+        (prompt,) = await _call(bus, item, "org.freedesktop.Secret.Item", "Delete")
+        if prompt == "/":
+            deleted += 1
+        else:
+            await _call(bus, prompt, "org.freedesktop.Secret.Prompt", "Dismiss")
+            left += 1
+    return deleted, left

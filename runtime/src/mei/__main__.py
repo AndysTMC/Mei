@@ -5,68 +5,60 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 from mei.obs import setup_logging
 
-UNIT_NAME = "mei-runtime.service"
 
-
-def _systemd_unit() -> str:
-    return f"""[Unit]
-Description=Mei agent runtime
-Documentation=https://github.com/AndysTMC/Mei
-
-[Service]
-Type=dbus
-BusName=com.andystmc.Mei1
-ExecStart={sys.executable} -m mei serve
-Restart=on-failure
-RestartSec=1s
-"""
-
-
-def _dbus_service() -> str:
-    return f"""[D-BUS Service]
-Name=com.andystmc.Mei1
-Exec={sys.executable} -m mei serve
-SystemdService={UNIT_NAME}
-"""
-
-
-def _paths() -> tuple[Path, Path]:
-    config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
-    return config / "systemd/user" / UNIT_NAME, data / "dbus-1/services/com.andystmc.Mei1.service"
-
-
-def _reload() -> None:
-    subprocess.run(["/usr/bin/systemctl", "--user", "daemon-reload"], check=False)
-    subprocess.run(["/usr/bin/gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
-                    "--object-path", "/org/freedesktop/DBus", "--method", "org.freedesktop.DBus.ReloadConfig"],
-                   check=False, stdout=subprocess.DEVNULL)
+def _report(result) -> int:
+    for line in result.lines:
+        print(line)
+    for problem in result.problems:
+        print(f"note: {problem}", file=sys.stderr)
+    return 0
 
 
 def install_dev() -> int:
     """Register this interpreter's runtime as the session service (development installs)."""
-    unit, service = _paths()
-    for path, text in ((unit, _systemd_unit()), (service, _dbus_service())):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
-        print(f"wrote {path}")
-    _reload()
-    return 0
+    from mei import install
+    result = install.Result()
+    install._write_service_files(install.paths(), sys.executable, result)
+    install.Host().reload_buses()
+    return _report(result)
 
 
 def uninstall_dev() -> int:
-    subprocess.run(["/usr/bin/systemctl", "--user", "stop", UNIT_NAME], check=False)
-    for path in _paths():
+    from mei import install
+    host, p = install.Host(), install.paths()
+    host.systemctl("stop", install.UNIT_NAME)
+    for path in (p.unit, p.dbus_service):
         if path.exists():
             path.unlink()
             print(f"removed {path}")
-    _reload()
+    host.reload_buses()
+    return 0
+
+
+def run_install(args) -> int:
+    from mei import install
+    result = install.install(extension=Path(args.extension).resolve() if args.extension else None,
+                             force=args.force)
+    _report(result)
+    if result.problems and not result.lines:
+        return 1
+    if result.log_out:
+        print("\nLog out and back in (or restart) to finish. Mei's setup opens on your next login.")
+    else:
+        print("\nMei is up to date and running; no log-out needed.")
+    return 0
+
+
+def run_uninstall(args) -> int:
+    from mei import install
+    result = install.uninstall(purge=args.purge)
+    _report(result)
+    print("\nMei is uninstalled." + ("" if args.purge else " Your data is still there."))
     return 0
 
 
@@ -76,6 +68,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("serve", help="run the runtime on the session bus (default)")
     sub.add_parser("schema", help="print the IPC protocol's JSON Schema")
+    inst = sub.add_parser("install", help="install the service and the bundled extension for this user")
+    inst.add_argument("--extension", metavar="DIR", help="install this built extension instead of the bundled one")
+    inst.add_argument("--force", action="store_true", help="replace a symlinked (development) extension")
+    uninst = sub.add_parser("uninstall", help="remove the service and the extension")
+    uninst.add_argument("--purge", action="store_true", help="also delete conversations, settings, and API keys")
     sub.add_parser("install-dev", help="register this checkout as the session's Mei runtime")
     sub.add_parser("uninstall-dev", help="remove the development registration")
     args = parser.parse_args(argv)
@@ -85,6 +82,10 @@ def main(argv: list[str] | None = None) -> int:
         from mei.protocol import json_schema
         print(json.dumps(json_schema(), indent=2))
         return 0
+    if args.command == "install":
+        return run_install(args)
+    if args.command == "uninstall":
+        return run_uninstall(args)
     if args.command == "install-dev":
         return install_dev()
     if args.command == "uninstall-dev":

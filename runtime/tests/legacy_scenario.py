@@ -11,7 +11,7 @@ from dbus_fast import BusType, Message, MessageType
 from dbus_fast.aio import MessageBus
 
 from mei.legacy import gvariant_string
-from mei.secrets import lookup_provider_key
+from mei.secrets import delete_provider_keys, lookup_provider_key
 
 NAME, PATH, IFACE = "com.andystmc.Mei1", "/com/andystmc/Mei1", "com.andystmc.Mei1.Runtime"
 DIR = "/org/gnome/shell/extensions/mei/"
@@ -54,7 +54,10 @@ async def main() -> None:
     await call(bus, "Hello", {"client": {"kind": "test"}, "protocol": [2, 0]})
     cfg2 = await call(bus, "GetConfig")
     conversations = await call(bus, "Attach", {"scope": "all", "after_seq": 0})
+    purged = await delete_provider_keys(bus)  # what `mei-runtime uninstall --purge` does
+    keys_after_purge = [pid for pid in ("gemini", "openrouter", "legacy") if await lookup_provider_key(bus, pid)]
     print(json.dumps({
+        "purge": {"deleted": purged[0], "left": purged[1], "keys_after": keys_after_purge},
         "active": cfg["active"], "providers": sorted(cfg["providers"]), "model": cfg["providers"]["gemini"]["model"],
         "keys_in_keyring": {k: v for k, v in keys.items()},
         "plaintext_left_in_dconf": any(s in after for s in ("AIza-test-secret", "sk-or-test-secret")),
