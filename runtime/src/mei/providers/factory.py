@@ -1,19 +1,21 @@
 """Build the right adapter for a user's provider settings (port of src/providers/runtime.ts)."""
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import aclosing
 
 import httpx
 
+from mei.obs import scrub
 from mei.protocol import ProviderConfig
 
 from .anthropic import AnthropicProvider
-from .base import Provider, ProviderError
+from .base import ModelEvent, ModelRequest, Provider, ProviderError
 from .fake import FakeProvider
 from .gemini import GeminiProvider
 from .ollama import OllamaProvider
 from .openai_chat import OpenAIChatProvider
-from .profiles import PROFILES, resolve
+from .profiles import PROFILES, credential_headers, resolve
 from .responses import ResponsesProvider
 
 log = logging.getLogger("mei.providers")
@@ -54,18 +56,42 @@ async def build(cfg: ProviderConfig, client: httpx.AsyncClient, key_for: KeyLook
     if profile.auth != "none" and not key:
         log.warning("no API key in the keyring for %s", cfg.id)
     label = profile.label
+    headers = {**profile.headers, **credential_headers(profile, key)}
     if r.api_mode == "responses":
-        return ResponsesProvider(client, label=label, url=r.url, model=r.model, api_key=key, headers=profile.headers)
-    if r.api_mode == "anthropic_messages":
-        return AnthropicProvider(client, label=label, url=r.url, model=r.model, api_key=key,
-                                 bearer_auth=cfg.id != "anthropic", headers=_without_version(profile.headers))
-    if profile.transport == "gemini":
-        return GeminiProvider(client, label=label, base_url=r.url, model=r.model, api_key=key)
-    if profile.transport == "ollama":
-        return OllamaProvider(client, label=label, url=r.url, model=r.model, api_key=key)
-    extra = deepseek_body(r.model, cfg.thinking, cfg.reasoning_effort) if cfg.id == "deepseek" else {}
-    return OpenAIChatProvider(client, label=label, url=r.url, model=r.model, api_key=key,
-                              headers=profile.headers, extra_body=extra)
+        adapter: Provider = ResponsesProvider(client, label=label, url=r.url, model=r.model, headers=headers)
+    elif r.api_mode == "anthropic_messages":
+        adapter = AnthropicProvider(client, label=label, url=r.url, model=r.model, headers=_without_version(headers))
+    elif profile.transport == "gemini":
+        adapter = GeminiProvider(client, label=label, base_url=r.url, model=r.model, headers=headers)
+    elif profile.transport == "ollama":
+        adapter = OllamaProvider(client, label=label, url=r.url, model=r.model, headers=headers)
+    else:
+        extra = deepseek_body(r.model, cfg.thinking, cfg.reasoning_effort) if cfg.id == "deepseek" else {}
+        adapter = OpenAIChatProvider(client, label=label, url=r.url, model=r.model, headers=headers, extra_body=extra)
+    return KeyScrubbing(adapter, key) if key else adapter
+
+
+class KeyScrubbing:
+    """Wraps an adapter so no error it raises can carry the key it was given.
+
+    Some upstreams repeat the key back, in an HTTP error body or in an error frame inside a
+    successful stream; either would otherwise become the task's error, stored and shown in the UI.
+    """
+
+    def __init__(self, inner: Provider, key: str) -> None:
+        self.inner = inner
+        self._key = key
+        self.label = inner.label
+        self.model = inner.model
+
+    async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
+        try:
+            async with aclosing(self.inner.stream(request)) as events:
+                async for event in events:
+                    yield event
+        except ProviderError as e:
+            e.message = scrub(e.message, [self._key])  # in place: keeps the error's type and retry flags
+            raise
 
 
 def _without_version(headers: dict[str, str]) -> dict[str, str]:

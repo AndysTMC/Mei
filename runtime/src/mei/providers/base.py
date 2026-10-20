@@ -51,6 +51,14 @@ class ProviderError(Exception):
         return self.message
 
 
+class IncompleteResponse(ProviderError):
+    """The stream ended without the provider's end-of-reply marker: the answer may be cut off."""
+
+    @classmethod
+    def of(cls, label: str) -> "IncompleteResponse":
+        return cls(f"{label}: the reply was cut off before it finished", retryable=True)
+
+
 class Provider(Protocol):
     label: str
     model: str

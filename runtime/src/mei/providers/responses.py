@@ -8,12 +8,12 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-from .base import Done, ModelEvent, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
+from .base import Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
 from .http_stream import error_message, first_int, loads, stream_post
 
 
 class ResponsesProvider:
-    def __init__(self, client: httpx.AsyncClient, *, label: str, url: str, model: str, api_key: str = "",
+    def __init__(self, client: httpx.AsyncClient, *, label: str, url: str, model: str,
                  headers: dict[str, str] | None = None) -> None:
         if not model:
             raise ProviderError(f"{label}: no model selected")
@@ -21,7 +21,7 @@ class ResponsesProvider:
         self.model = model
         self._client = client
         self._url = url
-        self._headers = {**(headers or {}), **({"Authorization": f"Bearer {api_key}"} if api_key else {})}
+        self._headers = dict(headers or {})
 
     def body(self, request: ModelRequest) -> dict:
         return {"model": self.model, "store": False, "stream": True,
@@ -29,7 +29,7 @@ class ResponsesProvider:
                           for t in request.messages]}
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
-        wrote_text = False
+        wrote_text = finished = False
         async for data in stream_post(self._client, self._url, self.body(request), self._headers, label=self.label):
             event = loads(data)
             if event is None:
@@ -50,7 +50,10 @@ class ResponsesProvider:
                     if not wrote_text:
                         raise ProviderError(f"{self.label}: {reason}")
                     yield TextDelta(f"\n\n[{reason}]")
+                finished = True
                 break
+        if not finished:
+            raise IncompleteResponse.of(self.label)
         yield Done("stop")
 
 

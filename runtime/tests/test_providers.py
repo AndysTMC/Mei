@@ -8,12 +8,13 @@ import pytest
 from mei.protocol import ProviderConfig
 from mei.providers import factory
 from mei.providers.anthropic import AnthropicProvider
-from mei.providers.base import ChatTurn, Done, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
+from mei.providers.base import (ChatTurn, Done, IncompleteResponse, ModelRequest, ProviderError, TextDelta,
+                                ThinkingDelta, Usage)
 from mei.providers.gemini import GeminiProvider
 from mei.providers.ollama import OllamaProvider
 from mei.providers.openai_chat import OpenAIChatProvider
 from mei.providers.openai_normalize import StreamNormalizer, separate_glued_reasoning_blocks
-from mei.providers.profiles import PROFILES, opencode_api_mode, resolve, resolve_id
+from mei.providers.profiles import PROFILES, credential_headers, opencode_api_mode, resolve, resolve_id
 from mei.providers.responses import ResponsesProvider
 
 REQ = ModelRequest([ChatTurn("system", "be brief"), ChatTurn("user", "hi"), ChatTurn("assistant", "hello"),
@@ -119,7 +120,8 @@ async def test_openai_chat_think_tags_split_across_network_chunks():
                {"choices": [], "usage": {"prompt_tokens": 0, "completion_tokens": 4}}, b"[DONE]")
     seen: list = []
     p = OpenAIChatProvider(mock(body, seen=seen), label="T", url="https://x.test/v1/chat/completions", model="m",
-                           api_key="k123", headers={"X-Title": "Mei"}, extra_body={"reasoning_effort": "high"})
+                           headers={"X-Title": "Mei", "Authorization": "Bearer k123"},
+                           extra_body={"reasoning_effort": "high"})
     events = await collect(p)
     assert (text(events), thinking(events)) == ("Answer", "plan more")
     assert Usage(0, 4) in events and events[-1] == Done("stop")
@@ -151,7 +153,7 @@ ANTHROPIC_STREAM = sse(
 async def test_anthropic_stream_auth_and_body():
     seen: list = []
     p = AnthropicProvider(mock(ANTHROPIC_STREAM, seen=seen), label="Anthropic", url="https://api.anthropic.test/v1/messages",
-                          model="claude-sonnet-4-6", api_key="sk-ant")
+                          model="claude-sonnet-4-6", headers=credential_headers(PROFILES["anthropic"], "sk-ant"))
     events = await collect(p)
     assert (text(events), thinking(events)) == ("Hi there", "Let me see.")
     assert Usage(12, 5) in events
@@ -163,12 +165,11 @@ async def test_anthropic_stream_auth_and_body():
     assert body["thinking"] == {"type": "adaptive", "display": "summarized"} and body["max_tokens"] == 4096
 
 
-async def test_anthropic_bearer_auth_for_opencode_and_no_thinking_on_older_models():
+async def test_anthropic_no_thinking_on_older_models():
     seen: list = []
     p = AnthropicProvider(mock(ANTHROPIC_STREAM, seen=seen), label="OpenCode", url="https://opencode.test/messages",
-                          model="qwen3-coder", api_key="k", bearer_auth=True)
+                          model="qwen3-coder")
     await collect(p)
-    assert seen[0].headers["authorization"] == "Bearer k" and "x-api-key" not in seen[0].headers
     assert "thinking" not in json.loads(seen[0].content)
 
 
@@ -186,11 +187,11 @@ async def test_anthropic_error_event():
 async def test_gemini_stream_thoughts_usage_and_key_in_header():
     body = sse({"candidates": [{"content": {"parts": [{"text": "pondering", "thought": True}]}}]},
                {"candidates": [{"content": {"parts": [{"text": "Hello "}]}}]},
-               {"candidates": [{"content": {"parts": [{"text": "world"}]}}],
+               {"candidates": [{"content": {"parts": [{"text": "world"}]}, "finishReason": "STOP"}],
                 "usageMetadata": {"promptTokenCount": 9, "candidatesTokenCount": 2}})
     seen: list = []
     p = GeminiProvider(mock(body, seen=seen), label="Gemini", base_url="https://g.test/v1beta/",
-                       model="gemini-2.5-flash", api_key="AIzaSecret")
+                       model="gemini-2.5-flash", headers=credential_headers(PROFILES["gemini"], "AIzaSecret"))
     events = await collect(p)
     assert (text(events), thinking(events)) == ("Hello world", "pondering")
     assert Usage(9, 2) in events
@@ -205,8 +206,8 @@ async def test_gemini_stream_thoughts_usage_and_key_in_header():
 
 async def test_gemini_model_ids_cannot_change_the_url_path():
     seen: list = []
-    p = GeminiProvider(mock(sse({}), seen=seen), label="Gemini", base_url="https://g.test/v1beta",
-                       model="../evil?x=1#y")
+    p = GeminiProvider(mock(sse({"candidates": [{"finishReason": "STOP"}]}), seen=seen), label="Gemini",
+                       base_url="https://g.test/v1beta", model="../evil?x=1#y")
     await collect(p)
     url = seen[0].url
     assert url.raw_path == b"/v1beta/models/..%2Fevil%3Fx%3D1%23y:streamGenerateContent?alt=sse"
@@ -253,7 +254,7 @@ async def test_responses_stream_store_false_and_developer_role():
                {"type": "response.output_text.delta", "delta": "Answer"},
                {"type": "response.completed", "response": {"usage": {"input_tokens": 3, "output_tokens": 1}}})
     seen: list = []
-    p = ResponsesProvider(mock(body, seen=seen), label="OpenCode", url="https://o.test/responses", model="gpt-5", api_key="k")
+    p = ResponsesProvider(mock(body, seen=seen), label="OpenCode", url="https://o.test/responses", model="gpt-5")
     events = await collect(p)
     assert (text(events), thinking(events)) == ("Answer", "thinking…") and Usage(3, 1) in events
     sent = json.loads(seen[0].content)
@@ -316,7 +317,7 @@ async def test_factory_picks_the_adapter(provider_id, model, cls):
         return "k"
 
     p = await factory.build(ProviderConfig(id=provider_id, model=model, mode="go"), httpx.AsyncClient(), key_for)
-    assert isinstance(p, cls) and asked == [provider_id]
+    assert isinstance(p, factory.KeyScrubbing) and isinstance(p.inner, cls) and asked == [provider_id]
 
 
 async def test_factory_refuses_retired_and_unknown_providers():
@@ -346,3 +347,52 @@ def test_upstream_errors_never_repeat_the_request_credentials():
     assert "abcd1234efgh5678" not in scrub(text, {"x-api-key": "abcd1234efgh5678"})
     assert scrub("short", {"Authorization": "Bearer short"}) == "short"  # too short to be a key: left alone
     assert "abcd1234efgh5678" in scrub(text, {"Content-Type": "abcd1234efgh5678"})
+
+
+def test_each_provider_takes_its_key_in_its_own_header():
+    assert credential_headers(PROFILES["anthropic"], "k1234567") == {"x-api-key": "k1234567"}
+    assert credential_headers(PROFILES["gemini"], "k1234567") == {"x-goog-api-key": "k1234567"}
+    assert credential_headers(PROFILES["openai"], "k1234567") == {"Authorization": "Bearer k1234567"}
+    assert credential_headers(PROFILES["opencode"], "k1234567") == {"Authorization": "Bearer k1234567"}
+    assert credential_headers(PROFILES["ollama"], "k1234567") == {"Authorization": "Bearer k1234567"}  # optional key
+    assert credential_headers(PROFILES["custom"], "") == {}
+
+
+@pytest.mark.parametrize("make,body", [
+    (lambda c: OpenAIChatProvider(c, label="T", url="https://x.test/v1/chat/completions", model="m"),
+     sse(delta(content="Half an ans"))),
+    (lambda c: AnthropicProvider(c, label="T", url="https://a.test", model="m"),
+     sse({"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Half"}})),
+    (lambda c: GeminiProvider(c, label="T", base_url="https://g.test", model="m"),
+     sse({"candidates": [{"content": {"parts": [{"text": "Half"}]}}]})),
+    (lambda c: OllamaProvider(c, label="T", url="http://o.test/api/chat", model="m"),
+     b'{"message": {"content": "Half"}}\n'),
+    (lambda c: ResponsesProvider(c, label="T", url="https://r.test", model="m"),
+     sse({"type": "response.output_text.delta", "delta": "Half"})),
+])
+async def test_a_stream_without_its_end_marker_is_cut_off_not_complete(make, body):
+    events = []
+    with pytest.raises(IncompleteResponse, match="cut off") as err:
+        async for event in make(mock(body)).stream(REQ):
+            events.append(event)
+    assert text(events).startswith("Half") and err.value.retryable
+    assert not any(isinstance(e, Done) for e in events)
+
+
+async def test_openai_chat_finish_reason_counts_as_the_end_without_done():
+    body = sse({"choices": [{"delta": {"content": "Hi"}, "finish_reason": "stop"}]})
+    events = await collect(OpenAIChatProvider(mock(body), label="T", url="https://x.test/v1/chat/completions", model="m"))
+    assert text(events) == "Hi" and events[-1] == Done("stop")
+
+
+async def test_keys_echoed_inside_a_successful_stream_are_scrubbed():
+    key = "plain-key-7Q2x9Lp4Zr8Vn3Kd"  # no recognizable prefix: only the exact value can catch it
+
+    async def key_for(_pid):
+        return key
+
+    client = mock(sse({"error": {"message": f"Incorrect API key provided: {key}"}}))
+    provider = await factory.build(ProviderConfig(id="openai", model="m"), client, key_for)
+    with pytest.raises(ProviderError) as err:
+        await collect(provider)
+    assert key not in str(err.value) and "[redacted]" in str(err.value)

@@ -79,6 +79,16 @@ PROFILES: dict[str, Profile] = {p.id: p for p in [
 ]}
 
 
+def credential_headers(profile: Profile, key: str) -> dict[str, str]:
+    """The header that carries `key` for this provider. Providers without auth still get a Bearer
+    header if the user set a key (local servers and custom endpoints may want one)."""
+    if not key:
+        return {}
+    if profile.auth == "api_key":
+        return {"x-goog-api-key": key} if profile.transport == "gemini" else {"x-api-key": key}
+    return {"Authorization": f"Bearer {key}"}
+
+
 def resolve_id(value: str) -> str | None:
     v = value.strip().lower()
     for p in PROFILES.values():

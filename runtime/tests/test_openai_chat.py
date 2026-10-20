@@ -5,6 +5,7 @@ import pytest
 
 from mei.providers.base import ChatTurn, Done, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
 from mei.providers.openai_chat import MAX_RESPONSE_BYTES, OpenAIChatProvider
+from mei.providers.profiles import PROFILES, credential_headers
 
 URL = "https://api.example.test/v1/chat/completions"
 REQUEST = ModelRequest([ChatTurn("user", "hi")])
@@ -31,8 +32,8 @@ def provider(handler, key="sk-test-1234567890") -> tuple[OpenAIChatProvider, lis
         return handler(request)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(wrapped))
-    return OpenAIChatProvider(client, label="Test", url=URL, model="m1", api_key=key,
-                              headers={"X-Title": "Mei"}), seen
+    return OpenAIChatProvider(client, label="Test", url=URL, model="m1",
+                              headers={"X-Title": "Mei", **credential_headers(PROFILES["openai"], key)}), seen
 
 
 async def collect(p) -> list:

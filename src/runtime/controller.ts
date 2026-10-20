@@ -19,6 +19,8 @@ import { Projection } from './projection.js';
 import type { ConversationReply, Envelope, MessageView, SetupStatusReply, SubmitReply } from './protocol.js';
 import { RuntimeSettings } from './settings.js';
 
+const LOAD_ATTEMPTS = 3;
+
 interface PopupMessage {
     role: string;
     content: string;
@@ -260,9 +262,15 @@ export class RuntimeChatController {
 
     private async _loadConversation(id: string): Promise<void> {
         try {
-            const reply = await this._client.call<ConversationReply>('GetConversation', { conversation_id: id });
-            this._projection.applyConversation(reply);
-            if (this._current === id) this._render();
+            // A reply can be overtaken by events for the same conversation; then fetch again.
+            for (let attempt = 0; attempt < LOAD_ATTEMPTS; attempt++) {
+                const reply = await this._client.call<ConversationReply>('GetConversation', { conversation_id: id });
+                if (this._projection.applyConversation(reply)) {
+                    if (this._current === id) this._render();
+                    return;
+                }
+            }
+            Logger.warn(Tag.Extension, `Gave up loading conversation ${id}: it changed during each of ${LOAD_ATTEMPTS} attempts`);
         } catch (e) {
             this._showFailure(e as RuntimeError);
         }

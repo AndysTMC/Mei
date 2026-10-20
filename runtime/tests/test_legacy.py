@@ -118,6 +118,16 @@ async def test_keys_move_to_the_keyring_and_plaintext_is_scrubbed():
     assert sorted(report.keys_moved) == ["api-key", "gemini", "openrouter"]
 
 
+async def test_a_key_saved_under_an_old_alias_moves_to_the_canonical_slot(tmp_path):
+    configs = {"OR": {"modelName": "or/m", "apiKey": "sk-or-alias-key"}}
+    d = FakeDconf({"provider-configs": json.dumps(configs), "provider": "OR"})
+    store, kr = Store(tmp_path / "db"), FakeKeyring()
+    await legacy.import_settings(store, d, legacy.Report())
+    await legacy.migrate_keys(d, kr.port(), legacy.Report())
+    assert list(repo.get_config(store)[1].providers) == ["openrouter"]
+    assert kr.items == {"openrouter": "sk-or-alias-key"}  # where the runtime will look for it
+
+
 async def test_plaintext_stays_when_the_keyring_fails_or_reads_back_wrong():
     for kr in (FakeKeyring(fail=True), FakeKeyring(corrupt=True)):
         d = dconf(**{"api-key": "sk-very-old"})
@@ -177,10 +187,11 @@ def test_malformed_timestamps_fall_back_instead_of_blocking_the_import(tmp_path)
         {"id": "bad", "createdAt": "yesterday", "updatedAt": None, "messages": [{"role": "user", "content": "x"}]},
         {"id": "neg", "createdAt": -5, "updatedAt": True, "messages": [{"role": "user", "content": "y"}]},
         {"id": "ok", "createdAt": 10, "updatedAt": 20.5, "messages": []},
-    ]))
+        {"id": "huge", "createdAt": 10**30, "updatedAt": 2**63, "messages": [{"role": "user", "content": "z"}]},
+    ]).replace('"yesterday"', 'NaN').replace('"updatedAt": null', '"updatedAt": Infinity'))
     report = legacy.Report()
     legacy.import_chats(store, chats, report)
-    assert report.conversations == 3
+    assert report.conversations == 4
     ok = repo.conversation_snapshot(store, "legacy-ok")["conversation"]
     assert (ok["created_at"], ok["updated_at"]) == (10, 20)
     bad = repo.conversation_snapshot(store, "legacy-bad")["conversation"]

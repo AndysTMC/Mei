@@ -14,7 +14,7 @@ import httpx
 
 from .base import ProviderError
 from .http_stream import TIMEOUT, error_message, scrub
-from .profiles import PROFILES
+from .profiles import PROFILES, credential_headers
 
 MAX_PAGES = 10
 MAX_PAGE_BYTES = 4 * 1024 * 1024
@@ -53,12 +53,7 @@ def model_list_url(chat_url: str, model_path: str) -> str:
 
 def endpoint(provider_id: str, *, url: str = "", api_key: str = "") -> Endpoint:
     profile = PROFILES[provider_id]
-    headers = dict(profile.headers)
-    if api_key:
-        if profile.auth == "api_key":
-            headers["x-goog-api-key" if provider_id == "gemini" else "x-api-key"] = api_key
-        else:
-            headers["Authorization"] = f"Bearer {api_key}"
+    headers = {**profile.headers, **credential_headers(profile, api_key)}
     if provider_id == "custom" and not url.strip():
         raise ProviderError("Enter an endpoint URL to fetch models.")
     path = "/api/tags" if provider_id == "ollama" else "/v1/models"
@@ -70,6 +65,22 @@ def endpoint(provider_id: str, *, url: str = "", api_key: str = "") -> Endpoint:
         target = profile.models_url or model_list_url(profile.chat_url, path)
     return Endpoint(target, headers, requires_key=profile.auth != "none" and provider_id != "openrouter",
                     kind=profile.model_kind)
+
+
+def credential_allowed(provider_id: str, requested_url: str, configured_url: str) -> bool:
+    """Whether a stored key may be sent to `requested_url`: only to the provider's own endpoint or
+    the one saved in the user's settings. Any local process can call ListModels with a URL, and
+    Mei must not hand it the user's key (a confused deputy, §13.7)."""
+    if not requested_url.strip():
+        return True  # the provider's default endpoint
+    profile = PROFILES[provider_id]
+    allowed = {_origin(profile.chat_url), _origin(profile.models_url), _origin(configured_url)} - {""}
+    return _origin(requested_url) in allowed
+
+
+def _origin(url: str) -> str:
+    parts = urlsplit(url.strip())
+    return f"{parts.scheme}://{parts.netloc}".lower() if parts.scheme in ("http", "https") and parts.netloc else ""
 
 
 def parse_models(text: str, kind: str) -> list[str]:

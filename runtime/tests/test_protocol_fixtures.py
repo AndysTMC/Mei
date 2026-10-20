@@ -8,7 +8,7 @@ import pytest
 
 from mei.protocol import DURABLE_EVENTS, EPHEMERAL_EVENTS, Envelope
 
-FIXTURES = sorted((Path(__file__).resolve().parents[2] / "protocol" / "v1" / "fixtures").glob("*.json"))
+FIXTURES = sorted((Path(__file__).resolve().parents[2] / "protocol" / "fixtures").glob("*.json"))
 
 
 def test_fixtures_exist():

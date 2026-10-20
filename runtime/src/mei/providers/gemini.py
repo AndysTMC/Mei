@@ -6,21 +6,22 @@ from urllib.parse import quote
 
 import httpx
 
-from .base import Done, ModelEvent, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
+from .base import Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
 from .http_stream import error_message, first_int, loads, stream_post
 
 _THOUGHT_SUMMARIES = re.compile(r"^gemini-(?:2\.5|3(?:\.|-))")
 
 
 class GeminiProvider:
-    def __init__(self, client: httpx.AsyncClient, *, label: str, base_url: str, model: str, api_key: str = "") -> None:
+    def __init__(self, client: httpx.AsyncClient, *, label: str, base_url: str, model: str,
+                 headers: dict[str, str] | None = None) -> None:
         if not model:
             raise ProviderError(f"{label}: no model selected")
         self.label = label
         self.model = model
         self._client = client
         self._url = f"{base_url.rstrip('/')}/models/{quote(model, safe='')}:streamGenerateContent?alt=sse"
-        self._headers = {"x-goog-api-key": api_key} if api_key else {}
+        self._headers = dict(headers or {})
 
     def body(self, request: ModelRequest) -> dict:
         system = [{"text": t.content} for t in request.messages if t.role == "system"]
@@ -33,6 +34,7 @@ class GeminiProvider:
         return body
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
+        finished = False  # Gemini marks the last chunk with a finishReason
         async for data in stream_post(self._client, self._url, self.body(request), self._headers, label=self.label):
             obj = loads(data)
             if obj is None:
@@ -40,6 +42,8 @@ class GeminiProvider:
             if obj.get("error"):
                 raise ProviderError(f"{self.label}: {error_message(obj) or 'stream error'}")
             for candidate in obj.get("candidates") or []:
+                if isinstance(candidate, dict) and candidate.get("finishReason"):
+                    finished = True
                 parts = ((candidate or {}).get("content") or {}).get("parts") or []
                 for part in parts:
                     if not isinstance(part, dict) or not isinstance(part.get("text"), str) or not part["text"]:
@@ -48,4 +52,6 @@ class GeminiProvider:
             usage = obj.get("usageMetadata")
             if isinstance(usage, dict):
                 yield Usage(first_int(usage, "promptTokenCount"), first_int(usage, "candidatesTokenCount"))
+        if not finished:
+            raise IncompleteResponse.of(self.label)
         yield Done("stop")

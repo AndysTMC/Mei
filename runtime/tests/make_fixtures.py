@@ -1,4 +1,4 @@
-"""Record real event streams from the engine into protocol/v1/fixtures/ (shared with the TS tests).
+"""Record real event streams from the engine into protocol/fixtures/ (shared with the TS tests).
 
 Run after changing the protocol:  uv run python tests/make_fixtures.py
 """
@@ -16,7 +16,7 @@ from mei.protocol import Config, ProviderConfig, ProviderSettings, SubmitInputAr
 from mei.providers.fake import FakeProvider
 from mei.store.db import Store
 
-OUT = Path(__file__).resolve().parents[2] / "protocol" / "v1" / "fixtures"
+OUT = Path(__file__).resolve().parents[2] / "protocol" / "fixtures"
 REPLY = "Mei keeps every word, even across restarts."
 
 

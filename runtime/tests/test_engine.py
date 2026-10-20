@@ -139,6 +139,17 @@ async def test_provider_failure_fails_the_task_with_its_message(tmp_path):
     assert repo.get_task(eng.store, r["task_id"])["error"] == "quota exceeded"
 
 
+async def test_a_cut_off_reply_is_interrupted_with_its_draft(tmp_path):
+    eng, rec = make_engine(tmp_path, cut_off=True)
+    r = submit(eng)
+    assert await wait_state(eng, r["task_id"], states={S.INTERRUPTED, *TERMINAL}) == S.INTERRUPTED
+    task = repo.get_task(eng.store, r["task_id"])
+    assert "cut off" in task["error"]
+    finished = [e for e in rec.events if e.type == "task.finished"][-1]
+    assert REPLY.startswith(finished.payload["draft"]["text"]) and finished.payload["draft"]["text"]
+    assert [m["role"] for m in repo.history(eng.store, r["conversation_id"])] == ["user"]  # not stored as an answer
+
+
 async def test_transient_refusals_before_output_are_retried(tmp_path, monkeypatch):
     monkeypatch.setattr(engine_mod, "RETRY_BASE_S", 0.01)
     log = tmp_path / "calls.jsonl"

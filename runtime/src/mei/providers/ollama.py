@@ -4,19 +4,20 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-from .base import Done, ModelEvent, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
+from .base import Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
 from .http_stream import first_int, loads, stream_post
 
 
 class OllamaProvider:
-    def __init__(self, client: httpx.AsyncClient, *, label: str, url: str, model: str, api_key: str = "") -> None:
+    def __init__(self, client: httpx.AsyncClient, *, label: str, url: str, model: str,
+                 headers: dict[str, str] | None = None) -> None:
         if not model:
             raise ProviderError(f"{label}: no model selected")
         self.label = label
         self.model = model
         self._client = client
         self._url = url
-        self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self._headers = dict(headers or {})
 
     def body(self, request: ModelRequest) -> dict:
         return {"model": self.model, "stream": True,
@@ -24,6 +25,7 @@ class OllamaProvider:
                 "think": "medium" if "gpt-oss" in self.model.lower() else True}
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
+        finished = False
         async for line in stream_post(self._client, self._url, self.body(request), self._headers,
                                       label=self.label, framing="ndjson"):
             obj = loads(line)
@@ -37,6 +39,9 @@ class OllamaProvider:
             if isinstance(message.get("content"), str) and message["content"]:
                 yield TextDelta(message["content"])
             if obj.get("done"):
+                finished = True
                 yield Usage(first_int(obj, "prompt_eval_count"), first_int(obj, "eval_count"))
                 break
+        if not finished:
+            raise IncompleteResponse.of(self.label)
         yield Done("stop")

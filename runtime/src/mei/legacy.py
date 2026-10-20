@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -181,7 +182,10 @@ async def migrate_keys(dconf: Dconf, keyring: Keyring, report: Report) -> None:
         key = str(item.get("apiKey") or "") if isinstance(item, dict) else ""
         if not key or _is_placeholder(key):
             continue
-        if await _move(keyring, pid, key):
+        # Store under the id the settings were imported as (an old alias like "github-models"
+        # becomes "githubcopilot"), or the runtime would look the key up and not find it.
+        slot = resolve_id(pid) or pid
+        if await _move(keyring, slot, key):
             item["apiKey"] = ""
             item["apiKeyStorage"] = "secret"
             changed = True
@@ -259,11 +263,20 @@ def import_chats(store: Store, path: Path, report: Report) -> None:
     report.messages += added_msgs
 
 
+_MAX_MS = 253_402_300_799_999  # 9999-12-31: beyond that a timestamp is noise, not a date
+
+
 def _timestamp(value: object, default: int) -> int:
-    """Milliseconds from the old file, or `default` when the field is missing or malformed."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+    """Milliseconds from the old file, or `default` when the field is missing or malformed.
+
+    JSON from the old extension can hold anything: strings, booleans, NaN, infinities, or numbers
+    too big for SQLite's 64-bit integers. One bad entry must not stop the whole import.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return default
-    return int(value)
+    if isinstance(value, float) and not math.isfinite(value):
+        return default
+    return int(value) if 0 < value <= _MAX_MS else default
 
 
 def _metadata(meta: object) -> dict:

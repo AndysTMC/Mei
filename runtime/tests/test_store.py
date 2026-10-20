@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import stat
 
 import pytest
@@ -29,6 +30,23 @@ def test_migrations_apply_once_and_reopen(tmp_path):
     store = Store(tmp_path)
     assert store.read_one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == str(len(MIGRATIONS))
     store.close()
+
+
+def test_a_stale_backup_from_a_failed_migration_does_not_block_startup(tmp_path):
+    data = tmp_path / "it's here"  # a quote in the path must not break the backup statement
+    store = Store(data)
+    with store.tx() as tx:  # back to schema 1, as if migration 2 had failed before committing
+        tx.execute("DROP TABLE imports")
+        tx.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
+    store.close()
+    stale = data / "mei.db.pre-migration-2"
+    stale.write_bytes(b"left over from an attempt that crashed")
+    store = Store(data)
+    assert store.read_one("SELECT value FROM meta WHERE key = 'schema_version'")["value"] == str(len(MIGRATIONS))
+    store.close()
+    backup = sqlite3.connect(stale)
+    assert backup.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "1"
+    backup.close()
 
 
 def test_new_epoch_each_open(tmp_path):

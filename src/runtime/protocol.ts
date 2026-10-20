@@ -1,6 +1,6 @@
 /**
- * IPC protocol v1 with the Mei runtime (ADR 0003). Mirrors runtime/src/mei/protocol.py; both are
- * checked against protocol/v1/fixtures/.
+ * The IPC protocol with the Mei runtime (ADR 0003). Mirrors runtime/src/mei/protocol.py; both are
+ * checked against protocol/fixtures/.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */

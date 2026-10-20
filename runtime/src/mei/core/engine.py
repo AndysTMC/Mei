@@ -18,7 +18,8 @@ import msgspec
 from mei.obs import redact
 from mei.protocol import (MAX_INPUT_CHARS, ConversationCommandArgs, active_provider, Envelope, ProtocolError,
                           ProviderConfig, SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs)
-from mei.providers.base import Done, ModelRequest, Provider, ProviderError, TextDelta, ThinkingDelta, Usage
+from mei.providers.base import (Done, IncompleteResponse, ModelRequest, Provider, ProviderError, TextDelta,
+                                ThinkingDelta, Usage)
 from mei.providers.factory import label_of
 from mei.providers.openai_chat import to_turns
 from mei.store import repo
@@ -309,6 +310,11 @@ class Engine:
                     self._finish(task_id, stream, S.INTERRUPTED, error="Mei was restarting", turn_state="lost")
                 else:
                     self._finish(task_id, stream, S.CANCELLED)
+            except IncompleteResponse as e:
+                # The provider stopped mid-reply. Keep what arrived and let the user resume it,
+                # rather than presenting a cut-off answer as complete.
+                self._flush(stream)
+                self._finish(task_id, stream, S.INTERRUPTED, error=redact(str(e)))
             except ProviderError as e:
                 self._flush(stream)
                 self._finish(task_id, stream, S.FAILED, error=redact(str(e)))

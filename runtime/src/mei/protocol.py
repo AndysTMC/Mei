@@ -1,9 +1,9 @@
-"""IPC protocol v1 between the runtime and its clients (architecture §12, ADR 0003).
+"""The IPC protocol between the runtime and its clients (architecture §12, ADR 0003).
 
 Methods take one JSON string and return one JSON string. Events are `Event(s)` signals sent
 unicast to attached clients. This module is the single definition of those shapes; the
 TypeScript side mirrors it in src/runtime/protocol.ts and both are checked against the shared
-fixtures in protocol/v1/fixtures/.
+fixtures in protocol/fixtures/.
 """
 
 from typing import Literal

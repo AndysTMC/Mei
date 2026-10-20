@@ -710,6 +710,10 @@ export class ChatPopup {
                 if (key === 'provider-configs') return;
                 this._refreshSettingsView();
             }));
+            this._settingsSignalIds.push(this._settings.connect('save-failed', (_settings: RuntimeSettings, message: string) => {
+                this._settingsSaveStatus = `⚠ Not saved yet (Mei will retry when it reconnects): ${message}`;
+                if (this._isSettingsView) this._refreshSettingsView();
+            }));
         }
 
         /* ── Apply theme ──────────────────────────────── */

@@ -6,6 +6,7 @@ by absolute path because the ones on PATH may be Homebrew's, Nix's, or conda's (
 
 import asyncio
 import hashlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -56,18 +57,30 @@ Documentation=https://github.com/AndysTMC/Mei
 [Service]
 Type=dbus
 BusName={BUS_NAME}
-ExecStart={python} -m mei serve
+ExecStart={systemd_executable(python)} -m mei serve
 Restart=on-failure
 RestartSec=1s
 """
 
 
 def dbus_service(python: str = sys.executable) -> str:
+    # dbus-daemon splits Exec= like a POSIX shell, so shell quoting is the right escaping here.
     return f"""[D-BUS Service]
 Name={BUS_NAME}
-Exec={python} -m mei serve
+Exec={shlex.quote(python)} -m mei serve
 SystemdService={UNIT_NAME}
 """
+
+
+def systemd_executable(path: str) -> str:
+    """The program in ExecStart=: quoted for spaces, `%` doubled so systemd doesn't read a specifier.
+    (systemd doesn't expand `$` in the program, and refuses quotes and backslashes outright; see
+    `systemd_can_run`.)"""
+    return '"' + path.replace("%", "%%") + '"'
+
+
+def systemd_can_run(path: str) -> bool:
+    return not any(c in "'\"\\" or ord(c) < 0x20 for c in path)
 
 
 def bundled_extension() -> Path | None:
@@ -173,8 +186,12 @@ class Result:
         self.lines.append(line)
 
 
-def install_service(host: Host, p: Paths, python: str, r: Result) -> None:
-    """Write the systemd unit and D-Bus activation file for `python -m mei serve`."""
+def install_service(host: Host, p: Paths, python: str, r: Result) -> bool:
+    """Write the systemd unit and D-Bus activation file for `python -m mei serve`. False if it can't."""
+    if not systemd_can_run(python):
+        r.errors.append(f"systemd can't run a program whose path has quotes or backslashes: {python}. "
+                        "Install the mei-runtime tool somewhere else (uv's UV_TOOL_DIR).")
+        return False
     for path, text in ((p.unit, systemd_unit(python)), (p.dbus_service, dbus_service(python))):
         if path.is_file() and path.read_text() == text:
             continue
@@ -185,6 +202,7 @@ def install_service(host: Host, p: Paths, python: str, r: Result) -> None:
         r.say(f"wrote {path}")
     if not host.reload_buses():
         r.notes.append("systemd didn't reload its units; Mei starts after your next login")
+    return True
 
 
 def remove_service(host: Host, p: Paths, r: Result) -> None:
@@ -264,7 +282,8 @@ def install(host: Host | None = None, *, extension: Path | None = None, force: b
         r.errors.append(f"{src} is not a built extension (no metadata.json)")
         return r
 
-    install_service(host, p, python, r)
+    if not install_service(host, p, python, r):
+        return r
     try:
         changed = _copy_extension(p, src, force, r)
     except OSError as e:

@@ -6,7 +6,7 @@ from typing import Literal
 
 import httpx
 
-from mei.obs import redact
+from mei import obs
 
 from .base import ProviderError
 from .sse import SseDecoder
@@ -56,12 +56,15 @@ async def stream_post(client: httpx.AsyncClient, url: str, body: dict, headers: 
 
 def scrub(text: str, headers: dict[str, str]) -> str:
     """Remove this request's own credentials from text the upstream sent back (some echo the key)."""
+    return obs.scrub(text, credentials_in(headers))
+
+
+def credentials_in(headers: dict[str, str]) -> list[str]:
+    secrets = []
     for name, value in headers.items():
         if name.lower() in _CREDENTIAL_HEADERS and value:
-            secret = value.split(" ", 1)[1] if name.lower() == "authorization" and " " in value else value
-            if len(secret) >= 8:
-                text = text.replace(secret, "[redacted]")
-    return redact(text)
+            secrets.append(value.split(" ", 1)[1] if name.lower() == "authorization" and " " in value else value)
+    return secrets
 
 
 async def _http_error(label: str, response: httpx.Response, headers: dict[str, str]) -> ProviderError:

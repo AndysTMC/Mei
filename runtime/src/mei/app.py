@@ -56,8 +56,15 @@ def provider_factory(client: httpx.AsyncClient, key_for):
     return make
 
 
-def model_lister(client: httpx.AsyncClient, key_for):
+def model_lister(store: Store, client: httpx.AsyncClient, key_for):
     async def list_for(provider_id: str, url: str) -> dict:
+        _revision, config = repo.get_config(store)
+        configured = config.providers.get(provider_id)
+        if not models.credential_allowed(provider_id, url, configured.url if configured else ""):
+            label = PROFILES[provider_id].label
+            return {"models": [], "requires_key": False, "from_fallback": False,
+                    "error": f"Save this endpoint in Settings first: Mei sends your {label} key only to the "
+                             "endpoint saved there."}
         try:
             result = await models.list_models(client, provider_id, url=url, api_key=await key_for(provider_id))
         except ProviderError as e:
@@ -155,7 +162,7 @@ async def serve() -> int:
         engine = Engine(store, publisher=None, provider_factory=provider_factory(client, key_for))
         make_provider = provider_factory(client, key_for)
         setup = Setup(store, setup_probes(bus), data_dir(), RUNTIME_VERSION)
-        service = RuntimeService(bus, engine, list_models=model_lister(client, key_for), setup=setup,
+        service = RuntimeService(bus, engine, list_models=model_lister(store, client, key_for), setup=setup,
                                  test_provider=provider_tester(store, make_provider))
         engine.publisher = service  # the service needs the engine and the engine publishes through it
         engine.recover()

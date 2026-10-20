@@ -2,9 +2,12 @@
  * Pure reducer from runtime events to view state (architecture §18.1). The only place in the
  * extension that interprets events; views read `Projection` and never the protocol directly.
  *
- * Durable events carry a global `seq`: anything at or below what we've applied is a duplicate,
- * and a jump means we missed something, so the caller must re-attach. Deltas are ordered per
- * message by `chunk`; a jump there marks the stream stale until its message completes.
+ * Durable events carry a global `seq`: anything at or below what we've applied is a duplicate.
+ * Live, a jump means we missed something, so the caller must re-attach. A replay is different:
+ * it is the runtime's own list of the surviving events after our cursor, and events of deleted
+ * conversations are gone from it, so its seqs may jump without anything being missing. Deltas
+ * are ordered per message by `chunk`; a jump there marks the stream stale until its message
+ * completes.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -36,12 +39,17 @@ export interface LiveStream extends StreamView {
 
 export type ApplyResult = 'applied' | 'duplicate' | 'gap' | 'ignored';
 
+/** Events that change a conversation's loaded messages or tasks (skipped while it isn't loaded). */
+const NEEDS_LOADED = new Set(['message.completed', 'task.accepted', 'task.state_changed', 'task.finished']);
+
 export class Projection {
     epoch: string | null = null;
     seq = 0;
     readonly conversations = new Map<string, ConversationSummary>();
     readonly loaded = new Map<string, LoadedConversation>();
     readonly streams = new Map<string, LiveStream>();
+    /** Per conversation not loaded yet, the newest event we had to skip for it (see applyConversation). */
+    private readonly _skipped = new Map<string, number>();
 
     applyAttach(reply: AttachReply): ApplyResult[] {
         this.epoch = reply.epoch;
@@ -49,10 +57,11 @@ export class Projection {
         if (reply.mode === 'snapshot') {
             this.conversations.clear();
             this.loaded.clear();
+            this._skipped.clear();
             for (const c of reply.snapshot?.conversations ?? []) this.conversations.set(c.id, c);
             this.seq = reply.seq;
         } else {
-            for (const event of reply.events ?? []) results.push(this.applyEvent(event));
+            for (const event of reply.events ?? []) results.push(this._applyDurable(event));
             this.seq = Math.max(this.seq, reply.seq);
         }
         this.streams.clear();
@@ -60,7 +69,14 @@ export class Projection {
         return results;
     }
 
-    applyConversation(reply: ConversationReply): void {
+    /**
+     * Adopt a conversation fetched with GetConversation. Returns false, changing nothing, if an
+     * event for it arrived after the runtime built this reply: that event was skipped (the
+     * conversation wasn't loaded yet) and isn't in the reply, so the caller must fetch again.
+     */
+    applyConversation(reply: ConversationReply): boolean {
+        if ((this._skipped.get(reply.conversation.id) ?? 0) > reply.seq) return false;
+        this._skipped.delete(reply.conversation.id);
         this.conversations.set(reply.conversation.id, reply.conversation);
         this.loaded.set(reply.conversation.id, {
             summary: reply.conversation,
@@ -72,14 +88,20 @@ export class Projection {
             if (s.conversation_id === reply.conversation.id) this.streams.delete(id);
         }
         for (const s of reply.streams) this.streams.set(s.message_id, { ...s, stale: false });
+        return true;
     }
 
+    /** A live event. */
     applyEvent(event: Envelope): ApplyResult {
         if (event.seq === null) return this._applyEphemeral(event);
-        if (event.seq <= this.seq) return 'duplicate';
         // A jump means events are missing. Don't apply or advance: the caller re-attaches from
         // `seq`, and the replay brings back the missing events and this one in order.
-        if (this.seq > 0 && event.seq !== this.seq + 1) return 'gap';
+        if (this.seq > 0 && event.seq > this.seq + 1) return 'gap';
+        return this._applyDurable(event);
+    }
+
+    private _applyDurable(event: Envelope): ApplyResult {
+        if (event.seq === null || event.seq <= this.seq) return 'duplicate';
         this.seq = event.seq;
         this._reduce(event);
         return 'applied';
@@ -118,6 +140,7 @@ export class Projection {
         const convId = event.conversation_id;
         const conv = convId ? this.loaded.get(convId) : undefined;
         const fresh = conv !== undefined && (event.seq ?? 0) > conv.loadedSeq;
+        if (convId && !conv && event.seq !== null && NEEDS_LOADED.has(event.type)) this._skipped.set(convId, event.seq);
         switch (event.type) {
         case 'conversation.created': {
             const summary = p.conversation as ConversationSummary;
@@ -130,6 +153,7 @@ export class Projection {
             const id = p.conversation_id as string;
             this.conversations.delete(id);
             this.loaded.delete(id);
+            this._skipped.delete(id);
             for (const [mid, s] of this.streams) if (s.conversation_id === id) this.streams.delete(mid);
             break;
         }

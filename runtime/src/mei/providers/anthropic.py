@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-from .base import Done, ModelEvent, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
+from .base import Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
 from .http_stream import error_message, first_int, loads, stream_post
 
 MAX_TOKENS = 4096
@@ -13,16 +13,15 @@ _ADAPTIVE_THINKING = re.compile(r"(?:opus-4-[678]|sonnet-4-6|fable-5|sonnet-5|my
 
 
 class AnthropicProvider:
-    def __init__(self, client: httpx.AsyncClient, *, label: str, url: str, model: str, api_key: str = "",
-                 bearer_auth: bool = False, headers: dict[str, str] | None = None) -> None:
+    def __init__(self, client: httpx.AsyncClient, *, label: str, url: str, model: str,
+                 headers: dict[str, str] | None = None) -> None:
         if not model:
             raise ProviderError(f"{label}: no model selected")
         self.label = label
         self.model = model
         self._client = client
         self._url = url
-        auth = {} if not api_key else ({"Authorization": f"Bearer {api_key}"} if bearer_auth else {"x-api-key": api_key})
-        self._headers = {**(headers or {}), **auth, "anthropic-version": "2023-06-01"}
+        self._headers = {**(headers or {}), "anthropic-version": "2023-06-01"}
 
     def body(self, request: ModelRequest) -> dict:
         system = "\n\n".join(t.content for t in request.messages if t.role == "system")
@@ -36,6 +35,7 @@ class AnthropicProvider:
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
         input_tokens = None
+        finished = False
         async for data in stream_post(self._client, self._url, self.body(request), self._headers, label=self.label):
             event = loads(data)
             if event is None:
@@ -57,7 +57,10 @@ class AnthropicProvider:
                 usage = event.get("usage") or {}
                 yield Usage(input_tokens, first_int(usage, "output_tokens"))
             elif kind == "message_stop":
+                finished = True
                 break
+        if not finished:
+            raise IncompleteResponse.of(self.label)
         yield Done("stop")
 
 

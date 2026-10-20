@@ -6,7 +6,8 @@ import httpx
 import pytest
 
 from mei.providers.base import ProviderError
-from mei.providers.models import endpoint, list_models, model_list_url, next_page_url, parse_models
+from mei.providers.models import (credential_allowed, endpoint, list_models, model_list_url, next_page_url,
+                                  parse_models)
 
 EXPECTED = {
     "ollama": "http://127.0.0.1:11434/api/tags",
@@ -108,3 +109,15 @@ async def test_a_page_that_is_not_json_is_a_clear_error():
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html>login</html>")))
     with pytest.raises(ProviderError, match="isn't JSON"):
         await list_models(client, "custom", url="http://127.0.0.1:9/v1/chat/completions")
+
+
+def test_a_stored_key_only_goes_to_the_providers_own_or_configured_endpoint():
+    assert credential_allowed("openai", "", "")
+    assert credential_allowed("openai", "https://api.openai.com/v1/chat/completions", "")
+    assert credential_allowed("openai", "https://API.openai.com/other/path", "")
+    assert not credential_allowed("openai", "https://evil.test/v1/chat/completions", "")
+    assert credential_allowed("openai", "https://proxy.test/v1/chat/completions", "https://proxy.test/v1")
+    assert not credential_allowed("openai", "http://proxy.test/v1", "https://proxy.test/v1")  # scheme matters
+    assert not credential_allowed("custom", "https://evil.test/v1", "")
+    assert credential_allowed("custom", "http://127.0.0.1:8080/v1/chat/completions", "")  # custom's default
+    assert not credential_allowed("openai", "ftp://api.openai.com", "")

@@ -48,6 +48,8 @@ import type { SetupStatusReply } from './runtime/protocol.js';
 import { buildRetentionRow, buildShortcutRow } from './prefs/rows.js';
 import { buildSetupAssistant, type Call } from './prefs/setupAssistant.js';
 
+const SAVE_RETRY_S = 5;
+
 export default class MeiPreferences extends ExtensionPreferences {
     override async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
         // Settings live in the Mei runtime (ADR 0002); calls activate it if it isn't running.
@@ -171,9 +173,11 @@ export default class MeiPreferences extends ExtensionPreferences {
 
         providerTypeComboRow.connect('notify::selected', () => {
             const idx = providerTypeComboRow.get_selected();
-            if (idx >= 0 && idx < typeIds.length) {
-                settings.set_string('provider-type', typeIds[idx]);
-            }
+            if (idx >= typeIds.length) return;
+            settings.set_string('provider-type', typeIds[idx]);
+            // A type with a single provider (Custom) has no list to pick from: choosing it is the choice.
+            const providers = getProviderIdsForType(typeIds[idx]);
+            if (providers.length === 1) settings.set_string('provider', providers[0]);
         });
         providerTypeGroup.add(providerTypeComboRow);
 
@@ -192,35 +196,40 @@ export default class MeiPreferences extends ExtensionPreferences {
         providerGroup.add(providerComboRow);
 
         let activeProviderIds: string[] = [];
+        let renderingProviderList = false; // repopulating the list reselects rows; that isn't the user choosing
 
+        // Shows the providers of the chosen type. Nothing is saved here: a provider is saved only
+        // when the user picks one, so opening Settings never changes settings.
         function updateProviderList() {
             const pType = getProviderType(settings.get_string('provider-type'));
-
-            providerModel.splice(0, providerModel.get_n_items(), []); // Clear
-
+            renderingProviderList = true;
             activeProviderIds = getProviderIdsForType(pType);
-            providerModel.splice(0, 0, activeProviderIds.map(id => getProviderLabel(id)));
+            providerModel.splice(0, providerModel.get_n_items(), activeProviderIds.map(id => getProviderLabel(id)));
             providerGroup.set_visible(pType !== 'custom');
-
-            let currentProvider = settings.get_string('provider');
-            if (!activeProviderIds.includes(currentProvider)) {
-                currentProvider = activeProviderIds[0];
-                settings.set_string('provider', currentProvider);
-            }
-
-            const idx = activeProviderIds.indexOf(currentProvider);
-            if (idx >= 0) {
-                providerComboRow.set_selected(idx);
-            }
+            const idx = activeProviderIds.indexOf(settings.get_string('provider'));
+            providerComboRow.set_selected(idx >= 0 ? idx : Gtk.INVALID_LIST_POSITION);
+            renderingProviderList = false;
         }
 
         settingsSignalIds.push(settings.connect('changed::provider-type', updateProviderList));
+        // The popup's connection reloads settings when the runtime comes back; this window has no
+        // such connection, so it retries the load itself until the unsaved change goes through.
+        let saveRetryId = 0;
+        settingsSignalIds.push(settings.connect('save-failed', (_s, message) => {
+            window.add_toast(new Adw.Toast({ title: `Not saved yet; Mei will retry when it reconnects (${message})`, timeout: 6 }));
+            saveRetryId ||= GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, SAVE_RETRY_S, () => {
+                settings.reload().then(() => {
+                    if (saveRetryId) GLib.source_remove(saveRetryId);
+                    saveRetryId = 0;
+                }).catch(e => Logger.debug(Tag.Prefs, `Runtime still unavailable: ${(e as Error).message}`));
+                return GLib.SOURCE_CONTINUE;
+            });
+        }));
 
         providerComboRow.connect('notify::selected', () => {
+            if (renderingProviderList) return;
             const idx = providerComboRow.get_selected();
-            if (idx >= 0 && idx < activeProviderIds.length) {
-                settings.set_string('provider', activeProviderIds[idx]);
-            }
+            if (idx < activeProviderIds.length) settings.set_string('provider', activeProviderIds[idx]);
         });
 
         updateProviderList();
@@ -960,6 +969,8 @@ export default class MeiPreferences extends ExtensionPreferences {
             setup.destroy();
             retentionRow.destroy();
             shortcutRow.destroy();
+            if (saveRetryId) GLib.source_remove(saveRetryId);
+            saveRetryId = 0;
         });
     }
 }

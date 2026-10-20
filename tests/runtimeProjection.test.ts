@@ -14,7 +14,7 @@ interface Fixture {
 }
 
 function load(name: string): Fixture {
-    return JSON.parse(readFileSync(`protocol/v1/fixtures/${name}.json`, 'utf8')) as Fixture;
+    return JSON.parse(readFileSync(`protocol/fixtures/${name}.json`, 'utf8')) as Fixture;
 }
 
 function replay(fx: Fixture): Projection {
@@ -145,4 +145,45 @@ test('deleting a conversation removes it everywhere', () => {
     p.applyEvent({ ...fx.events[0], seq: p.seq + 1, type: 'conversation.deleted', payload: { conversation_id: fx.expect.conversation_id } });
     assert.equal(p.conversations.size, 0);
     assert.equal(p.loaded.size, 0);
+});
+
+function ev(seq: number, type: string, conversationId: string, payload: Record<string, unknown>): Envelope {
+    return { v: 2, type, event_id: `e${seq}`, epoch: 'ep', at: '', required: false, seq, conversation_id: conversationId,
+        task_id: null, payload };
+}
+
+function summary(id: string) {
+    return { id, title: id, created_at: 1, updated_at: 1 };
+}
+
+function message(id: string, conversationId: string, content: string) {
+    return { id, conversation_id: conversationId, role: 'assistant', content, created_at: 2 };
+}
+
+test('a replay skips events of deleted conversations without losing the ones after them', () => {
+    const p = new Projection();
+    p.applyAttach({ epoch: 'ep', seq: 10, mode: 'snapshot', snapshot: { conversations: [summary('b')] }, streams: [] });
+    // Events 11-13 belonged to conversation "a", deleted while we were away: the runtime dropped
+    // them, so the replay jumps from 10 to 14.
+    p.applyAttach({ epoch: 'ep', seq: 15, mode: 'replay', streams: [], events: [
+        ev(14, 'conversation.deleted', 'a', { conversation_id: 'a' }),
+        ev(15, 'conversation.created', 'c', { conversation: summary('c') }),
+    ] });
+    assert.equal(p.seq, 15);
+    assert.deepEqual([...p.conversations.keys()].sort(), ['b', 'c']);
+    assert.equal(p.applyEvent(ev(16, 'message.completed', 'c', { message: message('m1', 'c', 'hi') })), 'applied');
+    assert.deepEqual(p.loaded.get('c')?.messages.map(m => m.content), ['hi']);
+});
+
+test('a conversation reply overtaken by a newer event for it is refused, so the caller fetches again', () => {
+    const p = new Projection();
+    p.applyAttach({ epoch: 'ep', seq: 5, mode: 'snapshot', snapshot: { conversations: [summary('a')] }, streams: [] });
+    // The reply was built at seq 5, but event 6 for "a" was applied (skipped: not loaded) before it arrived.
+    assert.equal(p.applyEvent(ev(6, 'message.completed', 'a', { message: message('m2', 'a', 'new') })), 'applied');
+    const stale = { epoch: 'ep', seq: 5, conversation: summary('a'), messages: [message('m1', 'a', 'old')], tasks: [], streams: [] };
+    assert.equal(p.applyConversation(stale), false);
+    assert.equal(p.loaded.has('a'), false);
+    const fresh = { ...stale, seq: 6, messages: [message('m1', 'a', 'old'), message('m2', 'a', 'new')] };
+    assert.equal(p.applyConversation(fresh), true);
+    assert.deepEqual(p.loaded.get('a')?.messages.map(m => m.content), ['old', 'new']);
 });

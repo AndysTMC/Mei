@@ -99,7 +99,11 @@ class Store:
             raise RuntimeError(f"database schema {version} is newer than this runtime ({len(MIGRATIONS)})")
         for number, sql in enumerate(MIGRATIONS[version:], start=version + 1):
             if version > 0:
-                self.conn.execute(f"VACUUM INTO '{self.path}.pre-migration-{number}'")
+                # A backup left by an earlier attempt that failed before committing describes the
+                # same pre-migration state; VACUUM INTO refuses to overwrite it, so replace it.
+                backup = self.path.with_name(f"{self.path.name}.pre-migration-{number}")
+                backup.unlink(missing_ok=True)
+                self.conn.execute("VACUUM INTO ?", (str(backup),))
             with self.tx() as tx:
                 # executescript() would commit on its own; run statements inside our transaction.
                 for statement in _split_sql(sql):

@@ -76,7 +76,7 @@ def test_first_install_writes_everything_and_asks_for_a_log_out(env):
     host = FakeHost(disabled=f"['{UUID}']")
     r = install.install(host, extension=ext, python="/opt/venv/bin/python", p=p)
     assert not r.notes and not r.errors and r.log_out
-    assert "ExecStart=/opt/venv/bin/python -m mei serve" in p.unit.read_text()
+    assert 'ExecStart="/opt/venv/bin/python" -m mei serve' in p.unit.read_text()
     assert "SystemdService=mei-runtime.service" in p.dbus_service.read_text()
     assert (p.extension / "extension.js").read_text() == "// v1"
     assert (p.extension / "schemas/gschemas.compiled").is_file()
@@ -214,3 +214,27 @@ def test_bundled_extension_is_absent_in_a_source_checkout():
     # scripts/build-release.sh copies it in only while building the wheel.
     assert install.bundled_extension() is None
     assert install.paths().extension.name == UUID
+
+
+@pytest.mark.skipif(not Path("/usr/bin/systemd-analyze").exists(), reason="needs systemd-analyze")
+def test_service_files_survive_odd_interpreter_paths(tmp_path):
+    import shlex
+    import shutil
+    import subprocess
+    import sys
+
+    odd = tmp_path / "a %h $HOME (dir)" / "python"
+    odd.parent.mkdir()
+    shutil.copy(sys.executable, odd)
+    unit = tmp_path / "mei-quote-test.service"
+    unit.write_text(install.systemd_unit(str(odd)))
+    verify = subprocess.run(["/usr/bin/systemd-analyze", "--user", "verify", str(unit)], capture_output=True, text=True)
+    assert "mei-quote-test" not in verify.stderr, verify.stderr  # systemd found the program at that exact path
+    exec_line = next(line for line in install.dbus_service(str(odd)).splitlines() if line.startswith("Exec="))
+    assert shlex.split(exec_line.removeprefix("Exec=")) == [str(odd), "-m", "mei", "serve"]
+
+
+def test_a_path_systemd_cannot_run_is_refused_before_writing_anything(env):
+    ext, p = env
+    r = install.install(FakeHost(), extension=ext, python="/home/o'brien/.local/python", p=p)
+    assert r.errors and "quotes" in r.errors[0] and not p.unit.exists() and not p.extension.exists()

@@ -5,7 +5,7 @@ import json
 import logging
 import re
 import sys
-import time
+from collections.abc import Iterable
 
 _SECRET_PATTERNS = [
     (re.compile(r"(?i)(authorization:\s*bearer\s+)[^\s\"']+"), r"\1[redacted]"),
@@ -22,9 +22,29 @@ def redact(text: str) -> str:
     return text
 
 
+def scrub(text: str, secrets: Iterable[str]) -> str:
+    """Remove known secret values (an API key an upstream echoed back), then apply `redact`.
+
+    Patterns only catch keys with a recognizable shape; this catches the exact values we sent.
+    """
+    for secret in secrets:
+        if len(secret) >= 8:  # shorter values would match ordinary words
+            text = text.replace(secret, "[redacted]")
+    return redact(text)
+
+
+def _summary(record: logging.LogRecord) -> str:
+    """The message, plus the exception's type and text on the same line when there is one."""
+    message = record.getMessage()
+    if record.exc_info and record.exc_info[1] is not None:
+        error = record.exc_info[1]
+        message = f"{message}: {type(error).__name__}: {error}"
+    return redact(message)
+
+
 class _JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        entry = {"t": round(time.time(), 3), "level": record.levelname.lower(), "logger": record.name,
+        entry = {"t": round(record.created, 3), "level": record.levelname.lower(), "logger": record.name,
                  "msg": redact(record.getMessage())}
         for key in ("task_id", "conversation_id", "turn_id", "client"):
             if hasattr(record, key):
@@ -43,8 +63,9 @@ class RecentLogs(logging.Handler):
         self._next = 1
 
     def emit(self, record: logging.LogRecord) -> None:
+        # The log view is all most people will look at, so it needs the exception, not just "failed".
         self._entries.append({"id": self._next, "t": round(record.created, 3), "level": record.levelname.lower(),
-                              "logger": record.name, "msg": redact(record.getMessage())})
+                              "logger": record.name, "msg": _summary(record)})
         self._next += 1
 
     def after(self, last_id: int) -> list[dict]:

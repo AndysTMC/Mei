@@ -7,6 +7,7 @@ Options (from `ProviderConfig.options`):
   thinking     optional reasoning text streamed before the reply
   fail         if set, raise a ProviderError with this message after the first chunk
   fail_retryable  mark that mid-stream error as retryable (it must still not be retried)
+  cut_off      if true, end the stream after the first chunk without finishing (a dropped reply)
   busy_times   the first N calls raise a retryable error before any output (like HTTP 503)
   call_log     path of a JSON-lines file; every call appends one record (for crash tests)
 """
@@ -16,7 +17,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 
-from .base import Done, ModelEvent, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
+from .base import Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, TextDelta, ThinkingDelta, Usage
 
 
 class FakeProvider:
@@ -47,5 +48,7 @@ class FakeProvider:
             yield TextDelta(reply[i:i + size])
             if n == 0 and opts.get("fail"):
                 raise ProviderError(str(opts["fail"]), retryable=bool(opts.get("fail_retryable")))
+            if n == 0 and opts.get("cut_off"):
+                raise IncompleteResponse.of(self.label)
         yield Usage(input_tokens=sum(len(t.content) for t in request.messages), output_tokens=len(reply))
         yield Done("stop")

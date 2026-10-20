@@ -1154,7 +1154,7 @@ Status: `runtime/` (Python package `mei`, CLI `mei-runtime`) and `src/runtime/` 
 | Extension disable/enable mid-stream → complete message, no gap or duplicate | e2e `reenable_shows_complete_reply`; `test_ipc.py::test_reattach_mid_stream_loses_nothing` |
 | Duplicate `command_id` idempotent, different payload rejected | `test_engine.py::test_duplicate_command_returns_the_first_result`, `test_ipc.py::test_duplicate_commands` |
 | Second instance exits on the writer lock | `test_store.py::test_single_writer_lock`, `test_ipc.py::test_second_instance_exits_on_the_writer_lock` |
-| Protocol fixtures pass in Python and TS; crash-boundary tests in CI | `protocol/v1/fixtures/` (recorded from the engine), `test_protocol_fixtures.py`, `tests/runtimeProjection.test.ts`; crash tests run in `uv run pytest` |
+| Protocol fixtures pass in Python and TS; crash-boundary tests in CI | `protocol/fixtures/` (recorded from the engine), `test_protocol_fixtures.py`, `tests/runtimeProjection.test.ts`; crash tests run in `uv run pytest` |
 
 Stage 1 limits, by design: runtime mode serves OpenAI-compatible chat providers only (the rest come in 2a); regenerate is unavailable (↻ resumes an interrupted reply); legacy `chats.json` history isn't imported yet (2a). Found and fixed along the way: two pre-existing popup bugs that only showed as Gjs-CRITICAL warnings (streaming actors destroyed twice when the loading bubble is removed; the popup menu removed from the panel's menu manager while still open).
 
