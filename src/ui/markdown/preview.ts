@@ -14,7 +14,7 @@ const MAX_RENDER_ACTOR_UNITS = 1000;
 const MAX_RENDERED_TABLE_COLUMNS = 12;
 const MAX_RENDERED_TABLE_ROWS = 40;
 const RENDER_NOTICE_ACTOR_UNITS = 10;
-export const PREVIEW_OMISSION_TEXT = 'Additional content omitted from the popup preview for popup performance; copy the full response to view it.';
+const PREVIEW_OMISSION_TEXT = 'Additional content omitted from the popup preview for popup performance; copy the full response to view it.';
 
 export function sanitizeBlocks(blocks: MessageBlock[], options: MessageRendererOptions): MessageBlock[] {
     const sanitized = blocks.flatMap(block => {

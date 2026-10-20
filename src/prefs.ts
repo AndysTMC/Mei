@@ -1,767 +1,94 @@
 /**
- * Mei — Preferences window (GTK4 / Libadwaita).
+ * Mei's Settings window (GTK 4 / libadwaita), run by GNOME's extension preferences process.
  *
- * This runs in a separate process from GNOME Shell.
- * NO access to St, Clutter, or Main — only GTK4 and Adw.
+ * The main page holds the service status, setup, links to the provider and log pages, and the
+ * privacy and shortcut settings. Settings live in the Mei runtime (ADR 0002), reached over D-Bus;
+ * the keyboard shortcut is the one GSettings key, because keybindings must be GSettings keys.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
 import Adw from 'gi://Adw';
-import Gio from 'gi://Gio';
-import Gtk from 'gi://Gtk';
 import GLib from 'gi://GLib';
+import Gtk from 'gi://Gtk';
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
-import {
-    DEEPSEEK_REASONING_EFFORT_LABELS,
-    DEEPSEEK_THINKING_LABELS,
-    getDeepSeekReasoningEffort,
-    getDeepSeekThinking,
-    getOpenCodeMode,
-    getProviderIdsForType,
-    getProviderLabel,
-    getProviderType,
-    OPEN_CODE_MODE_LABELS,
-    PROVIDER_TYPE_IDS,
-    PROVIDER_TYPE_LABELS,
-    type DeepSeekReasoningEffort,
-    type DeepSeekThinking,
-    type OpenCodeMode,
-} from './providers/catalog.js';
-import type { ProviderId } from './providers/types.js';
-import {
-    createEmptyProviderConfig,
-    isApiKeyPlaceholderLike,
-    mergeProviderConfigEdits,
-    parseProviderConfigs,
-    type ProviderConfigKey,
-    type ProviderConfigs,
-    type StoredProviderConfig,
-} from './providers/configStore.js';
-import { resolveStoredProviderConfig, updateStoredProviderApiKey } from './providers/apiKeys.js';
-import { lookupProviderApiKey } from './utils/secretStore.js';
-import { Logger, Tag } from './utils/logger.js';
-import { RuntimeClient } from './runtime/client.js';
-import { RuntimeSettings, type ModelListResult } from './runtime/settings.js';
-import { formatLogEntry } from './runtime/logFormat.js';
-import type { SetupStatusReply } from './runtime/protocol.js';
+
+import { LogsPage } from './prefs/logsPage.js';
+import { ProviderPage } from './prefs/providerPage.js';
 import { buildRetentionRow, buildShortcutRow } from './prefs/rows.js';
 import { buildSetupAssistant, type Call } from './prefs/setupAssistant.js';
+import { RuntimeClient } from './runtime/client.js';
+import type { SetupStatusReply } from './runtime/protocol.js';
+import { RuntimeSettings } from './runtime/settings.js';
+import { SourceSet } from './ui/sources.js';
+import { Logger, Tag } from './utils/logger.js';
 
-const SAVE_RETRY_S = 5;
+/** How often this window retries loading settings while a change waits to be saved. */
+const SAVE_RETRY_MS = 5000;
 
 export default class MeiPreferences extends ExtensionPreferences {
     override async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
-        // Settings live in the Mei runtime (ADR 0002); calls activate it if it isn't running.
-        const client = new RuntimeClient(() => 0);
+        window.set_title('Mei');
+        const client = new RuntimeClient(() => 0); // calls start the runtime if it isn't running
+        const call: Call = (method, args, opts) => client.call(method, args, opts);
         const settings = new RuntimeSettings((method, args) => client.call(method, args));
-        const settingsSignalIds: number[] = [];
-        let destroyed = false;
-
-        // Put main window title
-        window.set_title('Manage Mei');
         try {
             await settings.reload();
         } catch (e) {
-            const page = new Adw.PreferencesPage({ title: 'Manage Mei', icon_name: 'preferences-system-symbolic' });
-            const group = new Adw.PreferencesGroup({
-                title: 'Mei runtime unavailable',
-                description: `Mei's settings live in its runtime service, which could not be reached: ${e instanceof Error ? e.message : e}`,
-            });
-            page.add(group);
-            window.add(page);
+            window.add(unavailablePage(e));
             return;
         }
 
-        /* ── Main Page ────────────────────────────────── */
-        const mainPage = new Adw.PreferencesPage({
-            title: 'Manage Mei',
-            icon_name: 'preferences-system-symbolic',
+        const sources = new SourceSet();
+        const providers = new ProviderPage(settings);
+        const logs = new LogsPage(window, settings);
+        const retention = buildRetentionRow(window, settings);
+        const shortcut = buildShortcutRow(window, this.getSettings(), 'open-shortcut', 'Open Mei');
+
+        const page = new Adw.PreferencesPage({ title: 'Mei', icon_name: 'preferences-system-symbolic' });
+        const mei = new Adw.PreferencesGroup({ title: 'Mei' });
+        const service = new Adw.ActionRow({ title: 'Mei service', subtitle: 'Checking…', icon_name: 'emblem-system-symbolic' });
+        const rerun = navRow('Run setup again', 'Go through the setup steps; nothing changes unless you change it',
+            'view-refresh-symbolic');
+        mei.add(service);
+        mei.add(rerun);
+        page.add(mei);
+
+        const more = new Adw.PreferencesGroup({ title: 'Settings' });
+        const providerRow = navRow('Model provider', 'Ollama, OpenAI, Anthropic, Gemini, and more', 'network-server-symbolic');
+        const logsRow = navRow('Logs', 'What the Mei service has been doing', 'format-justify-left-symbolic');
+        more.add(providerRow);
+        more.add(logsRow);
+        page.add(more);
+        page.add(group('Privacy', retention.row));
+        page.add(group('Shortcuts', shortcut.row));
+        window.add(page);
+
+        // This window isn't subscribed to the runtime's events (they include every streamed reply),
+        // so it reloads whenever it comes back into use; changes made elsewhere then show up.
+        const refresh = () => settings.reload().catch(e => Logger.debug(Tag.Prefs, `Reloading settings: ${(e as Error).message}`));
+        window.connect('notify::is-active', () => {
+            if (window.is_active) void refresh();
         });
-        window.add(mainPage);
-
-        const gsettings = this.getSettings();
-        const call: Call = (method, args, opts) => client.call(method, args, opts);
-
-        const meiGroup = new Adw.PreferencesGroup({ title: 'Mei' });
-        mainPage.add(meiGroup);
-        const serviceRow = new Adw.ActionRow({
-            title: 'Mei service',
-            subtitle: 'Checking…',
-            icon_name: 'emblem-system-symbolic',
-        });
-        const setupRow = new Adw.ActionRow({
-            title: 'Run setup again',
-            subtitle: 'Go through the setup steps; nothing changes unless you change it',
-            icon_name: 'view-refresh-symbolic',
-            activatable: true,
-        });
-        meiGroup.add(serviceRow);
-        meiGroup.add(setupRow);
-
-        // Replace 'Options' with 'Settings'
-        const mainMenuGroup = new Adw.PreferencesGroup({
-            title: 'Settings',
-        });
-        mainPage.add(mainMenuGroup);
-
-        // Row 1: Configure AI Provider
-        const providerRow = new Adw.ActionRow({
-            title: 'Configure AI Provider',
-            subtitle: 'Set up Ollama, OpenAI, Anthropic, Gemini, etc.',
-            icon_name: 'network-server-symbolic',
-            activatable: true,
-        });
-        mainMenuGroup.add(providerRow);
-
-        // Row 2: Show Logs
-        const logsRow = new Adw.ActionRow({
-            title: 'Show Logs',
-            subtitle: 'View, copy, and clear system logs',
-            icon_name: 'format-justify-left-symbolic',
-            activatable: true,
-        });
-        mainMenuGroup.add(logsRow);
-
-        const privacyGroup = new Adw.PreferencesGroup({ title: 'Privacy' });
-        const retentionRow = buildRetentionRow(window, settings);
-        privacyGroup.add(retentionRow.row);
-        mainPage.add(privacyGroup);
-
-        const shortcutsGroup = new Adw.PreferencesGroup({ title: 'Shortcuts' });
-        const shortcutRow = buildShortcutRow(window, gsettings, 'open-shortcut', 'Open Mei');
-        shortcutsGroup.add(shortcutRow.row);
-        mainPage.add(shortcutsGroup);
-
-        /* ── Page 1: Provider Subpage ─────────────────── */
-        const providerBox = new Gtk.Box({
-            orientation: Gtk.Orientation.VERTICAL,
-        });
-
-        // Add HeaderBar to subpage
-        const providerHeader = new Adw.HeaderBar();
-        providerBox.append(providerHeader);
-
-        const providerPrefPage = new Adw.PreferencesPage({
-            hexpand: true,
-            vexpand: true,
-        });
-        providerBox.append(providerPrefPage);
-
-        const providerTypeGroup = new Adw.PreferencesGroup({
-            title: 'Provider Type',
-            description: 'Choose whether to use a local model, a cloud service, or a custom endpoint.',
-        });
-        providerPrefPage.add(providerTypeGroup);
-
-        const providerTypeModel = new Gtk.StringList();
-        const typeIds = PROVIDER_TYPE_IDS;
-        const typeLabels = typeIds.map(id => PROVIDER_TYPE_LABELS[id]);
-        for (const label of typeLabels) {
-            providerTypeModel.append(label);
-        }
-
-        const providerTypeComboRow = new Adw.ComboRow({
-            title: 'Type',
-            model: providerTypeModel,
-        });
-
-        const currentType = getProviderType(settings.get_string('provider-type'));
-        let currentTypeIdx = typeIds.indexOf(currentType);
-        if (currentTypeIdx === -1) currentTypeIdx = 1;
-        providerTypeComboRow.set_selected(currentTypeIdx);
-
-        providerTypeComboRow.connect('notify::selected', () => {
-            const idx = providerTypeComboRow.get_selected();
-            if (idx >= typeIds.length) return;
-            settings.set_string('provider-type', typeIds[idx]);
-            // A type with a single provider (Custom) has no list to pick from: choosing it is the choice.
-            const providers = getProviderIdsForType(typeIds[idx]);
-            if (providers.length === 1) settings.set_string('provider', providers[0]);
-        });
-        providerTypeGroup.add(providerTypeComboRow);
-
-        const providerGroup = new Adw.PreferencesGroup({
-            title: 'AI Provider',
-            description: 'Select which AI backend Mei should use.',
-        });
-        providerPrefPage.add(providerGroup);
-
-        const providerModel = new Gtk.StringList();
-        const providerComboRow = new Adw.ComboRow({
-            title: 'Provider',
-            subtitle: 'The AI service to connect to',
-            model: providerModel,
-        });
-        providerGroup.add(providerComboRow);
-
-        let activeProviderIds: string[] = [];
-        let renderingProviderList = false; // repopulating the list reselects rows; that isn't the user choosing
-
-        // Shows the providers of the chosen type. Nothing is saved here: a provider is saved only
-        // when the user picks one, so opening Settings never changes settings.
-        function updateProviderList() {
-            const pType = getProviderType(settings.get_string('provider-type'));
-            renderingProviderList = true;
-            activeProviderIds = getProviderIdsForType(pType);
-            providerModel.splice(0, providerModel.get_n_items(), activeProviderIds.map(id => getProviderLabel(id)));
-            providerGroup.set_visible(pType !== 'custom');
-            const idx = activeProviderIds.indexOf(settings.get_string('provider'));
-            providerComboRow.set_selected(idx >= 0 ? idx : Gtk.INVALID_LIST_POSITION);
-            renderingProviderList = false;
-        }
-
-        settingsSignalIds.push(settings.connect('changed::provider-type', updateProviderList));
-        // The popup's connection reloads settings when the runtime comes back; this window has no
-        // such connection, so it retries the load itself until the unsaved change goes through.
-        let saveRetryId = 0;
-        settingsSignalIds.push(settings.connect('save-failed', (_s, message) => {
-            window.add_toast(new Adw.Toast({ title: `Not saved yet; Mei will retry when it reconnects (${message})`, timeout: 6 }));
-            saveRetryId ||= GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, SAVE_RETRY_S, () => {
-                settings.reload().then(() => {
-                    if (saveRetryId) GLib.source_remove(saveRetryId);
-                    saveRetryId = 0;
-                }).catch(e => Logger.debug(Tag.Prefs, `Runtime still unavailable: ${(e as Error).message}`));
-                return GLib.SOURCE_CONTINUE;
-            });
-        }));
-
-        providerComboRow.connect('notify::selected', () => {
-            if (renderingProviderList) return;
-            const idx = providerComboRow.get_selected();
-            if (idx < activeProviderIds.length) settings.set_string('provider', activeProviderIds[idx]);
-        });
-
-        updateProviderList();
-
-        const connectionGroup = new Adw.PreferencesGroup({
-            title: 'Connection',
-            description: 'Endpoint and authentication settings.',
-        });
-        providerPrefPage.add(connectionGroup);
-
-        let providerConfigSaveTimeout = 0;
-        let pendingProviderConfigs: ProviderConfigs | null = null;
-        let pendingProviderConfigsBase: ProviderConfigs | null = null;
-        const apiKeyCache = new Map<string, string>();
-        let refreshingProviderUi = false;
-
-        function getProviderConfigs(): ProviderConfigs {
-            if (pendingProviderConfigs) return pendingProviderConfigs;
-            const jsonStr = settings.get_string('provider-configs') || '{}';
-            return parseProviderConfigs(jsonStr);
-        }
-
-        function saveProviderConfigsNow(configs: ProviderConfigs): void {
-            const current = parseProviderConfigs(settings.get_string('provider-configs'));
-            const merged = pendingProviderConfigsBase
-                ? mergeProviderConfigEdits(pendingProviderConfigsBase, configs, current)
-                : configs;
-            settings.set_string('provider-configs', JSON.stringify(merged));
-            pendingProviderConfigs = null;
-            pendingProviderConfigsBase = null;
-        }
-
-        function queueSaveProviderConfigs(configs: ProviderConfigs): void {
-            if (!pendingProviderConfigs) {
-                pendingProviderConfigsBase = parseProviderConfigs(settings.get_string('provider-configs'));
-            }
-            pendingProviderConfigs = configs;
-            if (providerConfigSaveTimeout) {
-                GLib.source_remove(providerConfigSaveTimeout);
-            }
-            providerConfigSaveTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 300, () => {
-                providerConfigSaveTimeout = 0;
-                if (pendingProviderConfigs && !destroyed) {
-                    saveProviderConfigsNow(pendingProviderConfigs);
-                }
-                return GLib.SOURCE_REMOVE;
-            });
-        }
-
-        function flushProviderConfigSave(): void {
-            if (providerConfigSaveTimeout) {
-                GLib.source_remove(providerConfigSaveTimeout);
-                providerConfigSaveTimeout = 0;
-            }
-            if (pendingProviderConfigs) {
-                saveProviderConfigsNow(pendingProviderConfigs);
-            }
-        }
-
-        function getCurrentProviderConfig(): StoredProviderConfig {
-            const provider = settings.get_string('provider');
-            const configs = getProviderConfigs();
-            return configs[provider] || createEmptyProviderConfig();
-        }
-
-        function getCurrentApiKeySnapshot(provider: string): string {
-            const config = getProviderConfigs()[provider] || createEmptyProviderConfig();
-            return isApiKeyPlaceholderLike(config.apiKey) ? apiKeyCache.get(provider) || '' : config.apiKey || apiKeyCache.get(provider) || '';
-        }
-        async function prewarmApiKeyCache(): Promise<void> {
-            for (const provider of Object.keys(getProviderConfigs())) {
-                try {
-                    const key = await lookupProviderApiKey(provider);
-                    if (key && !destroyed) apiKeyCache.set(provider, key);
-                } catch (e) {
-                    Logger.warn(Tag.Extension, `Failed to read the ${provider} API key: ${e}`);
-                }
-            }
-            if (!destroyed) updateVisibility();
-        }
-
-        async function getResolvedProviderConfig(provider: string, config: StoredProviderConfig): Promise<StoredProviderConfig> {
-            if (config.apiKey && !isApiKeyPlaceholderLike(config.apiKey)) return config;
-            const cachedKey = apiKeyCache.get(provider);
-            if (cachedKey) return { ...config, apiKey: cachedKey };
-
-            const resolved = await resolveStoredProviderConfig(provider, config);
-            if (resolved.apiKey) apiKeyCache.set(provider, resolved.apiKey);
-            return resolved;
-        }
-
-        async function updateCurrentProviderConfig(key: ProviderConfigKey, value: string): Promise<void> {
-            if (refreshingProviderUi) return;
-            const provider = settings.get_string('provider');
-            const configs = getProviderConfigs();
-            if (!configs[provider]) configs[provider] = createEmptyProviderConfig();
-            if (key === 'apiKey' && isApiKeyPlaceholderLike(value.trim())) return;
-            if (key === 'apiKey') {
-                try {
-                    configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
-                } catch (e) {
-                    apiKeyActionRow.set_subtitle(`Not saved: ${e instanceof Error ? e.message : e}`);
-                    return;
-                }
-                if (value.trim()) {
-                    apiKeyCache.set(provider, value.trim());
-                } else {
-                    apiKeyCache.delete(provider);
-                }
-            } else {
-                configs[provider][key] = value;
-            }
-            if (destroyed) {
-                const latestConfigs = parseProviderConfigs(settings.get_string('provider-configs'));
-                const latestConfig = latestConfigs[provider] || createEmptyProviderConfig();
-                latestConfigs[provider] = key === 'apiKey'
-                    ? { ...latestConfig, apiKey: configs[provider].apiKey, apiKeyStorage: configs[provider].apiKeyStorage }
-                    : { ...latestConfig, [key]: value };
-                saveProviderConfigsNow(latestConfigs);
-            } else {
-                queueSaveProviderConfigs(configs);
-            }
-        }
-
-
-        const providerModeGroup = new Adw.PreferencesGroup({
-            title: 'Provider Options',
-        });
-        providerPrefPage.add(providerModeGroup);
-
-        const openCodeModeModel = new Gtk.StringList();
-        const openCodeModeIds: OpenCodeMode[] = ['go', 'zen'];
-        openCodeModeModel.splice(0, 0, openCodeModeIds.map(id => OPEN_CODE_MODE_LABELS[id]));
-        const openCodeModeRow = new Adw.ComboRow({
-            title: 'OpenCode Mode',
-            subtitle: 'Go uses the OpenCode subscription model pool; Zen uses the Zen API model pool.',
-            model: openCodeModeModel,
-        });
-        openCodeModeRow.connect('notify::selected', () => {
-            const idx = openCodeModeRow.get_selected();
-            if (idx >= 0 && idx < openCodeModeIds.length) {
-                void updateCurrentProviderConfig('mode', openCodeModeIds[idx]);
-                currentFetchProvider = '';
-                currentFetchKey = '';
-                currentFetchMode = '';
-                currentFetchRequiresApiKey = false;
-                queueUpdateModels();
-            }
-        });
-        providerModeGroup.add(openCodeModeRow);
-
-        const deepSeekThinkingModel = new Gtk.StringList();
-        const deepSeekThinkingIds: DeepSeekThinking[] = ['default', 'enabled', 'disabled'];
-        deepSeekThinkingModel.splice(0, 0, deepSeekThinkingIds.map(id => DEEPSEEK_THINKING_LABELS[id]));
-        const deepSeekThinkingRow = new Adw.ComboRow({
-            title: 'DeepSeek Thinking',
-            subtitle: 'Default follows the model; On and Off send an explicit thinking mode.',
-            model: deepSeekThinkingModel,
-        });
-        providerModeGroup.add(deepSeekThinkingRow);
-
-        const deepSeekEffortModel = new Gtk.StringList();
-        const deepSeekEffortIds: DeepSeekReasoningEffort[] = ['low', 'high', 'max'];
-        deepSeekEffortModel.splice(0, 0, deepSeekEffortIds.map(id => DEEPSEEK_REASONING_EFFORT_LABELS[id]));
-        const deepSeekEffortRow = new Adw.ComboRow({
-            title: 'DeepSeek Reasoning Effort',
-            subtitle: 'DeepSeek may map requested effort differently by model.',
-            model: deepSeekEffortModel,
-        });
-        providerModeGroup.add(deepSeekEffortRow);
-
-        deepSeekThinkingRow.connect('notify::selected', () => {
-            const idx = deepSeekThinkingRow.get_selected();
-            if (idx >= 0 && idx < deepSeekThinkingIds.length) {
-                const thinking = deepSeekThinkingIds[idx];
-                void updateCurrentProviderConfig('thinking', thinking);
-                deepSeekEffortRow.set_visible(thinking === 'enabled');
-            }
-        });
-        deepSeekEffortRow.connect('notify::selected', () => {
-            const idx = deepSeekEffortRow.get_selected();
-            if (idx >= 0 && idx < deepSeekEffortIds.length) {
-                void updateCurrentProviderConfig('reasoningEffort', deepSeekEffortIds[idx]);
-            }
-        });
-
-        let modelEntryTimeout = 0;
-        const modelEntryRow = new Adw.EntryRow({ title: 'Model' });
-        modelEntryRow.connect('notify::text', () => {
-            if (refreshingProviderUi) return;
-            if (modelEntryTimeout) GLib.source_remove(modelEntryTimeout);
-            modelEntryTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 400, () => {
-                modelEntryTimeout = 0;
-                void updateCurrentProviderConfig('modelName', modelEntryRow.get_text());
-                return GLib.SOURCE_REMOVE;
-            });
-        });
-        connectionGroup.add(modelEntryRow);
-
-        const modelStringList = new Gtk.StringList();
-        const modelComboRow = new Adw.ComboRow({ title: 'Model', model: modelStringList });
-        modelComboRow.connect('notify::selected', () => {
-            const idx = modelComboRow.get_selected();
-            if (idx >= 0 && idx < modelStringList.get_n_items()) {
-                void updateCurrentProviderConfig('modelName', modelStringList.get_string(idx)!);
-            }
-        });
-        connectionGroup.add(modelComboRow);
-
-        const modelStatusRow = new Adw.ActionRow({ title: 'Model', subtitle: 'Checking...' });
-        const spinner = new Gtk.Spinner();
-        modelStatusRow.add_suffix(spinner);
-        connectionGroup.add(modelStatusRow);
-
-        let urlTimeout = 0;
-        const urlRow = new Adw.EntryRow({ title: 'Endpoint URL (optional)' });
-        urlRow.connect('notify::text', () => {
-            if (refreshingProviderUi) return;
-            if (urlTimeout) GLib.source_remove(urlTimeout);
-            urlTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 400, () => {
-                urlTimeout = 0;
-                void updateCurrentProviderConfig('url', urlRow.get_text());
-                return GLib.SOURCE_REMOVE;
-            });
-        });
-        connectionGroup.add(urlRow);
-
-        let apiKeyEditingProvider = '';
-        const apiKeyActionRow = new Adw.ActionRow({
-            title: 'API Key',
-            subtitle: 'No API key saved.',
-        });
-        const enterApiKeyBtn = new Gtk.Button({
-            label: 'Enter new API key',
-            valign: Gtk.Align.CENTER,
-        });
-        apiKeyActionRow.add_suffix(enterApiKeyBtn);
-        connectionGroup.add(apiKeyActionRow);
-
-        const apiKeyRow = new Adw.PasswordEntryRow({ title: 'API Key' });
-        apiKeyRow.set_visible(false);
-        const saveApiKeyBtn = new Gtk.Button({
-            icon_name: 'object-select-symbolic',
-            tooltip_text: 'Save API key',
-            valign: Gtk.Align.CENTER,
-            sensitive: false,
-        });
-        apiKeyRow.add_suffix(saveApiKeyBtn);
-
-        enterApiKeyBtn.connect('clicked', () => {
-            apiKeyEditingProvider = settings.get_string('provider');
-            refreshingProviderUi = true;
-            apiKeyRow.set_text('');
-            refreshingProviderUi = false;
-            apiKeyActionRow.set_visible(false);
-            apiKeyRow.set_visible(true);
-            apiKeyRow.grab_focus();
-        });
-        apiKeyRow.connect('notify::text', () => {
-            if (refreshingProviderUi) return;
-            saveApiKeyBtn.set_sensitive(apiKeyRow.get_text().trim().length > 0);
-        });
-        saveApiKeyBtn.connect('clicked', () => {
-            const apiKey = apiKeyRow.get_text().trim();
-            if (!apiKey) return;
-            const savingProvider = settings.get_string('provider');
-            saveApiKeyBtn.set_sensitive(false);
-            void (async () => {
-                await updateCurrentProviderConfig('apiKey', apiKey);
-                if (destroyed) return;
-                if (settings.get_string('provider') !== savingProvider) {
-                    updateVisibility();
-                    return;
-                }
-                apiKeyEditingProvider = '';
-                refreshingProviderUi = true;
-                apiKeyRow.set_text('');
-                refreshingProviderUi = false;
-                apiKeyRow.set_visible(false);
-                apiKeyActionRow.set_subtitle('API key is saved.');
-                apiKeyActionRow.set_visible(true);
-                if (getProviderType(settings.get_string('provider-type')) === 'cloud') {
-                    queueUpdateModels();
-                }
-            })();
-        });
-        connectionGroup.add(apiKeyRow);
-
-        let modelFetchCancellable: Gio.Cancellable | null = null;
-
-        async function fetchModels(provider: string, config: StoredProviderConfig, _cancellable: Gio.Cancellable): Promise<ModelListResult> {
-            return settings.listModels(provider as ProviderId, { url: config.url || '' });
-        }
-
-        let fetchTimeout = 0;
-        let currentFetchProvider = '';
-        let currentFetchKey = '';
-        let currentFetchMode = '';
-        let currentFetchRequiresApiKey = false;
-        let modelFetchSeq = 0;
-
-        function queueUpdateModels() {
-            if (destroyed) return;
-            if (fetchTimeout) {
-                GLib.source_remove(fetchTimeout);
-            }
-            fetchTimeout = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
-                fetchTimeout = 0;
-                doUpdateModels();
-                return GLib.SOURCE_REMOVE;
-            });
-        }
-
-        async function doUpdateModels() {
-            if (destroyed) return;
-            const provider = settings.get_string('provider');
-            const config = getCurrentProviderConfig();
-            const resolvedConfig = await getResolvedProviderConfig(provider, config);
-            if (destroyed || provider !== settings.get_string('provider')) return;
-            const apiKey = resolvedConfig.apiKey || '';
-
-            const providerMode = config.mode || '';
-            if (
-                provider === currentFetchProvider &&
-                apiKey === currentFetchKey &&
-                providerMode === currentFetchMode &&
-                modelStringList.get_n_items() > 0
-            ) {
-                const missingRequiredKey = currentFetchRequiresApiKey && apiKey.length === 0;
-                modelStatusRow.set_visible(missingRequiredKey);
-                if (missingRequiredKey) {
-                    modelStatusRow.set_subtitle(config.apiKeyStorage === 'secret'
-                        ? 'Stored API key could not be read. Enter and save it again.'
-                        : 'API key required to load the live model catalog.');
-                }
-                modelComboRow.set_visible(true);
-                return;
-            }
-
-            const fetchSeq = ++modelFetchSeq;
-            modelFetchCancellable?.cancel();
-            modelFetchCancellable = new Gio.Cancellable();
-            modelComboRow.set_visible(false);
-            modelStatusRow.set_visible(true);
-            modelStatusRow.set_subtitle('Loading models...');
-            spinner.start();
-            spinner.set_visible(true);
-
-            try {
-                const result = await fetchModels(provider, resolvedConfig, modelFetchCancellable);
-                const models = result.models;
-                if (
-                    destroyed ||
-                    fetchSeq !== modelFetchSeq ||
-                    provider !== settings.get_string('provider') ||
-                    apiKey !== getCurrentApiKeySnapshot(provider) ||
-                    settings.get_string('provider-type') !== 'cloud'
-                ) {
-                    return;
-                }
-
-                const missingRequiredKey = result.requiresApiKey && apiKey.length === 0;
-                if (models.length === 0 && missingRequiredKey) {
-                    modelComboRow.set_visible(false);
-                    modelStatusRow.set_visible(true);
-                    modelStatusRow.set_subtitle(config.apiKeyStorage === 'secret'
-                        ? 'Stored API key could not be read. Enter and save it again.'
-                        : 'API key required to load the live model catalog.');
-                    spinner.stop();
-                    spinner.set_visible(false);
-                    currentFetchProvider = provider;
-                    currentFetchKey = apiKey;
-                    currentFetchMode = providerMode;
-                    currentFetchRequiresApiKey = true;
-                    return;
-                }
-                if (models.length === 0) {
-                    throw new Error('No models returned.');
-                }
-                currentFetchProvider = provider;
-                currentFetchKey = apiKey;
-                currentFetchMode = providerMode;
-                currentFetchRequiresApiKey = result.requiresApiKey;
-
-                modelStringList.splice(0, modelStringList.get_n_items(), models);
-
-                const currentModel = config.modelName || '';
-                let idx = models.indexOf(currentModel);
-                if (idx === -1) {
-                    idx = 0;
-                    void updateCurrentProviderConfig('modelName', models[0]);
-                }
-                modelComboRow.set_selected(idx);
-
-                modelStatusRow.set_visible(missingRequiredKey);
-                if (missingRequiredKey) {
-                    modelStatusRow.set_subtitle(config.apiKeyStorage === 'secret'
-                        ? 'Stored API key could not be read. Enter and save it again.'
-                        : 'API key required to load the live model catalog.');
-                }
-                modelComboRow.set_visible(true);
-                spinner.stop();
-                spinner.set_visible(false);
-            } catch (e) {
-                if (
-                    destroyed ||
-                    fetchSeq !== modelFetchSeq ||
-                    provider !== settings.get_string('provider') ||
-                    apiKey !== getCurrentApiKeySnapshot(provider) ||
-                    settings.get_string('provider-type') !== 'cloud'
-                ) {
-                    return;
-                }
-
-                modelComboRow.set_visible(false);
-                modelStatusRow.set_visible(true);
-                modelStatusRow.set_subtitle(`Model list unavailable: ${e instanceof Error ? e.message : String(e)}`);
-                currentFetchProvider = '';
-                currentFetchKey = '';
-                currentFetchMode = '';
-                currentFetchRequiresApiKey = false;
-                spinner.stop();
-                spinner.set_visible(false);
-            }
-        }
-
-        function updateVisibility() {
-            const pType = getProviderType(settings.get_string('provider-type'));
-            const provider = settings.get_string('provider');
-
-            const config = getCurrentProviderConfig();
-            refreshingProviderUi = true;
-            try {
-                if (modelEntryRow.get_text() !== (config.modelName || '')) modelEntryRow.set_text(config.modelName || '');
-                if (urlRow.get_text() !== (config.url || '')) urlRow.set_text(config.url || '');
-                if (apiKeyEditingProvider && apiKeyEditingProvider !== provider) {
-                    apiKeyEditingProvider = '';
-                    apiKeyRow.set_text('');
-                }
-
-                const openCodeModeIdx = openCodeModeIds.indexOf(getOpenCodeMode(config.mode));
-                if (openCodeModeRow.get_selected() !== openCodeModeIdx) openCodeModeRow.set_selected(openCodeModeIdx);
-
-                const deepSeekThinkingIdx = deepSeekThinkingIds.indexOf(getDeepSeekThinking(config.thinking));
-                if (deepSeekThinkingRow.get_selected() !== deepSeekThinkingIdx) deepSeekThinkingRow.set_selected(deepSeekThinkingIdx);
-
-                const deepSeekEffortIdx = deepSeekEffortIds.indexOf(getDeepSeekReasoningEffort(config.reasoningEffort));
-                if (deepSeekEffortRow.get_selected() !== deepSeekEffortIdx) deepSeekEffortRow.set_selected(deepSeekEffortIdx);
-
-            } finally {
-                refreshingProviderUi = false;
-            }
-
-            urlRow.set_visible(pType === 'custom');
-            const hasSavedApiKey = Boolean(config.apiKey || config.apiKeyStorage === 'secret');
-            const editingApiKey = apiKeyEditingProvider === provider;
-            apiKeyActionRow.set_subtitle(hasSavedApiKey ? 'API key is saved.' : 'No API key saved.');
-            apiKeyActionRow.set_visible(!editingApiKey);
-            apiKeyRow.set_visible(editingApiKey);
-            providerModeGroup.set_visible(provider === 'opencode' || provider === 'deepseek');
-            openCodeModeRow.set_visible(provider === 'opencode');
-            deepSeekThinkingRow.set_visible(provider === 'deepseek');
-            deepSeekEffortRow.set_visible(provider === 'deepseek' && getDeepSeekThinking(config.thinking) === 'enabled');
-
-            if (pType === 'local' || pType === 'custom') {
-                modelEntryRow.set_visible(true);
-                modelComboRow.set_visible(false);
-                modelStatusRow.set_visible(false);
-                if (fetchTimeout) {
-                    GLib.source_remove(fetchTimeout);
-                    fetchTimeout = 0;
-                }
-                modelFetchCancellable?.cancel();
-                modelFetchCancellable = null;
-                modelFetchSeq++;
-                spinner.stop();
-                spinner.set_visible(false);
-            } else {
-                modelEntryRow.set_visible(false);
-                if (
-                    provider === currentFetchProvider &&
-                    getCurrentApiKeySnapshot(provider) === currentFetchKey &&
-                    (getCurrentProviderConfig().mode || '') === currentFetchMode &&
-                    modelStringList.get_n_items() > 0
-                ) {
-                    const missingRequiredKey = currentFetchRequiresApiKey && currentFetchKey.length === 0;
-                    modelComboRow.set_visible(true);
-                    modelStatusRow.set_visible(missingRequiredKey);
-                    if (missingRequiredKey) {
-                        modelStatusRow.set_subtitle(config.apiKeyStorage === 'secret'
-                            ? 'Stored API key could not be read. Enter and save it again.'
-                            : 'API key required to load the live model catalog.');
-                    }
-                } else {
-                    queueUpdateModels();
-                }
-            }
-        }
-
-        settingsSignalIds.push(settings.connect('changed::provider', updateVisibility));
-        settingsSignalIds.push(settings.connect('changed::provider-type', updateVisibility));
-        updateVisibility();
-        void prewarmApiKeyCache();
-
-        const providerSubpage = new Adw.NavigationPage({
-            title: 'AI Provider Configurations',
-            child: providerBox,
-        });
-
         providerRow.connect('activated', () => {
-            window.push_subpage(providerSubpage);
+            window.push_subpage(providers.page);
+            void refresh();
         });
+        logsRow.connect('activated', () => window.push_subpage(logs.page));
 
-        /* ── Setup assistant ──────────────────────────── */
-        const showServiceStatus = (status: SetupStatusReply) => {
-            const service = status.steps.find(step => step.id === 'service');
-            if (service?.id === 'service')
-                serviceRow.set_subtitle(`Running · version ${service.runtime_version} · keyring ${service.keyring === 'missing' ? 'not found' : service.keyring}`);
-        };
         const setup = buildSetupAssistant({
-            window, call, settings, gsettings,
-            openProviders: () => window.push_subpage(providerSubpage),
-            onStatus: showServiceStatus,
+            window, call, settings, gsettings: this.getSettings(),
+            openProviders: () => window.push_subpage(providers.page),
+            onStatus: status => service.set_subtitle(serviceSummary(status)),
         });
-        setupRow.connect('activated', () => {
+        rerun.connect('activated', () => {
             setup.restart();
             window.push_subpage(setup.page);
         });
         // Until setup is finished, Settings opens on it (the extension opens Settings once, at the
         // first login after installing).
         void setup.refresh().then(status => {
-            if (destroyed || !status || status.completed) return;
+            if (!status || status.completed) return;
             window.push_subpage(setup.page);
             if (!status.offered) {
                 call('SetupApply', { step: 'offered' }).catch(e =>
@@ -769,208 +96,51 @@ export default class MeiPreferences extends ExtensionPreferences {
             }
         });
 
-        /* ── Page 2: Logs Subpage ─────────────────────── */
-        const logsBox = new Gtk.Box({
-            orientation: Gtk.Orientation.VERTICAL,
-            spacing: 10,
-        });
-
-        // Add HeaderBar to subpage
-        const logsHeader = new Adw.HeaderBar();
-        logsBox.append(logsHeader);
-
-        // Filter Bar (Top)
-        const filterBox = new Gtk.Box({
-            orientation: Gtk.Orientation.HORIZONTAL,
-            spacing: 10,
-            margin_start: 15,
-            margin_end: 15,
-        });
-        logsBox.append(filterBox);
-
-        let logLines: string[] = [];
-        let currentFilter = 'All';
-
-        const filters = ['All', 'Info', 'Debug', 'Error', 'Warn'];
-        let firstButton: Gtk.ToggleButton | null = null;
-        for (const f of filters) {
-            const btn = new Gtk.ToggleButton({ label: f });
-            if (firstButton) {
-                btn.set_group(firstButton);
-            } else {
-                firstButton = btn;
-                btn.set_active(true);
-            }
-            btn.connect('toggled', () => {
-                if (btn.get_active()) {
-                    currentFilter = f;
-                    updateView();
-                }
+        // The popup's connection reloads settings when the runtime comes back; this window has no
+        // such connection, so it retries the load itself until an unsaved change goes through.
+        let retryId = 0;
+        const saveFailed = settings.connect('save-failed', (_s, message) => {
+            window.add_toast(new Adw.Toast({ title: `Not saved yet; Mei will retry when it reconnects (${message})`, timeout: 6 }));
+            retryId ||= sources.timeout(SAVE_RETRY_MS, () => {
+                settings.reload().then(() => {
+                    retryId = sources.remove(retryId);
+                }).catch(e => Logger.debug(Tag.Prefs, `Runtime still unavailable: ${(e as Error).message}`));
+                return GLib.SOURCE_CONTINUE;
             });
-            filterBox.append(btn);
-        }
-
-        const spacer = new Gtk.Box({ hexpand: true });
-        filterBox.append(spacer);
-
-        // Refresh button
-        const refreshBtn = new Gtk.Button({
-            icon_name: 'view-refresh-symbolic',
-            tooltip_text: 'Refresh Logs',
-        });
-        refreshBtn.connect('clicked', () => {
-            loadLogs();
-        });
-        filterBox.append(refreshBtn);
-
-        // Clear button
-        const clearBtn = new Gtk.Button({
-            icon_name: 'user-trash-symbolic',
-            tooltip_text: 'Clear Logs',
-            css_classes: ['destructive-action'],
-        });
-        clearBtn.connect('clicked', () => {
-            clearLogs();
-        });
-        filterBox.append(clearBtn);
-
-        // Copy button
-        const copyBtn = new Gtk.Button({
-            label: 'Copy',
-            icon_name: 'edit-copy-symbolic',
-            css_classes: ['suggested-action'],
-        });
-        filterBox.append(copyBtn);
-
-        // Scrolled Window for Logs
-        const scrolled = new Gtk.ScrolledWindow({
-            hexpand: true,
-            vexpand: true,
-            min_content_height: 400,
-            margin_start: 15,
-            margin_end: 15,
-            margin_bottom: 15,
-        });
-        scrolled.add_css_class('card');
-
-        const textView = new Gtk.TextView({
-            editable: false,
-            monospace: true,
-            wrap_mode: Gtk.WrapMode.WORD_CHAR,
-            left_margin: 8,
-            right_margin: 8,
-            top_margin: 8,
-            bottom_margin: 8,
-        });
-        const buffer = textView.get_buffer();
-        scrolled.set_child(textView);
-        logsBox.append(scrolled);
-
-        copyBtn.connect('clicked', () => {
-            const text = buffer.get_text(
-                buffer.get_start_iter(),
-                buffer.get_end_iter(),
-                false
-            );
-            const clipboard = window.get_clipboard();
-            clipboard.set(text);
-        });
-
-        const logsSubpage = new Adw.NavigationPage({
-            title: 'Logs',
-            child: logsBox,
-        });
-
-        logsRow.connect('activated', () => {
-            window.push_subpage(logsSubpage);
-        });
-
-        /* ── Load/Clear/Update View Logic ──────────────── */
-        function loadLogs() {
-            settings.fetchLogs().then(entries => {
-                if (destroyed) return;
-                logLines = entries.map(formatLogEntry);
-                updateView();
-            }).catch(e => {
-                if (!destroyed) buffer.set_text(`Failed to load logs: ${e instanceof Error ? e.message : e}`, -1);
-            });
-        }
-
-        function clearLogs() {
-            settings.clearLogs().then(() => {
-                logLines = [];
-                if (!destroyed) updateView();
-            }).catch(e => {
-                if (!destroyed) buffer.set_text(`Failed to clear logs: ${e instanceof Error ? e.message : e}`, -1);
-            });
-        }
-
-        function updateView() {
-            let visibleLines = logLines;
-            if (currentFilter !== 'All') {
-                const levelStr = `[${currentFilter.toUpperCase()}]`;
-                visibleLines = logLines.filter(line => line.includes(levelStr));
-            }
-
-            const reversedLines = [...visibleLines].reverse();
-            const newText = reversedLines.join('\n');
-
-            const currentText = buffer.get_text(
-                buffer.get_start_iter(),
-                buffer.get_end_iter(),
-                false
-            );
-
-            if (newText === currentText) {
-                return; // No change
-            }
-
-            buffer.set_text(newText, -1);
-        }
-
-        // Initial load
-        loadLogs();
-
-        // Auto-refresh every 5 seconds while preferences window is alive
-        let timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
-            loadLogs();
-            return GLib.SOURCE_CONTINUE;
         });
 
         window.connect('destroy', () => {
-            if (modelEntryTimeout) {
-                GLib.source_remove(modelEntryTimeout);
-                modelEntryTimeout = 0;
-                void updateCurrentProviderConfig('modelName', modelEntryRow.get_text());
-            }
-            if (urlTimeout) {
-                GLib.source_remove(urlTimeout);
-                urlTimeout = 0;
-                void updateCurrentProviderConfig('url', urlRow.get_text());
-            }
-            if (fetchTimeout) {
-                GLib.source_remove(fetchTimeout);
-                fetchTimeout = 0;
-            }
-            flushProviderConfigSave();
-            destroyed = true;
-            modelFetchSeq++;
-            modelFetchCancellable?.cancel();
-            modelFetchCancellable = null;
-
-            if (timeoutId) {
-                GLib.source_remove(timeoutId);
-                timeoutId = 0;
-            }
-            for (const signalId of settingsSignalIds) {
-                settings.disconnect(signalId);
-            }
-            settingsSignalIds.length = 0;
-            setup.destroy();
-            retentionRow.destroy();
-            shortcutRow.destroy();
-            if (saveRetryId) GLib.source_remove(saveRetryId);
-            saveRetryId = 0;
+            sources.destroy();
+            settings.disconnect(saveFailed);
+            for (const part of [providers, logs, setup, retention, shortcut]) part.destroy();
         });
     }
+}
+
+function unavailablePage(error: unknown): Adw.PreferencesPage {
+    const page = new Adw.PreferencesPage({ title: 'Mei', icon_name: 'preferences-system-symbolic' });
+    page.add(new Adw.PreferencesGroup({
+        title: 'The Mei service can’t be reached',
+        description: `Mei’s settings live in its service, which didn’t answer: ${error instanceof Error ? error.message : String(error)}`,
+    }));
+    return page;
+}
+
+function navRow(title: string, subtitle: string, iconName: string): Adw.ActionRow {
+    const row = new Adw.ActionRow({ title, subtitle, icon_name: iconName, activatable: true });
+    row.add_suffix(new Gtk.Image({ icon_name: 'go-next-symbolic' }));
+    return row;
+}
+
+function group(title: string, row: Adw.PreferencesRow): Adw.PreferencesGroup {
+    const g = new Adw.PreferencesGroup({ title });
+    g.add(row);
+    return g;
+}
+
+function serviceSummary(status: SetupStatusReply): string {
+    const service = status.steps.find(step => step.id === 'service');
+    if (service?.id !== 'service') return 'Running';
+    const keyring = service.keyring === 'missing' ? 'not found' : service.keyring;
+    return `Running · version ${service.runtime_version} · keyring ${keyring}`;
 }

@@ -8,7 +8,6 @@ import {
     DEEPSEEK_THINKING_LABELS,
     getDeepSeekReasoningEffort,
     getDeepSeekThinking,
-    getOpenCodeMode,
     getProviderIdsForType,
     getProviderLabel,
     getProviderType,
@@ -44,7 +43,7 @@ test('provider catalog partitions every provider exactly once', () => {
     assert.equal(CLOUD_PROVIDER_IDS.includes('nvidia'), true);
 });
 
-test('provider catalog normalizes types, ids, labels, and OpenCode modes', () => {
+test('provider catalog normalizes types, ids, and labels', () => {
     assert.equal(getProviderType('local'), 'local');
     assert.equal(getProviderType('custom'), 'custom');
     assert.equal(getProviderType('anything-else'), 'cloud');
@@ -56,8 +55,6 @@ test('provider catalog normalizes types, ids, labels, and OpenCode modes', () =>
     assert.equal(getProviderLabel('nvidia'), 'NVIDIA NIM');
     assert.equal(getProviderLabel('gemini'), 'Gemini');
     assert.equal(getProviderLabel('future-provider'), 'future-provider');
-    assert.equal(getOpenCodeMode('zen'), 'zen');
-    assert.equal(getOpenCodeMode('invalid'), 'go');
     assert.equal(getDeepSeekThinking('enabled'), 'enabled');
     assert.equal(getDeepSeekThinking('invalid'), 'default');
     assert.equal(getDeepSeekReasoningEffort('low'), 'low');

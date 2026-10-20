@@ -43,11 +43,6 @@ function truncate(s: string, max: number): string {
     return s.slice(0, max) + '…';
 }
 
-/** Describe whether an API key is present without exposing any fragment. */
-export function maskKey(key: string | undefined): string {
-    return key ? 'configured' : 'not set';
-}
-
 /* ── Logger ───────────────────────────────────────── */
 
 export class Logger {

@@ -20,7 +20,7 @@ export const SETUP_STEPS: StepInfo[] = [
     { id: 'shortcuts', title: 'Shortcuts', skippable: true },
 ];
 
-export const RETENTION_PRESETS: (number | null)[] = [null, 7, 30, 90, 365];
+const RETENTION_PRESETS: (number | null)[] = [null, 7, 30, 90, 365];
 
 export function retentionLabel(days: number | null): string {
     return days === null ? 'Keep until I delete them' : `After ${periodText(days)}`;

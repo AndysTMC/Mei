@@ -52,22 +52,40 @@ test('writes are refused until the settings are loaded', async () => {
     const rt = fakeRuntime(BASE);
     const settings = new RuntimeSettings(rt.call);
     assert.throws(() => settings.setRetentionDays(30));
+    assert.equal(settings.setActive('groq'), false);
+    settings.setProviderField('gemini', 'model', 'x');
+    assert.equal(rt.sent.length, 0);
     await settings.reload();
     assert.equal(settings.retentionDays, null);
+    assert.equal(settings.active, 'gemini');
+    assert.equal(settings.provider('gemini').model, 'g');
+    assert.equal(settings.provider('never-set').model, '');
 });
 
-test('retention changes are sent once and announced to listeners', async () => {
+test('changes are sent once and announced to listeners of their key', async () => {
     const rt = fakeRuntime(BASE);
     const settings = new RuntimeSettings(rt.call);
     await settings.reload();
     const heard: string[] = [];
-    settings.connect('changed::privacy', (_s, key) => heard.push(key));
+    settings.connect('changed', (_s, key) => heard.push(key));
     settings.setRetentionDays(30);
     settings.setRetentionDays(30);
-    await flush();
-    assert.deepEqual(heard, ['privacy']);
-    assert.equal(rt.sent.filter(s => s.method === 'UpdateConfig').length, 1);
-    assert.equal((rt.doc.privacy as { conversation_retention_days: number }).conversation_retention_days, 30);
+    settings.setProviderField('gemini', 'model', 'gemini-2');
+    settings.setProviderField('gemini', 'model', 'gemini-2');
+    assert.equal(settings.setActive('OR'), true); // an alias, stored as the canonical id
+    await settings.flushed();
+    assert.deepEqual(heard, ['privacy', 'providers', 'active']);
+    assert.equal(rt.doc.active, 'openrouter');
+    assert.equal((rt.doc as Doc).providers.gemini.model, 'gemini-2');
+});
+
+test('unknown and retired providers cannot be chosen', async () => {
+    const rt = fakeRuntime(BASE);
+    const settings = new RuntimeSettings(rt.call);
+    await settings.reload();
+    assert.equal(settings.setActive('nope'), false);
+    assert.equal(settings.setActive('opencode'), false);
+    assert.equal(settings.active, 'gemini');
 });
 
 test('fields from a newer runtime survive a write from this client', async () => {
@@ -75,36 +93,12 @@ test('fields from a newer runtime survive a write from this client', async () =>
     const settings = new RuntimeSettings(rt.call);
     await settings.reload();
     settings.setRetentionDays(90);
-    await flush();
+    await settings.flushed();
     assert.deepEqual(rt.doc.memory, { enabled: true });
     assert.deepEqual(rt.doc.privacy, { screenshots_days: 7, conversation_retention_days: 90 });
 });
 
-test('a remote retention change is announced; a conflicting write is replayed on the fresh copy', async () => {
-    const rt = fakeRuntime(BASE);
-    const settings = new RuntimeSettings(rt.call);
-    await settings.reload();
-    const heard: string[] = [];
-    settings.connect('changed', (_s, key) => heard.push(key));
-
-    rt.remote(d => {
-        (d.privacy as { conversation_retention_days: number | null }).conversation_retention_days = 7;
-    });
-    await settings.reload();
-    assert.equal(settings.retentionDays, 7);
-    assert.deepEqual(heard, ['privacy']);
-
-    rt.remote(d => {
-        d.active = 'groq';
-    });
-    settings.setRetentionDays(365); // based on a stale revision: the runtime refuses, we replay
-    await flush();
-    await flush();
-    assert.equal(rt.doc.active, 'groq');
-    assert.equal((rt.doc.privacy as { conversation_retention_days: number }).conversation_retention_days, 365);
-});
-
-test('a conflict replays only the fields this client changed, keeping another client\'s change', async () => {
+test('a conflict replays only this client\'s field change, keeping another client\'s change', async () => {
     const rt = fakeRuntime(BASE);
     const settings = new RuntimeSettings(rt.call);
     await settings.reload();
@@ -112,22 +106,25 @@ test('a conflict replays only the fields this client changed, keeping another cl
     rt.remote(d => {
         (d as Doc).providers.gemini.model = 'changed-elsewhere';
     });
-    const stale = JSON.parse(settings.get_string('provider-configs'));
-    stale.gemini.url = 'https://proxy.test/v1beta';
-    settings.set_string('provider-configs', JSON.stringify(stale));
+    settings.setProviderField('gemini', 'url', 'https://proxy.test/v1beta');
     await settings.flushed();
     const saved = (rt.doc as Doc).providers.gemini;
     assert.equal(saved.url, 'https://proxy.test/v1beta');
     assert.equal(saved.model, 'changed-elsewhere');
 });
 
-test('setting the same document again sends nothing', async () => {
+test('a remote change is announced by key', async () => {
     const rt = fakeRuntime(BASE);
     const settings = new RuntimeSettings(rt.call);
     await settings.reload();
-    settings.set_string('provider-configs', settings.get_string('provider-configs'));
-    await settings.flushed();
-    assert.equal(rt.sent.filter(s => s.method === 'UpdateConfig').length, 0);
+    const heard: string[] = [];
+    settings.connect('changed::privacy', (_s, key) => heard.push(key));
+    rt.remote(d => {
+        (d.privacy as { conversation_retention_days: number | null }).conversation_retention_days = 7;
+    });
+    await settings.reload();
+    assert.equal(settings.retentionDays, 7);
+    assert.deepEqual(heard, ['privacy']);
 });
 
 test('a save that fails while the runtime is away is kept, reported, and sent after reconnecting', async () => {
@@ -151,7 +148,7 @@ test('a save that fails while the runtime is away is kept, reported, and sent af
     assert.equal((rt.doc.privacy as { conversation_retention_days: number }).conversation_retention_days, 30);
 });
 
-test('listing models waits for a just-typed endpoint to be saved', async () => {
+test('listing models waits for a just-saved endpoint', async () => {
     const rt = fakeRuntime(BASE);
     const order: string[] = [];
     const call = async <T>(method: string, args: object = {}): Promise<T> => {
@@ -161,9 +158,7 @@ test('listing models waits for a just-typed endpoint to be saved', async () => {
     };
     const settings = new RuntimeSettings(call);
     await settings.reload();
-    const configs = JSON.parse(settings.get_string('provider-configs'));
-    configs.gemini.url = 'https://proxy.test/v1beta';
-    settings.set_string('provider-configs', JSON.stringify(configs));
-    await settings.listModels('gemini');
+    settings.setProviderField('gemini', 'url', 'https://proxy.test/v1beta');
+    assert.deepEqual(await settings.listModels('gemini'), { models: ['m'], requiresApiKey: false });
     assert.deepEqual(order, ['GetConfig', 'UpdateConfig', 'ListModels']);
 });

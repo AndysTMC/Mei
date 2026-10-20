@@ -1,53 +1,44 @@
 /**
- * Provider settings backed by the runtime (protocol 2), shaped like the `Gio.Settings` keys the
- * popup and preferences used before: `provider`, `provider-type`, and `provider-configs`.
+ * Mei's settings, owned by the runtime (ADR 0002), as seen by the popup and the Settings window.
  *
- * Reads are synchronous from a local copy. A write records only the fields it changes, applies
- * them to the copy, notifies listeners, and is sent to the runtime with compare-and-set; on a
- * conflict the same field changes are replayed onto the runtime's newer copy, so a concurrent
- * change to another field survives. If the runtime can't be reached, unsaved changes stay queued
- * (and visible) and are sent after the next successful load; listeners of `save-failed` are told.
- * Writes are refused until the first load, so a view rendering defaults can't overwrite real
- * settings. API keys never pass through here: they go to the keyring directly.
+ * Reads are synchronous from a local copy. Each write changes one field: it is applied to the
+ * copy, announced to listeners, and sent to the runtime with compare-and-set. On a conflict the
+ * same field changes are replayed onto the runtime's newer copy, so a concurrent change to another
+ * field survives. If the runtime can't be reached, unsaved changes stay queued (and visible) and
+ * are sent after the next successful load; `save-failed` listeners are told. Writes are refused
+ * until the first load, so a view showing defaults can't overwrite real settings. API keys never
+ * pass through here: they go to the keyring directly.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import { getProviderType } from '../providers/catalog.js';
 import { getProviderProfile, resolveProviderId } from '../providers/profiles.js';
-import { parseProviderConfigs, type StoredProviderConfig } from '../providers/configStore.js';
 import type { ProviderId } from '../providers/types.js';
 import { Logger, Tag } from '../utils/logger.js';
 import type { ConfigDoc, ConfigReply, LogEntry, ModelsReply, ProviderSettings } from './protocol.js';
 
 export type Call = <T>(method: string, args?: object) => Promise<T>;
+/** What changed, for `changed` and `changed::<key>`. */
+export type SettingsKey = 'active' | 'providers' | 'privacy';
 /** `detail` is the changed key for `changed`/`changed::<key>`, the error message for `save-failed`. */
 type Listener = (settings: RuntimeSettings, detail: string) => void;
 type Mutation = (doc: ConfigDoc) => void;
 
-const PROVIDER_FIELDS = ['model', 'url', 'mode', 'thinking', 'reasoning_effort'] as const;
-type ProviderField = (typeof PROVIDER_FIELDS)[number];
-
-interface FieldEdit {
-    provider: string;
-    field: ProviderField;
-    value: string;
-}
-
-const MAX_CONFLICT_RETRIES = 3;
+export type ProviderField = 'model' | 'url' | 'mode' | 'thinking' | 'reasoning_effort';
 
 export interface ModelListResult {
     models: string[];
+    /** The provider needs a key and none is saved, so `models` are suggestions. */
     requiresApiKey: boolean;
 }
 
-const KEYS = ['provider', 'provider-type', 'provider-configs'] as const;
+const KEYS: SettingsKey[] = ['active', 'providers', 'privacy'];
+const MAX_CONFLICT_RETRIES = 3;
 
 export class RuntimeSettings {
     private _doc: ConfigDoc = emptyDoc();
     private _revision = -1;
-    private _providerType: string | null = null;
-    private _listeners = new Map<number, { signal: string; fn: Listener }>();
+    private readonly _listeners = new Map<number, { signal: string; fn: Listener }>();
     private _nextId = 1;
     private _pending: Mutation[] = [];
     /** Changes being sent right now (not in the runtime's copy until it answers). */
@@ -74,15 +65,13 @@ export class RuntimeSettings {
 
     applyRemote(reply: ConfigReply): void {
         if (reply.revision <= this._revision && this.loaded) return;
-        const before = KEYS.map(k => this.get_string(k));
-        const retention = this.retentionDays;
+        const before = KEYS.map(key => this._snapshot(key));
         this._doc = normalize(reply.config);
         this._revision = reply.revision;
         for (const change of [...this._sending, ...this._pending]) change(this._doc); // not saved yet: keep showing them
-        KEYS.forEach((k, i) => {
-            if (this.get_string(k) !== before[i]) this._emit(k);
+        KEYS.forEach((key, i) => {
+            if (this._snapshot(key) !== before[i]) this._emit(key);
         });
-        if (this.retentionDays !== retention) this._emit('privacy');
     }
 
     /** Resolves once every change made so far has been sent (or has failed to send). */
@@ -90,14 +79,42 @@ export class RuntimeSettings {
         while (this._flushing) await this._flushing;
     }
 
-    /** The model chosen for a provider, or '' when none is. */
-    modelFor(provider: string): string {
-        return this._doc.providers[provider]?.model ?? '';
+    // ── Reading ──────────────────────────────────────────────────────────────
+
+    /** The provider new conversations use, or '' when none is chosen yet. */
+    get active(): string {
+        return this._doc.active;
+    }
+
+    /** One provider's settings (empty values if it was never configured). */
+    provider(id: string): Readonly<ProviderSettings> {
+        return this._doc.providers[id] ?? emptyProvider();
     }
 
     /** Days after which untouched conversations are deleted; null keeps them until the user deletes them. */
     get retentionDays(): number | null {
         return this._doc.privacy.conversation_retention_days;
+    }
+
+    // ── Writing ──────────────────────────────────────────────────────────────
+
+    /** Choose the provider for new conversations. Refuses unknown and retired providers. */
+    setActive(id: string): boolean {
+        const resolved = resolveProviderId(id);
+        if (!resolved || !getProviderProfile(resolved).selectable || !this._writable()) return false;
+        if (resolved !== this.active) {
+            this._mutate(doc => {
+                doc.active = resolved;
+            }, 'active');
+        }
+        return true;
+    }
+
+    setProviderField(id: string, field: ProviderField, value: string): void {
+        if (!this._writable() || this.provider(id)[field] === value) return;
+        this._mutate(doc => {
+            doc.providers[id] = { ...(doc.providers[id] ?? emptyProvider()), [field]: value };
+        }, 'providers');
     }
 
     setRetentionDays(days: number | null): void {
@@ -108,60 +125,12 @@ export class RuntimeSettings {
         }, 'privacy');
     }
 
-    get_string(key: string): string {
-        if (key === 'provider') return this._doc.active;
-        if (key === 'provider-type') {
-            if (this._providerType) return this._providerType;
-            const id = resolveProviderId(this._doc.active);
-            return id ? getProviderProfile(id).type : 'local';
-        }
-        if (key === 'provider-configs') return JSON.stringify(toStored(this._doc.providers));
-        return '';
-    }
+    // ── Runtime calls that belong with settings ──────────────────────────────
 
-    set_string(key: string, value: string): boolean {
-        if (!this.loaded) {
-            Logger.warn(Tag.Extension, `Ignoring ${key} change before settings have loaded from the runtime`);
-            return false;
-        }
-        if (this.get_string(key) === value) return true;
-        if (key === 'provider-type') {
-            this._providerType = getProviderType(value); // a view filter, not a stored setting
-            this._emit(key);
-            return true;
-        }
-        if (key === 'provider') {
-            const id = resolveProviderId(value);
-            if (!id || !getProviderProfile(id).selectable) return false;
-            this._mutate(doc => {
-                doc.active = id;
-            }, key);
-            return true;
-        }
-        if (key === 'provider-configs') {
-            // Callers pass the whole document; keep only what they changed, so replaying it after
-            // a conflict can't undo someone else's change to another field.
-            const edits = diffProviders(this._doc.providers, parseProviderConfigs(value));
-            if (edits.length) this._mutate(doc => applyEdits(doc, edits), key);
-            return true;
-        }
-        return false;
-    }
-
-    connect(signal: string, fn: Listener): number {
-        const id = this._nextId++;
-        this._listeners.set(id, { signal, fn });
-        return id;
-    }
-
-    disconnect(id: number): void {
-        this._listeners.delete(id);
-    }
-
-    async listModels(provider: ProviderId, overrides: { url?: string } = {}): Promise<ModelListResult> {
+    async listModels(provider: ProviderId, url = ''): Promise<ModelListResult> {
         // The runtime only sends a stored key to the endpoint saved in settings, so save first.
         await this.flushed();
-        const reply = await this._call<ModelsReply>('ListModels', { provider, url: overrides.url ?? '' });
+        const reply = await this._call<ModelsReply>('ListModels', { provider, url });
         if (reply.error) throw new Error(reply.error);
         return { models: reply.models, requiresApiKey: reply.requires_key && reply.from_fallback };
     }
@@ -174,10 +143,29 @@ export class RuntimeSettings {
         await this._call('ClearLogs');
     }
 
-    private _mutate(change: Mutation, key: string): void {
+    // ── Signals ──────────────────────────────────────────────────────────────
+
+    /** `changed`, `changed::active|providers|privacy`, or `save-failed`. */
+    connect(signal: string, fn: Listener): number {
+        const id = this._nextId++;
+        this._listeners.set(id, { signal, fn });
+        return id;
+    }
+
+    disconnect(id: number): void {
+        this._listeners.delete(id);
+    }
+
+    // ── Sending ──────────────────────────────────────────────────────────────
+
+    private _writable(): boolean {
+        if (!this.loaded) Logger.warn(Tag.Extension, 'Ignoring a settings change before settings have loaded from the runtime');
+        return this.loaded;
+    }
+
+    private _mutate(change: Mutation, key: SettingsKey): void {
         change(this._doc);
         this._pending.push(change);
-        if (key === 'provider') this._providerType = null; // the type follows the chosen provider again
         this._emit(key);
         void this._flush();
     }
@@ -236,7 +224,12 @@ export class RuntimeSettings {
         this._notify('save-failed', message);
     }
 
-    private _emit(key: string): void {
+    private _snapshot(key: SettingsKey): string {
+        if (key === 'active') return this._doc.active;
+        return JSON.stringify(key === 'providers' ? this._doc.providers : this._doc.privacy);
+    }
+
+    private _emit(key: SettingsKey): void {
         for (const { signal, fn } of [...this._listeners.values()]) {
             if (signal === 'changed' || signal === `changed::${key}`) fn(this, key);
         }
@@ -246,27 +239,6 @@ export class RuntimeSettings {
         for (const listener of [...this._listeners.values()]) {
             if (listener.signal === signal) listener.fn(this, detail);
         }
-    }
-}
-
-function diffProviders(current: Record<string, ProviderSettings>,
-    next: Record<string, StoredProviderConfig>): FieldEdit[] {
-    const edits: FieldEdit[] = [];
-    for (const [provider, stored] of Object.entries(next)) {
-        const after: Record<ProviderField, string> = {
-            model: stored.modelName ?? '', url: stored.url ?? '', mode: stored.mode ?? '',
-            thinking: stored.thinking ?? '', reasoning_effort: stored.reasoningEffort ?? '',
-        };
-        for (const field of PROVIDER_FIELDS) {
-            if ((current[provider]?.[field] ?? '') !== after[field]) edits.push({ provider, field, value: after[field] });
-        }
-    }
-    return edits;
-}
-
-function applyEdits(doc: ConfigDoc, edits: FieldEdit[]): void {
-    for (const { provider, field, value } of edits) {
-        doc.providers[provider] = { ...(doc.providers[provider] ?? emptyProvider()), [field]: value };
     }
 }
 
@@ -285,15 +257,4 @@ function normalize(doc: Partial<ConfigDoc> | undefined): ConfigDoc {
         providers: { ...(doc?.providers ?? {}) },
         privacy: { ...doc?.privacy, conversation_retention_days: doc?.privacy?.conversation_retention_days ?? null },
     };
-}
-
-function toStored(providers: Record<string, ProviderSettings>): Record<string, StoredProviderConfig> {
-    const out: Record<string, StoredProviderConfig> = {};
-    for (const [id, p] of Object.entries(providers)) {
-        out[id] = {
-            url: p.url, modelName: p.model, apiKey: '', apiKeyStorage: '', mode: p.mode,
-            thinking: p.thinking, reasoningEffort: p.reasoning_effort,
-        };
-    }
-    return out;
 }

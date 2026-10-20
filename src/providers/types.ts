@@ -4,14 +4,6 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-/** A single message in a chat conversation, as the popup renders it. */
-export interface ChatMessage {
-    role: 'user' | 'assistant' | 'system';
-    content: string;
-    thinking?: string;
-    metadata?: ChatMessageMetadata;
-}
-
 export interface TokenUsage {
     inputTokens?: number;
     outputTokens?: number;

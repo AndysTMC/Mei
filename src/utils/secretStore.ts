@@ -1,4 +1,8 @@
 /**
+ * Provider API keys in the keyring (ADR 0005), through libsecret. The extension never reads a
+ * key's value: the runtime uses keys itself. Settings only asks whether one is saved (from the
+ * item's attributes, without unlocking the secret) and saves new ones.
+ *
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
@@ -14,9 +18,12 @@ type SecretNamespace = {
     SchemaAttributeType: {
         STRING: number;
     };
+    SearchFlags: {
+        NONE: number;
+    };
     COLLECTION_DEFAULT: string;
-    password_lookup(schema: unknown, attributes: Record<string, string>, cancellable: null, callback: (source: unknown, result: unknown) => void): void;
-    password_lookup_finish(result: unknown): string | null;
+    password_search(schema: unknown, attributes: Record<string, string>, flags: number, cancellable: null, callback: (source: unknown, result: unknown) => void): void;
+    password_search_finish(result: unknown): unknown[];
     password_store(schema: unknown, attributes: Record<string, string>, collection: string, label: string, password: string, cancellable: null, callback: (source: unknown, result: unknown) => void): void;
     password_store_finish(result: unknown): boolean;
     password_clear(schema: unknown, attributes: Record<string, string>, cancellable: null, callback: (source: unknown, result: unknown) => void): void;
@@ -30,22 +37,35 @@ const SECRET_IMPORT = 'gi://Secret?version=1';
 let secretModulePromise: Promise<SecretNamespace | null> | null = null;
 let schema: unknown | null = null;
 
-export async function lookupProviderApiKey(provider: string): Promise<string | null> {
+/** Whether a key is saved for `provider`; null when the keyring can't be reached. */
+export async function hasProviderApiKey(provider: string): Promise<boolean | null> {
     const Secret = await getSecretModule();
     if (!Secret) return null;
 
-    return new Promise((resolve, reject) => {
-        Secret.password_lookup(getSchema(Secret), getAttributes(provider), null, (_source, result) => {
+    return new Promise(resolve => {
+        Secret.password_search(getSchema(Secret), getAttributes(provider), Secret.SearchFlags.NONE, null, (_source, result) => {
             try {
-                resolve(Secret.password_lookup_finish(result));
+                resolve(Secret.password_search_finish(result).length > 0);
             } catch (e) {
-                reject(e);
+                Logger.warn(Tag.Prefs, `Checking the ${provider} API key failed: ${e}`);
+                resolve(null);
             }
         });
     });
 }
 
-export async function storeProviderApiKey(provider: string, apiKey: string): Promise<boolean> {
+/** Save a key, or remove it with ''. Throws if the keyring can't take it: there is no fallback store. */
+export async function saveProviderApiKey(provider: string, apiKey: string): Promise<void> {
+    const key = apiKey.trim();
+    if (!key) {
+        await clearProviderApiKey(provider);
+        return;
+    }
+    if (!await storeProviderApiKey(provider, key))
+        throw new Error('The keyring is unavailable or locked, so the key was not saved.');
+}
+
+async function storeProviderApiKey(provider: string, apiKey: string): Promise<boolean> {
     const Secret = await getSecretModule();
     if (!Secret) return false;
 
@@ -68,7 +88,7 @@ export async function storeProviderApiKey(provider: string, apiKey: string): Pro
     });
 }
 
-export async function clearProviderApiKey(provider: string): Promise<boolean> {
+async function clearProviderApiKey(provider: string): Promise<boolean> {
     const Secret = await getSecretModule();
     if (!Secret) return false;
 

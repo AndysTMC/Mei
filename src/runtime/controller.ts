@@ -89,7 +89,7 @@ export class RuntimeChatController {
             messages: conv?.messages.map(m => ({ role: m.role, content: m.content })) ?? [],
             stream: stream ? { text: stream.text, chunk: stream.chunk, stale: stream.stale } : null,
             interrupted: this._current ? this._projection.interruptedTask(this._current)?.draft ?? null : null,
-            provider: this.settings.get_string('provider'),
+            provider: this.settings.active,
             setupOffered: this.setupOffered,
         };
     }
@@ -315,11 +315,11 @@ export class RuntimeChatController {
     /** Why sending can't work with the current settings, if it can't. */
     private _providerProblem(): string | null {
         if (!this.settings.loaded) return null; // the runtime will answer for itself
-        const id = resolveProviderId(this.settings.get_string('provider'));
+        const id = resolveProviderId(this.settings.active);
         if (!id) return 'Choose a model provider in Mei\'s settings first.';
         const profile = getProviderProfile(id);
         if (!profile.selectable) return `${profile.label} is no longer available. Choose another provider in Mei's settings.`;
-        return this.settings.modelFor(id).trim() ? null : `Choose a ${profile.label} model in Mei's settings first.`;
+        return this.settings.provider(id).model.trim() ? null : `Choose a ${profile.label} model in Mei's settings first.`;
     }
 }
 

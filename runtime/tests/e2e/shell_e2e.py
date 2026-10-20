@@ -25,6 +25,9 @@ PIECES = ["Mock reply:"] + [" " + w for w in WORDS]
 REPLY = "".join(PIECES)
 DELAY_S = 0.08
 NEXT_BUTTON = (920, 665)  # in the setup assistant, in the nested Shell's 1280×800 screen
+CHOOSE_PROVIDER_BUTTON = (842, 287)  # "Choose…" on the Models step
+BACK_BUTTON = (342, 135)  # the header's back arrow
+MODEL_PROVIDER_ROW = (460, 412)  # "Model provider" on Settings' main page
 
 
 class MockProvider(BaseHTTPRequestHandler):
@@ -147,6 +150,10 @@ async def main() -> int:
         for name in ("2-models", "3-privacy", "4-shortcuts", "5-done"):
             await h.click(*NEXT_BUTTON)
             await h.hook("Screenshot", os.path.join(OUT, f"setup-{name}.png"))
+            if name == "2-models":  # "Choose…" opens the provider page on top of setup; Back returns
+                await h.click(*CHOOSE_PROVIDER_BUTTON)
+                await h.hook("Screenshot", os.path.join(OUT, "provider-page.png"))
+                await h.click(*BACK_BUTTON)
         await h.click(*NEXT_BUTTON)  # Finish
         await asyncio.sleep(1.0)
         setup = await h.runtime("SetupStatus", {})
@@ -163,6 +170,10 @@ async def main() -> int:
         h.check("connected_and_configured", cfg["config"]["active"] == "custom"
                 and cfg["config"]["providers"]["custom"]["url"] == url
                 and st["controller"]["provider"] == "custom", cfg["config"])
+
+        await h.click(*MODEL_PROVIDER_ROW)  # Settings is still open on its main page
+        await h.hook("Screenshot", os.path.join(OUT, "provider-custom.png"))
+        await h.click(*BACK_BUTTON)
 
         # 1b. The default shortcut (Super+Alt+M) opens the popup from anywhere and closes it again.
         await h.hook("PressOpenShortcut")

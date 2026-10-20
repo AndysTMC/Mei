@@ -8,7 +8,6 @@ import type { ProviderId } from './types.js';
 import { PROVIDER_PROFILES, resolveProviderId, type ProviderType } from './profiles.js';
 
 export type { ProviderType } from './profiles.js';
-export type OpenCodeMode = 'go' | 'zen';
 export type DeepSeekThinking = 'default' | 'enabled' | 'disabled';
 export type DeepSeekReasoningEffort = 'low' | 'high' | 'max';
 
@@ -29,11 +28,6 @@ export const CUSTOM_PROVIDER_IDS = providerIdsOfType('custom');
 export const LEGACY_PROVIDER_IDS = Object.values(PROVIDER_PROFILES)
     .filter(profile => profile.selectable === false)
     .map(profile => profile.id);
-
-export const OPEN_CODE_MODE_LABELS: Record<OpenCodeMode, string> = {
-    go: 'Go',
-    zen: 'Zen',
-};
 
 export const DEEPSEEK_THINKING_LABELS: Record<DeepSeekThinking, string> = {
     default: 'Default',
@@ -64,10 +58,6 @@ export function getProviderLabel(provider: string): string {
     return isProviderId(provider) ? PROVIDER_LABELS[provider] : provider;
 }
 
-export function getOpenCodeMode(value: string | undefined): OpenCodeMode {
-    return value === 'zen' ? 'zen' : 'go';
-}
-
 export function getDeepSeekThinking(value: string | undefined): DeepSeekThinking {
     return value === 'enabled' || value === 'disabled' ? value : 'default';
 }
@@ -76,10 +66,6 @@ export function getDeepSeekReasoningEffort(value: string | undefined): DeepSeekR
     if (value === 'low' || value === 'max') return value;
     return 'high';
 }
-
-
-
-
 
 function providerIdsOfType(type: ProviderType): ProviderId[] {
     return Object.values(PROVIDER_PROFILES)
