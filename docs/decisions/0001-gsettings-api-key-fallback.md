@@ -1,10 +1,10 @@
 # 0001. Keep a GSettings copy of API keys stored in libsecret
 
-Status: accepted
+Status: superseded
 Date: 2026-08-22
 Deciders: existing project
 Supersedes: —
-Superseded-by: —
+Superseded-by: 0005
 
 ## Context
 
