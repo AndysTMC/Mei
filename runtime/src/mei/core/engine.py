@@ -15,7 +15,7 @@ from typing import Protocol
 
 import msgspec
 
-from mei.protocol import (MAX_INPUT_CHARS, ConversationCommandArgs, Envelope, ProtocolError,
+from mei.protocol import (MAX_INPUT_CHARS, ConversationCommandArgs, active_provider, Envelope, ProtocolError,
                           ProviderConfig, SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs)
 from mei.providers.base import Done, ModelRequest, Provider, ProviderError, TextDelta, ThinkingDelta, Usage
 from mei.providers.factory import label_of
@@ -121,7 +121,8 @@ class Engine:
         if len(text) > MAX_INPUT_CHARS:
             raise ProtocolError("InvalidArgument", f"message is longer than {MAX_INPUT_CHARS} characters")
         _revision, config = repo.get_config(self.store)
-        if not config.provider.id:
+        provider = active_provider(config)
+        if not provider.id:
             raise ProtocolError("Unsupported", "no model provider is configured")
 
         def apply(tx: Tx) -> tuple[dict, list[str]]:
@@ -137,7 +138,7 @@ class Engine:
                     repo.finished_event(tx, repo.set_task_state(tx, old["id"], S.CANCELLED,
                                                                 error="replaced by a new message"))
             message = repo.add_message(tx, conversation_id, "user", text)
-            task = repo.create_task(tx, conversation_id, message["id"], msgspec.to_builtins(config.provider))
+            task = repo.create_task(tx, conversation_id, message["id"], msgspec.to_builtins(provider))
             result = {"conversation_id": conversation_id, "task_id": task["id"], "message_id": message["id"]}
             return result, [task["id"]]
 

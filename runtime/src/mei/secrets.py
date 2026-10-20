@@ -45,3 +45,27 @@ async def lookup_provider_key(bus: MessageBus, provider_id: str) -> str | None:
         return None
     finally:
         await _call(bus, session, "org.freedesktop.Secret.Session", "Close")
+
+
+async def store_provider_key(bus: MessageBus, provider_id: str, value: str) -> None:
+    """Store (or replace) a provider key in the default collection. Raises KeyringLocked if locked."""
+    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_ID, "provider": provider_id}
+    _output, session = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "OpenSession", "sv", ["plain", Variant("s", "")])
+    try:
+        (collection,) = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "ReadAlias", "s", ["default"])
+        if collection == "/":
+            raise KeyringUnavailable("no default keyring collection")
+        props = {"org.freedesktop.Secret.Item.Label": Variant("s", f"Mei {provider_id} API key"),
+                 "org.freedesktop.Secret.Item.Attributes": Variant("a{ss}", attrs)}
+        try:
+            _item, prompt = await _call(bus, collection, "org.freedesktop.Secret.Collection", "CreateItem",
+                                        "a{sv}(oayays)b", [props, [session, b"", value.encode(), "text/plain"], True])
+        except KeyringUnavailable as e:
+            if "locked" in str(e).lower():
+                raise KeyringLocked("the keyring is locked") from None
+            raise
+        if prompt != "/":
+            await _call(bus, prompt, "org.freedesktop.Secret.Prompt", "Dismiss")
+            raise KeyringLocked("the keyring is locked")
+    finally:
+        await _call(bus, session, "org.freedesktop.Secret.Session", "Close")

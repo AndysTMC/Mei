@@ -10,8 +10,8 @@ from typing import Literal
 
 import msgspec
 
-PROTOCOL_MAJOR = 1
-PROTOCOL_MINOR = 1  # 1.1: ProviderConfig carries preferences only (id, model, url, mode, thinking)
+PROTOCOL_MAJOR = 2  # 2.0: the runtime owns all provider settings (Config.active + Config.providers)
+PROTOCOL_MINOR = 0
 BUS_NAME = "com.andystmc.Mei1"
 OBJECT_PATH = "/com/andystmc/Mei1"
 INTERFACE = "com.andystmc.Mei1.Runtime"
@@ -106,13 +106,45 @@ class ProviderConfig(msgspec.Struct, kw_only=True):
     options: dict = msgspec.field(default_factory=dict)  # fake provider script (tests, offline work)
 
 
+class ProviderSettings(msgspec.Struct, kw_only=True):
+    """What the user chose for one provider. Same fields as ProviderConfig, without the id."""
+
+    model: str = ""
+    url: str = ""
+    mode: str = ""
+    thinking: str = ""
+    reasoning_effort: str = ""
+    options: dict = msgspec.field(default_factory=dict)
+
+
+class Privacy(msgspec.Struct, kw_only=True):
+    # None keeps conversations until the user deletes them (the default, owner decision §14.4).
+    conversation_retention_days: int | None = None
+
+
 class Config(msgspec.Struct, kw_only=True):
-    provider: ProviderConfig = msgspec.field(default_factory=ProviderConfig)
+    active: str = ""  # provider id used for new tasks
+    providers: dict[str, ProviderSettings] = msgspec.field(default_factory=dict)
+    privacy: Privacy = msgspec.field(default_factory=Privacy)
+
+
+def active_provider(config: Config) -> ProviderConfig:
+    settings = config.providers.get(config.active, ProviderSettings())
+    return ProviderConfig(id=config.active, **msgspec.structs.asdict(settings))
 
 
 class UpdateConfigArgs(msgspec.Struct):
     revision: int
     config: Config
+
+
+class ListModelsArgs(msgspec.Struct):
+    provider: str
+    url: str = ""
+
+
+class GetLogsArgs(msgspec.Struct):
+    after: int = 0
 
 
 def decode_args(data: str, kind: type):
@@ -136,7 +168,7 @@ def encode(value) -> str:
 def json_schema() -> dict:
     """JSON Schema for the commands and the event envelope, for tooling and docs."""
     kinds = [Envelope, HelloArgs, AttachArgs, SubmitInputArgs, TaskCommandArgs,
-             ConversationCommandArgs, UpdateConfigArgs, Config]
+             ConversationCommandArgs, UpdateConfigArgs, Config, ListModelsArgs, GetLogsArgs]
     _schemas, components = msgspec.json.schema_components(kinds)
     return {"$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": f"Mei runtime protocol {PROTOCOL_MAJOR}.{PROTOCOL_MINOR}",

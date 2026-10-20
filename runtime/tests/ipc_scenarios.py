@@ -40,7 +40,7 @@ class Client:
         return json.loads(reply.body[0])
 
     async def hello(self) -> dict:
-        return await self.call("Hello", {"client": {"kind": "test"}, "protocol": [1, 0]})
+        return await self.call("Hello", {"client": {"kind": "test"}, "protocol": [2, 0]})
 
     async def until(self, pred, timeout=15.0):
         async with asyncio.timeout(timeout):
@@ -55,7 +55,7 @@ async def configure(c: Client, workdir: str, **options) -> None:
     cfg = await c.call("GetConfig")
     opts = {"reply": REPLY, "chunk_chars": 4, "delay_ms": 10, "call_log": f"{workdir}/calls.jsonl", **options}
     await c.call("UpdateConfig", {"revision": cfg["revision"],
-                                  "config": {"provider": {"id": "fake", "options": opts}}})
+                                  "config": {"active": "fake", "providers": {"fake": {"options": opts}}}})
 
 
 def calls(workdir: str) -> int:

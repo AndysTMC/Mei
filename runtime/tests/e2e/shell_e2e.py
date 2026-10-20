@@ -125,12 +125,18 @@ async def main() -> int:
     h = Harness(bus)
     h.start_shell()
     try:
-        # 1. The extension starts the runtime by D-Bus activation and pushes the provider config.
-        st = await h.until(lambda s: s["controller"]["status"] == "connected", 60, "the extension to connect")
+        # 1. The extension starts the runtime by D-Bus activation. Settings live in the runtime: configure
+        #    it the way Settings would, and the popup picks the change up from config.changed.
+        await h.until(lambda s: s["controller"]["status"] == "connected", 60, "the extension to connect")
         cfg = await h.runtime("GetConfig", {})
-        h.check("connected_and_configured", cfg["config"]["provider"]["id"] == "custom"
-                and cfg["config"]["provider"]["url"].endswith(f":{PORT}/v1/chat/completions"),
-                cfg["config"]["provider"])
+        url = f"http://127.0.0.1:{PORT}/v1/chat/completions"
+        await h.runtime("UpdateConfig", {"revision": cfg["revision"], "config": {
+            "active": "custom", "providers": {"custom": {"url": url, "model": "mock-1"}}}})
+        st = await h.until(lambda s: s["controller"]["provider"] == "custom", 10, "the popup to see the new provider")
+        cfg = await h.runtime("GetConfig", {})
+        h.check("connected_and_configured", cfg["config"]["active"] == "custom"
+                and cfg["config"]["providers"]["custom"]["url"] == url
+                and st["controller"]["provider"] == "custom", cfg["config"])
 
         # 2. Stream with the popup open, close it mid-stream, reopen: the partial answer is there at once.
         await h.hook("Popup", "open")
@@ -168,7 +174,7 @@ async def main() -> int:
         await h.hook("Send", "third question")
         await h.until(lambda s: stream_len(s) > 60, 20, "the third reply to start")
         await asyncio.sleep(2.2)  # past the runtime's 2 s draft checkpoint
-        pid = (await h.runtime("Hello", {"client": {"kind": "e2e"}, "protocol": [1, 0]}))["pid"]
+        pid = (await h.runtime("Hello", {"client": {"kind": "e2e"}, "protocol": [2, 0]}))["pid"]
         before = len(requests())
         os.kill(pid, signal.SIGKILL)
         st = await h.until(lambda s: s["controller"]["interrupted"] is not None and s["controller"]["status"] == "connected",

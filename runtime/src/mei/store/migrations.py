@@ -71,4 +71,14 @@ MIGRATIONS: list[str] = [
     );
     INSERT INTO config (id, revision, document) VALUES (1, 0, '{}')
     """,
+    # 2: one row per imported legacy source version (§14.3), so imports run once.
+    """
+    CREATE TABLE imports (
+        source TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        imported_at INTEGER NOT NULL,
+        counts TEXT NOT NULL,
+        PRIMARY KEY (source, sha256)
+    )
+    """,
 ]

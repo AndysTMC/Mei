@@ -12,7 +12,7 @@ import msgspec
 
 from mei.core.engine import Engine
 from mei.ipc.service import RuntimeService
-from mei.protocol import Config, ProviderConfig, SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs
+from mei.protocol import Config, ProviderConfig, ProviderSettings, SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs
 from mei.providers.fake import FakeProvider
 from mei.store.db import Store
 
@@ -39,9 +39,8 @@ async def factory(cfg: ProviderConfig):
 
 def engine(path: Path, tape: Tape, **options) -> Engine:
     eng = Engine(Store(path), tape, factory)
-    eng.update_config(UpdateConfigArgs(eng.get_config()["revision"], Config(provider=ProviderConfig(
-        id="fake", model="fake-1",
-        options={"reply": REPLY, "chunk_chars": 5, "delay_ms": 12, "thinking": "Let me think.", **options}))))
+    eng.update_config(UpdateConfigArgs(eng.get_config()["revision"], Config(active="fake", providers={"fake": ProviderSettings(
+        model="fake-1", options={"reply": REPLY, "chunk_chars": 5, "delay_ms": 12, "thinking": "Let me think.", **options})})))
     tape.items.clear()
     return eng
 

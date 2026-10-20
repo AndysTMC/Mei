@@ -3,7 +3,7 @@ import stat
 
 import pytest
 
-from mei.protocol import Config, ProtocolError, ProviderConfig
+from mei.protocol import Config, ProtocolError, ProviderSettings
 from mei.store import repo
 from mei.store.db import Store, WriterLockHeld
 from mei.store.migrations import MIGRATIONS
@@ -68,7 +68,7 @@ def test_rollback_publishes_and_keeps_nothing(tmp_path):
 
 def test_config_compare_and_set(tmp_path):
     store = Store(tmp_path)
-    cfg = Config(provider=ProviderConfig(id="fake"))
+    cfg = Config(active="fake", providers={"fake": ProviderSettings()})
     with store.tx() as tx:
         assert repo.put_config(tx, 0, cfg) == 1
     with pytest.raises(ProtocolError) as err, store.tx() as tx:

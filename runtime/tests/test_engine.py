@@ -6,7 +6,9 @@ import pytest
 from mei.core import engine as engine_mod
 from mei.core.engine import Engine
 from mei.core.states import TERMINAL, TaskState
-from mei.protocol import (Config, ConversationCommandArgs, ProtocolError, ProviderConfig, SubmitInputArgs,
+import msgspec
+
+from mei.protocol import (Config, ConversationCommandArgs, ProtocolError, ProviderConfig, ProviderSettings, SubmitInputArgs,
                           TaskCommandArgs, UpdateConfigArgs)
 from mei.providers.fake import FakeProvider
 from mei.store import repo
@@ -39,8 +41,8 @@ def make_engine(path, *, max_concurrent=2, **options) -> tuple[Engine, Recorder]
     rec = Recorder()
     eng = Engine(Store(path), rec, fake_factory, max_concurrent=max_concurrent)
     revision = eng.get_config()["revision"]
-    eng.update_config(UpdateConfigArgs(revision, Config(provider=ProviderConfig(
-        id="fake", options={"reply": REPLY, "chunk_chars": 6, "delay_ms": 5, **options}))))
+    eng.update_config(UpdateConfigArgs(revision, Config(active="fake", providers={"fake": ProviderSettings(
+        options={"reply": REPLY, "chunk_chars": 6, "delay_ms": 5, **options})})))
     rec.events.clear()
     return eng, rec
 
@@ -242,10 +244,10 @@ async def test_delete_conversation_removes_its_history(tmp_path):
 async def test_an_unchanged_config_update_is_a_silent_no_op(tmp_path):
     eng, rec = make_engine(tmp_path)
     current = eng.get_config()
-    same = UpdateConfigArgs(current["revision"], Config(provider=ProviderConfig(**current["config"]["provider"])))
+    same = UpdateConfigArgs(current["revision"], msgspec.convert(current["config"], Config))
     assert eng.update_config(same) == {"revision": current["revision"], "changed": False}
     assert rec.events == []
-    changed = UpdateConfigArgs(current["revision"], Config(provider=ProviderConfig(id="fake", model="other")))
+    changed = UpdateConfigArgs(current["revision"], Config(active="fake", providers={"fake": ProviderSettings(model="other")}))
     assert eng.update_config(changed)["changed"] is True
     assert [e.type for e in rec.events] == ["config.changed"]
 

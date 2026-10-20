@@ -1,5 +1,6 @@
 """Logging: JSON lines on stderr (journald under systemd), with secrets redacted centrally."""
 
+import collections
 import json
 import logging
 import re
@@ -33,11 +34,34 @@ class _JsonFormatter(logging.Formatter):
         return json.dumps(entry, ensure_ascii=False)
 
 
+class RecentLogs(logging.Handler):
+    """The last N log entries, already redacted, for the popup's log view (GetLogs)."""
+
+    def __init__(self, size: int = 1000) -> None:
+        super().__init__()
+        self._entries: collections.deque[dict] = collections.deque(maxlen=size)
+        self._next = 1
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self._entries.append({"id": self._next, "t": round(record.created, 3), "level": record.levelname.lower(),
+                              "logger": record.name, "msg": redact(record.getMessage())})
+        self._next += 1
+
+    def after(self, last_id: int) -> list[dict]:
+        return [e for e in self._entries if e["id"] > last_id]
+
+    def clear(self) -> None:
+        self._entries.clear()
+
+
+RECENT = RecentLogs()
+
+
 def setup_logging(level: str = "info") -> None:
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(_JsonFormatter())
     root = logging.getLogger()
-    root.handlers[:] = [handler]
+    root.handlers[:] = [handler, RECENT]
     root.setLevel(level.upper())
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)

@@ -5,8 +5,11 @@ registered, the snapshot is taken at seq N, and the reply is queued before any l
 be emitted, so nothing falls between the snapshot and live delivery.
 """
 
+import asyncio
+import inspect
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import msgspec
@@ -16,8 +19,10 @@ from dbus_fast.constants import NameFlag, RequestNameReply
 
 from mei import protocol
 from mei.core.engine import Engine
-from mei.protocol import (AttachArgs, ConversationCommandArgs, Envelope, HelloArgs, ProtocolError,
-                          SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs, decode_args, encode)
+from mei.obs import RECENT
+from mei.protocol import (AttachArgs, ConversationCommandArgs, Envelope, GetLogsArgs, HelloArgs, ListModelsArgs,
+                          ProtocolError, SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs, decode_args, encode)
+from mei.providers.profiles import PROFILES
 from mei.store import repo
 
 log = logging.getLogger("mei.ipc")
@@ -36,9 +41,11 @@ class Client:
 
 
 class RuntimeService:
-    def __init__(self, bus: MessageBus, engine: Engine) -> None:
+    def __init__(self, bus: MessageBus, engine: Engine,
+                 list_models: Callable[[str, str], Awaitable[dict]] | None = None) -> None:
         self._bus = bus
         self._engine = engine
+        self._list_models = list_models
         self._store = engine.store
         self.clients: dict[str, Client] = {}
         self._kinds: dict[str, str] = {}
@@ -47,6 +54,8 @@ class RuntimeService:
             "GetConversation": self._get_conversation, "SubmitInput": self._submit_input,
             "Cancel": self._cancel, "Resume": self._resume, "DeleteConversation": self._delete_conversation,
             "GetConfig": self._get_config, "UpdateConfig": self._update_config, "Ping": self._ping,
+            "ListProviders": self._list_providers, "ListModels": self._models, "GetLogs": self._get_logs,
+            "ClearLogs": self._clear_logs,
         }
 
     async def start(self) -> None:
@@ -93,13 +102,31 @@ class RuntimeService:
             return Message.new_error(msg, "org.freedesktop.DBus.Error.UnknownMethod", f"no method {msg.member}")
         if msg.signature != "s":
             return Message.new_error(msg, "org.freedesktop.DBus.Error.InvalidArgs", "expected one JSON string")
+        if inspect.iscoroutinefunction(handler):
+            # Network-bound methods (ListModels) reply later; everything else stays synchronous.
+            asyncio.ensure_future(self._reply_async(msg, handler))
+            return True
+        return self._reply(msg, lambda: handler(msg.sender, msg.body[0]))
+
+    def _reply(self, msg: Message, produce):
         try:
-            return Message.new_method_return(msg, "s", [encode(handler(msg.sender, msg.body[0]))])
+            return Message.new_method_return(msg, "s", [encode(produce())])
         except ProtocolError as e:
             return Message.new_error(msg, f"{protocol.ERROR_PREFIX}.{e.name}", e.message)
         except Exception:
             log.exception("%s failed", msg.member)
             return Message.new_error(msg, f"{protocol.ERROR_PREFIX}.Internal", "internal error (see the runtime log)")
+
+    async def _reply_async(self, msg: Message, handler) -> None:
+        try:
+            result = await handler(msg.sender, msg.body[0])
+            reply = self._reply(msg, lambda: result)
+        except ProtocolError as e:
+            reply = Message.new_error(msg, f"{protocol.ERROR_PREFIX}.{e.name}", e.message)
+        except Exception:
+            log.exception("%s failed", msg.member)
+            reply = Message.new_error(msg, f"{protocol.ERROR_PREFIX}.Internal", "internal error (see the runtime log)")
+        self._bus.send(reply)
 
     # ── Methods ─────────────────────────────────────────────────────────────
 
@@ -158,6 +185,27 @@ class RuntimeService:
 
     def _ping(self, _sender: str, _data: str) -> dict:
         return {"seq": self._store.last_seq()}
+
+    def _list_providers(self, _sender: str, _data: str) -> dict:
+        return {"providers": [{"id": p.id, "label": p.label, "type": p.type, "auth": p.auth, "selectable": p.selectable,
+                               "unavailable": p.unavailable, "default_url": p.chat_url,
+                               "fallback_models": list(p.fallback_models)} for p in PROFILES.values()]}
+
+    async def _models(self, _sender: str, data: str) -> dict:
+        args = decode_args(data, ListModelsArgs)
+        if args.provider not in PROFILES:
+            raise ProtocolError("NotFound", f"no provider {args.provider!r}")
+        if self._list_models is None:
+            raise ProtocolError("Unsupported", "model discovery is not available")
+        return await self._list_models(args.provider, args.url)
+
+    def _get_logs(self, _sender: str, data: str) -> dict:
+        entries = RECENT.after(decode_args(data, GetLogsArgs).after)
+        return {"entries": entries, "last": entries[-1]["id"] if entries else 0}
+
+    def _clear_logs(self, _sender: str, _data: str) -> dict:
+        RECENT.clear()
+        return {}
 
     def _streams(self, scope: str) -> list[dict]:
         return [s.view() for s in self._engine.streams.values() if scope in ("all", s.conversation_id)]
