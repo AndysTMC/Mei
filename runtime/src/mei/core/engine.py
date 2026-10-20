@@ -190,10 +190,15 @@ class Engine:
         return self._command("DeleteConversation", args, apply)
 
     def update_config(self, args: UpdateConfigArgs) -> dict:
+        revision, current = repo.get_config(self.store)
+        if args.revision == revision and current == args.config:
+            # Nothing changes, so nothing is written or announced. Clients that re-push on
+            # config.changed would otherwise feed each other forever.
+            return {"revision": revision, "changed": False}
         with self.store.tx() as tx:
             revision = repo.put_config(tx, args.revision, args.config)
         self.publisher.publish(tx.events)
-        return {"revision": revision}
+        return {"revision": revision, "changed": True}
 
     def get_config(self) -> dict:
         revision, config = repo.get_config(self.store)

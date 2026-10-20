@@ -9,7 +9,7 @@ export const BUS_NAME = 'com.andystmc.Mei1';
 export const OBJECT_PATH = '/com/andystmc/Mei1';
 export const INTERFACE = 'com.andystmc.Mei1.Runtime';
 export const ERROR_PREFIX = 'com.andystmc.Mei1.Error.';
-export const PROTOCOL_VERSION: [number, number] = [1, 0];
+export const PROTOCOL_VERSION: [number, number] = [1, 1];
 
 export type TaskState =
     | 'ACCEPTED' | 'RUNNING' | 'WAITING_APPROVAL' | 'WAITING_INPUT' | 'WAITING_RESOURCE' | 'VERIFYING'

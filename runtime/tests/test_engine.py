@@ -239,6 +239,17 @@ async def test_delete_conversation_removes_its_history(tmp_path):
     assert repo.events_after(eng.store, 0, r["conversation_id"])[-1].type == "conversation.deleted"
 
 
+async def test_an_unchanged_config_update_is_a_silent_no_op(tmp_path):
+    eng, rec = make_engine(tmp_path)
+    current = eng.get_config()
+    same = UpdateConfigArgs(current["revision"], Config(provider=ProviderConfig(**current["config"]["provider"])))
+    assert eng.update_config(same) == {"revision": current["revision"], "changed": False}
+    assert rec.events == []
+    changed = UpdateConfigArgs(current["revision"], Config(provider=ProviderConfig(id="fake", model="other")))
+    assert eng.update_config(changed)["changed"] is True
+    assert [e.type for e in rec.events] == ["config.changed"]
+
+
 async def test_refuses_input_without_a_provider(tmp_path):
     eng = Engine(Store(tmp_path), Recorder(), fake_factory)
     with pytest.raises(ProtocolError) as err:

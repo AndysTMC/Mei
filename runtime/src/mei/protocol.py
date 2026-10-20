@@ -11,7 +11,7 @@ from typing import Literal
 import msgspec
 
 PROTOCOL_MAJOR = 1
-PROTOCOL_MINOR = 0
+PROTOCOL_MINOR = 1  # 1.1: ProviderConfig carries preferences only (id, model, url, mode, thinking)
 BUS_NAME = "com.andystmc.Mei1"
 OBJECT_PATH = "/com/andystmc/Mei1"
 INTERFACE = "com.andystmc.Mei1.Runtime"
