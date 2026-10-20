@@ -106,13 +106,14 @@ export interface SubmitReply {
     duplicate: boolean;
 }
 
+/** The user's provider preferences. The runtime resolves endpoint, format, auth, and headers. */
 export interface RuntimeProviderConfig {
-    kind: 'none' | 'fake' | 'openai_chat';
     id: string;
-    label: string;
-    url: string;
     model: string;
-    headers: Record<string, string>;
+    url: string;
+    mode: string;
+    thinking: string;
+    reasoning_effort: string;
     options: Record<string, unknown>;
 }
 

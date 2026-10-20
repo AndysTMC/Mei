@@ -7,6 +7,7 @@ stored state, so a restart can always pick up from the database.
 
 import asyncio
 import logging
+import random
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ import msgspec
 from mei.protocol import (MAX_INPUT_CHARS, ConversationCommandArgs, Envelope, ProtocolError,
                           ProviderConfig, SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs)
 from mei.providers.base import Done, ModelRequest, Provider, ProviderError, TextDelta, ThinkingDelta, Usage
+from mei.providers.factory import label_of
 from mei.providers.openai_chat import to_turns
 from mei.store import repo
 from mei.store.db import Store, Tx, iso_now, new_id
@@ -29,6 +31,8 @@ DELTA_COALESCE_S = 0.033
 DRAFT_EVERY_S = 2.0
 DRAFT_EVERY_CHARS = 2048
 TURN_TIMEOUT_S = 600.0
+MAX_ATTEMPTS = 3
+RETRY_BASE_S = 1.0
 S = TaskState
 
 
@@ -117,7 +121,7 @@ class Engine:
         if len(text) > MAX_INPUT_CHARS:
             raise ProtocolError("InvalidArgument", f"message is longer than {MAX_INPUT_CHARS} characters")
         _revision, config = repo.get_config(self.store)
-        if config.provider.kind == "none":
+        if not config.provider.id:
             raise ProtocolError("Unsupported", "no model provider is configured")
 
         def apply(tx: Tx) -> tuple[dict, list[str]]:
@@ -223,7 +227,7 @@ class Engine:
             if row is None or S(row["state"]) not in (S.ACCEPTED, S.INTERRUPTED):
                 return
             provider_cfg = msgspec.convert(_loads(row["provider"]), ProviderConfig)
-            label = {"id": provider_cfg.id, "label": provider_cfg.label or provider_cfg.kind, "model": provider_cfg.model}
+            label = {"id": provider_cfg.id, "label": label_of(provider_cfg), "model": provider_cfg.model}
             with self.store.tx() as tx:
                 repo.set_task_state(tx, task_id, S.RUNNING)
                 turn = repo.begin_turn(tx, task_id, self.store.epoch, label)
@@ -236,18 +240,32 @@ class Engine:
                 provider = await self._make_provider(provider_cfg)
                 messages = repo.history(self.store, row["conversation_id"],
                                         up_to_ordinal=repo.message_ordinal(self.store, row["input_message_id"]))
+                request = ModelRequest(to_turns(messages))
                 async with asyncio.timeout(TURN_TIMEOUT_S):
-                    async for event in provider.stream(ModelRequest(to_turns(messages))):
-                        if isinstance(event, TextDelta):
-                            stream.pending_text += event.text
-                            self._queue_flush(stream)
-                        elif isinstance(event, ThinkingDelta):
-                            stream.pending_thinking += event.text
-                            self._queue_flush(stream)
-                        elif isinstance(event, Usage):
-                            usage = event
-                        elif isinstance(event, Done):
+                    for attempt in range(1, MAX_ATTEMPTS + 1):
+                        try:
+                            async for event in provider.stream(request):
+                                if isinstance(event, TextDelta):
+                                    stream.pending_text += event.text
+                                    self._queue_flush(stream)
+                                elif isinstance(event, ThinkingDelta):
+                                    stream.pending_thinking += event.text
+                                    self._queue_flush(stream)
+                                elif isinstance(event, Usage):
+                                    usage = event
+                                elif isinstance(event, Done):
+                                    break
                             break
+                        except ProviderError as e:
+                            # Retry only transient refusals that arrived before any output: the
+                            # provider didn't produce anything, so asking again can't duplicate it.
+                            started_output = stream.chunk > 0 or stream.pending_text or stream.pending_thinking
+                            if not e.retryable or started_output or attempt == MAX_ATTEMPTS:
+                                raise
+                            delay = RETRY_BASE_S * (3 ** (attempt - 1)) * random.uniform(0.8, 1.2)
+                            log.warning("%s; retrying in %.1f s (attempt %d of %d)", e, delay, attempt + 1,
+                                        MAX_ATTEMPTS, extra={"task_id": task_id})
+                            await asyncio.sleep(delay)
                 self._flush(stream)
                 metadata = {**label, "duration_ms": int((time.monotonic() - started) * 1000)}
                 if usage is not None:

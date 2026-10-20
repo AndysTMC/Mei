@@ -40,7 +40,7 @@ async def factory(cfg: ProviderConfig):
 def engine(path: Path, tape: Tape, **options) -> Engine:
     eng = Engine(Store(path), tape, factory)
     eng.update_config(UpdateConfigArgs(eng.get_config()["revision"], Config(provider=ProviderConfig(
-        kind="fake", label="Fake", model="fake-1",
+        id="fake", model="fake-1",
         options={"reply": REPLY, "chunk_chars": 5, "delay_ms": 12, "thinking": "Let me think.", **options}))))
     tape.items.clear()
     return eng

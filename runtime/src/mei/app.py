@@ -12,17 +12,18 @@ from dbus_fast.aio import MessageBus
 
 from mei.core.engine import Engine
 from mei.ipc import dbus_patch
-from mei.ipc.service import RuntimeService
+from mei.ipc.service import RUNTIME_VERSION, RuntimeService
 from mei.protocol import ProviderConfig
+from mei.providers import factory
 from mei.providers.base import Provider, ProviderError
-from mei.providers.fake import FakeProvider
-from mei.providers.openai_chat import OpenAIChatProvider
+from mei.providers.profiles import PROFILES
 from mei.secrets import KeyringLocked, KeyringUnavailable, lookup_provider_key
 from mei.store.db import Store
 
 log = logging.getLogger("mei.app")
 
 EXIT_LOCKED = 75  # EX_TEMPFAIL: another instance owns the data directory
+USER_AGENT = f"Mei/{RUNTIME_VERSION} (+https://github.com/AndysTMC/Mei)"
 
 
 def data_dir() -> Path:
@@ -33,22 +34,18 @@ def data_dir() -> Path:
 
 
 def provider_factory(bus: MessageBus, client: httpx.AsyncClient):
+    async def key_for(provider_id: str) -> str:
+        label = PROFILES[provider_id].label if provider_id in PROFILES else provider_id
+        try:
+            return await lookup_provider_key(bus, provider_id) or ""
+        except KeyringLocked:
+            raise ProviderError(f"{label}: the keyring is locked. Unlock it, then try again.") from None
+        except KeyringUnavailable as e:
+            log.warning("keyring unavailable: %s", e)
+            return ""
+
     async def make(cfg: ProviderConfig) -> Provider:
-        if cfg.kind == "fake":
-            return FakeProvider({**cfg.options, "model": cfg.model or "fake-1"})
-        if cfg.kind == "openai_chat":
-            label = cfg.label or cfg.id or "Provider"
-            key = ""
-            if cfg.id:
-                try:
-                    key = await lookup_provider_key(bus, cfg.id) or ""
-                except KeyringLocked:
-                    raise ProviderError(f"{label}: the keyring is locked. Unlock it, then try again.") from None
-                except KeyringUnavailable as e:
-                    log.warning("keyring unavailable: %s", e)
-            return OpenAIChatProvider(client, label=label, url=cfg.url, model=cfg.model,
-                                      api_key=key, headers=cfg.headers)
-        raise ProviderError("No model provider is configured.")
+        return await factory.build(cfg, client, key_for)
 
     return make
 
@@ -61,7 +58,7 @@ async def serve() -> int:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         loop.add_signal_handler(sig, stop.set)
-    async with httpx.AsyncClient(http2=False, follow_redirects=False) as client:
+    async with httpx.AsyncClient(http2=False, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
         engine = Engine(store, publisher=None, provider_factory=provider_factory(bus, client))
         service = RuntimeService(bus, engine)
         engine.publisher = service  # the service needs the engine and the engine publishes through it

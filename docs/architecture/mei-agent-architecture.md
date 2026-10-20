@@ -1171,6 +1171,11 @@ Stage 1 limits, by design: runtime mode serves OpenAI-compatible chat providers 
 
 ### Stage 2a — Providers, config, and secrets in the runtime (M)
 
+Progress (2026-10-20):
+- **Provider parity: done.** The runtime owns Mei's provider profiles (`runtime/src/mei/providers/profiles.py`) and adapters for OpenAI-compatible chat (with `<think>`/reasoning normalization), Anthropic Messages, Gemini, Ollama, and OpenAI Responses; the extension sends only preferences. Transient refusals before any output are retried (3 attempts, backoff); nothing is retried after output starts. Live smoke (`runtime/tests/live_smoke.py`): Gemini, Groq, OpenRouter pass.
+- **Open question:** OpenCode now refuses non-OpenCode clients on Zen's free tier, and Go is meant for coding agents and moved to `/inference/go/`. Whether Mei keeps OpenCode is an owner decision.
+- Next: config in the runtime with prefs over IPC, `chats.json` import, ADR-10 key migration, removing the Shell provider path, install script and first setup steps.
+
 - Port all adapters and profiles; model discovery; config in SQLite with CAS; libsecret; prefs over IPC (config only, no approvals).
 - Idempotent import of `chats.json` and dconf provider settings (§14.3).
 - `chatPopup.ts` stays structurally intact; its backend calls switch to `runtime/client.ts`.

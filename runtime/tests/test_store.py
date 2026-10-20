@@ -68,7 +68,7 @@ def test_rollback_publishes_and_keeps_nothing(tmp_path):
 
 def test_config_compare_and_set(tmp_path):
     store = Store(tmp_path)
-    cfg = Config(provider=ProviderConfig(kind="fake"))
+    cfg = Config(provider=ProviderConfig(id="fake"))
     with store.tx() as tx:
         assert repo.put_config(tx, 0, cfg) == 1
     with pytest.raises(ProtocolError) as err, store.tx() as tx:

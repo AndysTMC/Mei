@@ -92,15 +92,18 @@ class ConversationCommandArgs(msgspec.Struct):
 
 
 class ProviderConfig(msgspec.Struct, kw_only=True):
-    """Non-secret provider settings. Keys are looked up in the keyring by `id`, never sent here."""
+    """The user's provider preferences. No secrets: the key is looked up in the keyring by `id`.
 
-    kind: Literal["none", "fake", "openai_chat"] = "none"
-    id: str = ""
-    label: str = ""
-    url: str = ""
+    The runtime resolves endpoint, wire format, auth style and headers from its provider profiles.
+    """
+
+    id: str = ""  # a provider profile id ("gemini", "openrouter", …), "fake", or "" for none
     model: str = ""
-    headers: dict[str, str] = msgspec.field(default_factory=dict)
-    options: dict = msgspec.field(default_factory=dict)
+    url: str = ""  # optional override of the profile's endpoint
+    mode: str = ""  # OpenCode: "go" or "zen"
+    thinking: str = ""  # DeepSeek: "enabled", "disabled", or "" for the provider default
+    reasoning_effort: str = ""  # DeepSeek: "low", "high", "max"
+    options: dict = msgspec.field(default_factory=dict)  # fake provider script (tests, offline work)
 
 
 class Config(msgspec.Struct, kw_only=True):

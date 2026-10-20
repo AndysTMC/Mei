@@ -40,7 +40,7 @@ def make_engine(path, *, max_concurrent=2, **options) -> tuple[Engine, Recorder]
     eng = Engine(Store(path), rec, fake_factory, max_concurrent=max_concurrent)
     revision = eng.get_config()["revision"]
     eng.update_config(UpdateConfigArgs(revision, Config(provider=ProviderConfig(
-        kind="fake", label="Fake", options={"reply": REPLY, "chunk_chars": 6, "delay_ms": 5, **options}))))
+        id="fake", options={"reply": REPLY, "chunk_chars": 6, "delay_ms": 5, **options}))))
     rec.events.clear()
     return eng, rec
 
@@ -135,6 +135,35 @@ async def test_provider_failure_fails_the_task_with_its_message(tmp_path):
     r = submit(eng)
     assert await wait_state(eng, r["task_id"]) == S.FAILED
     assert repo.get_task(eng.store, r["task_id"])["error"] == "quota exceeded"
+
+
+async def test_transient_refusals_before_output_are_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_mod, "RETRY_BASE_S", 0.01)
+    log = tmp_path / "calls.jsonl"
+    eng, rec = make_engine(tmp_path / "db", busy_times=2, call_log=str(log))
+    r = submit(eng)
+    assert await wait_state(eng, r["task_id"]) == S.COMPLETED
+    assert len(log.read_text().splitlines()) == 3
+    assert repo.history(eng.store, r["conversation_id"])[-1]["content"] == REPLY
+
+
+async def test_retries_give_up_after_the_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_mod, "RETRY_BASE_S", 0.01)
+    log = tmp_path / "calls.jsonl"
+    eng, rec = make_engine(tmp_path / "db", busy_times=5, call_log=str(log))
+    r = submit(eng)
+    assert await wait_state(eng, r["task_id"]) == S.FAILED
+    assert len(log.read_text().splitlines()) == engine_mod.MAX_ATTEMPTS
+    assert "overloaded" in repo.get_task(eng.store, r["task_id"])["error"]
+
+
+async def test_failures_after_output_are_never_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_mod, "RETRY_BASE_S", 0.01)
+    log = tmp_path / "calls.jsonl"
+    eng, rec = make_engine(tmp_path / "db", fail="connection reset mid-reply", fail_retryable=True, call_log=str(log))
+    r = submit(eng)
+    assert await wait_state(eng, r["task_id"]) == S.FAILED
+    assert len(log.read_text().splitlines()) == 1
 
 
 async def test_shutdown_interrupts_instead_of_cancelling(tmp_path):

@@ -6,6 +6,8 @@ Options (from `ProviderConfig.options`):
   delay_ms     pause before each chunk (default 20)
   thinking     optional reasoning text streamed before the reply
   fail         if set, raise a ProviderError with this message after the first chunk
+  fail_retryable  mark that mid-stream error as retryable (it must still not be retried)
+  busy_times   the first N calls raise a retryable error before any output (like HTTP 503)
   call_log     path of a JSON-lines file; every call appends one record (for crash tests)
 """
 
@@ -23,6 +25,7 @@ class FakeProvider:
     def __init__(self, options: dict) -> None:
         self.model = options.get("model", "fake-1")
         self._options = options
+        self._calls = 0
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
         opts = self._options
@@ -30,6 +33,9 @@ class FakeProvider:
         if opts.get("call_log"):
             with open(opts["call_log"], "a") as f:
                 f.write(json.dumps({"t": time.time(), "messages": len(request.messages), "last_user": last_user}) + "\n")
+        self._calls += 1
+        if self._calls <= int(opts.get("busy_times", 0)):
+            raise ProviderError("Fake: HTTP 503: overloaded", retryable=True, status=503)
         reply = opts.get("reply") or f"Echo: {last_user}"
         size = max(1, int(opts.get("chunk_chars", 8)))
         delay = max(0, int(opts.get("delay_ms", 20))) / 1000
@@ -40,6 +46,6 @@ class FakeProvider:
             await asyncio.sleep(delay)
             yield TextDelta(reply[i:i + size])
             if n == 0 and opts.get("fail"):
-                raise ProviderError(str(opts["fail"]))
+                raise ProviderError(str(opts["fail"]), retryable=bool(opts.get("fail_retryable")))
         yield Usage(input_tokens=sum(len(t.content) for t in request.messages), output_tokens=len(reply))
         yield Done("stop")

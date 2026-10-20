@@ -1,44 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { toRuntimeProvider } from '../src/runtime/providerBridge.js';
+import { sameProvider, toRuntimeProvider } from '../src/runtime/providerBridge.js';
 
-test('OpenAI-compatible providers map to openai_chat with their endpoint and headers', () => {
-    const r = toRuntimeProvider('openrouter', { modelName: 'meta/llama-4' });
-    assert.equal(r.unsupported, undefined);
-    assert.equal(r.config.kind, 'openai_chat');
-    assert.equal(r.config.id, 'openrouter');
-    assert.equal(r.config.url, 'https://openrouter.ai/api/v1/chat/completions');
-    assert.equal(r.config.model, 'meta/llama-4');
-    assert.ok(Object.keys(r.config.headers).length > 0);
-});
-
-test('a custom URL overrides the profile endpoint', () => {
-    const r = toRuntimeProvider('lmstudio', { url: 'http://127.0.0.1:9999/v1/chat/completions', modelName: 'qwen' });
-    assert.equal(r.config.url, 'http://127.0.0.1:9999/v1/chat/completions');
-});
-
-test('OpenCode model ids are normalized and routed by model', () => {
-    const r = toRuntimeProvider('opencode', { modelName: 'opencode-go/glm-5.3', mode: 'go' });
-    assert.equal(r.config.model, 'glm-5.3');
-    assert.match(r.config.url, /\/chat\/completions$/);
-});
-
-test('providers on other transports are reported as unsupported, not silently sent', () => {
-    for (const id of ['anthropic', 'gemini', 'ollama', 'githubcopilot'] as const) {
-        const r = toRuntimeProvider(id, { modelName: 'x' });
-        assert.equal(r.config.kind, 'none', id);
-        assert.ok(r.unsupported, id);
+test('every selectable provider passes its preferences through untouched', () => {
+    for (const id of ['gemini', 'anthropic', 'ollama', 'openrouter', 'opencode', 'lmstudio', 'custom', 'deepseek'] as const) {
+        const r = toRuntimeProvider(id, { modelName: ' some-model ', url: ' http://x/ ', mode: 'zen', thinking: 'enabled', reasoningEffort: 'max' });
+        assert.equal(r.unsupported, undefined, id);
+        assert.deepEqual(r.config, {
+            id, model: 'some-model', url: 'http://x/', mode: 'zen', thinking: 'enabled', reasoning_effort: 'max', options: {},
+        });
     }
 });
 
-test('no model selected is reported', () => {
-    const r = toRuntimeProvider('openai', {});
-    assert.equal(r.config.kind, 'none');
+test('retired providers and a missing model are reported, not sent', () => {
+    assert.match(toRuntimeProvider('githubcopilot', { modelName: 'x' }).unsupported ?? '', /no longer available/);
+    const r = toRuntimeProvider('gemini', {});
+    assert.equal(r.config.id, '');
     assert.match(r.unsupported ?? '', /model/);
 });
 
 test('nothing secret is ever part of the config', () => {
     const r = toRuntimeProvider('openai', { modelName: 'gpt-x' });
     assert.ok(!JSON.stringify(r.config).toLowerCase().includes('key'));
+});
+
+test('sameProvider ignores key order and compares every field', () => {
+    const a = toRuntimeProvider('gemini', { modelName: 'm' }).config;
+    const b = { options: {}, reasoning_effort: '', thinking: '', mode: '', url: '', model: 'm', id: 'gemini' };
+    assert.ok(sameProvider(a, b));
+    assert.ok(!sameProvider(a, { ...b, model: 'n' }));
 });

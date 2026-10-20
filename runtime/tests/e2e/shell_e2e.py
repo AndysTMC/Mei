@@ -128,7 +128,7 @@ async def main() -> int:
         # 1. The extension starts the runtime by D-Bus activation and pushes the provider config.
         st = await h.until(lambda s: s["controller"]["status"] == "connected", 60, "the extension to connect")
         cfg = await h.runtime("GetConfig", {})
-        h.check("connected_and_configured", cfg["config"]["provider"]["kind"] == "openai_chat"
+        h.check("connected_and_configured", cfg["config"]["provider"]["id"] == "custom"
                 and cfg["config"]["provider"]["url"].endswith(f":{PORT}/v1/chat/completions"),
                 cfg["config"]["provider"])
 

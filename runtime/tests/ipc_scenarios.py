@@ -55,7 +55,7 @@ async def configure(c: Client, workdir: str, **options) -> None:
     cfg = await c.call("GetConfig")
     opts = {"reply": REPLY, "chunk_chars": 4, "delay_ms": 10, "call_log": f"{workdir}/calls.jsonl", **options}
     await c.call("UpdateConfig", {"revision": cfg["revision"],
-                                  "config": {"provider": {"kind": "fake", "label": "Fake", "options": opts}}})
+                                  "config": {"provider": {"id": "fake", "options": opts}}})
 
 
 def calls(workdir: str) -> int:

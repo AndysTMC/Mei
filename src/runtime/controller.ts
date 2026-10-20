@@ -19,7 +19,7 @@ import { Logger, Tag } from '../utils/logger.js';
 import { RuntimeClient, RuntimeError, type ConnectionStatus } from './client.js';
 import { Projection } from './projection.js';
 import type { ConfigReply, ConversationReply, Envelope, MessageView, SubmitReply } from './protocol.js';
-import { toRuntimeProvider } from './providerBridge.js';
+import { sameProvider, toRuntimeProvider } from './providerBridge.js';
 
 const CONFIG_DEBOUNCE_MS = 300;
 
@@ -300,9 +300,9 @@ export class RuntimeChatController {
         for (let attempt = 0; attempt < 2; attempt++) {
             try {
                 const current = await this._client.call<ConfigReply>('GetConfig');
-                if (JSON.stringify(current.config.provider) === JSON.stringify(config)) return;
+                if (sameProvider(current.config.provider, config)) return;
                 await this._client.call('UpdateConfig', { revision: current.revision, config: { provider: config } });
-                Logger.info(Tag.Extension, `Runtime provider set to ${config.kind === 'none' ? 'none' : config.label}`);
+                Logger.info(Tag.Extension, `Runtime provider set to ${config.id || 'none'}`);
                 return;
             } catch (e) {
                 if ((e as RuntimeError).code !== 'Conflict') {
