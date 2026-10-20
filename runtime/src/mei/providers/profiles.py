@@ -27,6 +27,7 @@ class Profile:
     model_kind: Literal["openai", "gemini", "ollama", "github"] = "openai"
     headers: dict[str, str] = field(default_factory=dict)
     selectable: bool = True
+    unavailable: str = ""  # why a retired provider can't be used, shown to the user
     aliases: tuple[str, ...] = ()
     fallback_models: tuple[str, ...] = ()
 
@@ -64,10 +65,14 @@ PROFILES: dict[str, Profile] = {p.id: p for p in [
     Profile("nvidia", "NVIDIA NIM", "cloud", "openai", "bearer", "https://integrate.api.nvidia.com/v1/chat/completions",
             models_url="https://integrate.api.nvidia.com/v1/models", headers={"X-BILLING-INVOKE-ORIGIN": "Mei"},
             aliases=("nim",)),
-    Profile("opencode", "OpenCode", "cloud", "openai", "bearer", "https://opencode.ai/zen/go/v1/chat/completions",
-            headers=ATTRIBUTION, aliases=("opencode-go", "opencode-zen", "go", "zen")),
+    Profile("opencode", "OpenCode (unavailable)", "cloud", "openai", "bearer",
+            "https://opencode.ai/zen/go/v1/chat/completions", headers=ATTRIBUTION, selectable=False,
+            unavailable="OpenCode no longer serves Mei: Zen's free tier only works inside OpenCode, and Go is "
+                        "meant for coding agents. Choose another provider in Mei's settings.",
+            aliases=("opencode-go", "opencode-zen", "go", "zen")),
     Profile("githubcopilot", "GitHub Models (retired)", "cloud", "openai", "bearer",
             "https://models.github.ai/inference/chat/completions", model_kind="github", selectable=False,
+            unavailable="GitHub Models was retired. Choose another provider in Mei's settings.",
             aliases=("github", "github-models")),
     Profile("custom", "Custom", "custom", "openai", "none", "http://127.0.0.1:8080/v1/chat/completions",
             aliases=("vllm",)),

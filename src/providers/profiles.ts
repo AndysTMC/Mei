@@ -78,8 +78,10 @@ export const PROVIDER_PROFILES: Record<ProviderId, ProviderProfile> = {
         modelsUrl: 'https://integrate.api.nvidia.com/v1/models',
         headers: { 'X-BILLING-INVOKE-ORIGIN': 'Mei' },
     }),
-    opencode: profile('opencode', 'OpenCode', 'cloud', 'openai', 'bearer', 'https://opencode.ai/zen/go/v1/chat/completions', 'openai', {
+    // Retired 2026-10-20: Zen's free tier only serves OpenCode itself, and Go is for coding agents.
+    opencode: profile('opencode', 'OpenCode (unavailable)', 'cloud', 'openai', 'bearer', 'https://opencode.ai/zen/go/v1/chat/completions', 'openai', {
         aliases: ['opencode-go', 'opencode-zen', 'go', 'zen'],
+        selectable: false,
         headers: { 'HTTP-Referer': 'https://github.com/AndysTMC/Mei', 'X-Title': 'Mei' },
     }),
     githubcopilot: profile('githubcopilot', 'GitHub Models (retired)', 'cloud', 'openai', 'bearer', 'https://models.github.ai/inference/chat/completions', 'github', {

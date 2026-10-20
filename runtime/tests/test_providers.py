@@ -306,8 +306,7 @@ def test_url_override():
 @pytest.mark.parametrize("provider_id,model,cls", [
     ("gemini", "gemini-flash-lite-latest", GeminiProvider), ("anthropic", "claude-x", AnthropicProvider),
     ("ollama", "qwen3", OllamaProvider), ("openrouter", "a/b", OpenAIChatProvider),
-    ("llamacpp", "x", OpenAIChatProvider), ("opencode", "gpt-5", ResponsesProvider),
-    ("opencode", "qwen3-max", AnthropicProvider), ("deepseek", "deepseek-v4", OpenAIChatProvider),
+    ("llamacpp", "x", OpenAIChatProvider), ("deepseek", "deepseek-v4", OpenAIChatProvider),
 ])
 async def test_factory_picks_the_adapter(provider_id, model, cls):
     asked: list[str] = []
@@ -323,9 +322,12 @@ async def test_factory_picks_the_adapter(provider_id, model, cls):
 async def test_factory_refuses_retired_and_unknown_providers():
     async def key_for(_pid):
         return ""
-    for cfg in (ProviderConfig(id="githubcopilot", model="x"), ProviderConfig(id="")):
+    for cfg in (ProviderConfig(id="githubcopilot", model="x"), ProviderConfig(id="opencode", model="glm-5.3"),
+                ProviderConfig(id="")):
         with pytest.raises(ProviderError):
             await factory.build(cfg, httpx.AsyncClient(), key_for)
+    with pytest.raises(ProviderError, match="coding agents"):
+        await factory.build(ProviderConfig(id="opencode", model="x"), httpx.AsyncClient(), key_for)
 
 
 def test_deepseek_body():

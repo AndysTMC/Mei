@@ -28,8 +28,6 @@ CASES = [
     ("Groq", "groq", "GROQ_API_KEY", "GROQ_MODEL", {}),
     ("Mistral", "mistral", "MISTRAL_API_KEY", "MISTRAL_MODEL", {}),
     ("OpenRouter", "openrouter", "OPENROUTER_API_KEY", "OPENROUTER_MODEL", {}),
-    ("OpenCode Go", "opencode", "OPENCODE_API_KEY", "OPENCODE_GO_MODEL", {"mode": "go"}),
-    ("OpenCode Zen", "opencode", "OPENCODE_API_KEY", "OPENCODE_ZEN_MODEL", {"mode": "zen"}),
     ("Ollama", "ollama", None, "OLLAMA_MODEL", {"needs": "OLLAMA_LIVE"}),
     ("llama.cpp", "llamacpp", None, "LLAMACPP_MODEL", {}),
     ("LM Studio", "lmstudio", None, "LMSTUDIO_MODEL", {}),

@@ -46,7 +46,7 @@ async def build(cfg: ProviderConfig, client: httpx.AsyncClient, key_for: KeyLook
     if profile is None:
         raise ProviderError("No model provider is configured.")
     if not profile.selectable:
-        raise ProviderError(f"{profile.label} is no longer available. Choose another provider in Mei's settings.")
+        raise ProviderError(profile.unavailable or f"{profile.label} is no longer available.")
     r = resolve(cfg.id, model=cfg.model, url=cfg.url, mode=cfg.mode)
     if r.api_mode == "bedrock_converse":
         raise ProviderError(f"{profile.label} needs AWS authentication, which Mei doesn't support.")

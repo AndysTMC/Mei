@@ -55,9 +55,12 @@ test('OpenCode routes model families without a finite allowlist', () => {
 
 test('retired providers remain recognized for legacy settings but are not selectable', () => {
     assert.equal(PROVIDER_LABELS.githubcopilot, 'GitHub Models (retired)');
-    assert.deepEqual(LEGACY_PROVIDER_IDS, ['githubcopilot']);
-    assert.equal(CLOUD_PROVIDER_IDS.includes('githubcopilot'), false);
-    assert.equal(isProviderId('githubcopilot'), true);
+    assert.equal(PROVIDER_LABELS.opencode, 'OpenCode (unavailable)');
+    assert.deepEqual(new Set(LEGACY_PROVIDER_IDS), new Set(['githubcopilot', 'opencode']));
+    for (const id of ['githubcopilot', 'opencode'] as const) {
+        assert.equal(CLOUD_PROVIDER_IDS.includes(id), false);
+        assert.equal(isProviderId(id), true);
+    }
 });
 
 test('provider catalog partitions every provider exactly once', () => {
