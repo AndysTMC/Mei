@@ -9,7 +9,11 @@
  */
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import type Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Meta from 'gi://Meta';
+import Shell from 'gi://Shell';
 
 import { MeiIndicator } from './panel/indicator.js';
 import { ChatPopup } from './ui/chatPopup.js';
@@ -23,6 +27,7 @@ export default class MeiExtension extends Extension {
     private _themeManager: ThemeManager | null = null;
     private _runtime: RuntimeChatController | null = null;
     private _devHooks: { destroy(): void } | null = null;
+    private _settings: Gio.Settings | null = null;
 
     override enable(): void {
         Logger.info(Tag.Extension, 'Enabling Mei extension');
@@ -54,6 +59,12 @@ export default class MeiExtension extends Extension {
             this._syncIndicatorState();
         };
         popup.onOpenStateChanged = () => this._syncIndicatorState();
+        // The first time the extension meets a runtime whose setup isn't done, open setup (§18.3).
+        runtime.onSetupNeeded = () => this.openPreferences();
+
+        this._settings = this.getSettings();
+        Main.wm.addKeybinding('open-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
+            Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW, () => popup.toggle());
 
         runtime.start();
         if (__DEV__ && GLib.getenv('MEI_DEV_HOOKS') === '1') {
@@ -67,6 +78,8 @@ export default class MeiExtension extends Extension {
 
     override disable(): void {
         Logger.info(Tag.Extension, 'Disabling Mei extension');
+        if (this._settings) Main.wm.removeKeybinding('open-shortcut');
+        this._settings = null;
         this._devHooks?.destroy();
         this._devHooks = null;
         this._runtime?.destroy();

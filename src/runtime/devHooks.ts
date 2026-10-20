@@ -8,6 +8,8 @@
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import Shell from 'gi://Shell';
 
 import type { ChatPopup } from '../ui/chatPopup.js';
 import type { RuntimeChatController } from './controller.js';
@@ -19,11 +21,14 @@ const XML = `
     <method name="Send"><arg type="s" direction="in" name="text"/></method>
     <method name="Popup"><arg type="s" direction="in" name="action"/></method>
     <method name="State"><arg type="s" direction="out" name="json"/></method>
+    <method name="Screenshot"><arg type="s" direction="in" name="path"/></method>
+    <method name="Click"><arg type="i" direction="in" name="x"/><arg type="i" direction="in" name="y"/></method>
   </interface>
 </node>`;
 
 export class DevHooks {
     private readonly _exported: Gio.DBusExportedObject;
+    private _pointer: Clutter.VirtualInputDevice | null = null;
 
     constructor(private readonly _popup: ChatPopup, private readonly _runtime: RuntimeChatController) {
         this._exported = Gio.DBusExportedObject.wrapJSObject(XML, this);
@@ -46,6 +51,31 @@ export class DevHooks {
         else if (action === 'new') this._popup.onNewChat?.();
         else if (action === 'load-latest') this._runtime.debugLoadLatest();
         else if (action === 'reload-draft') this._popup.onReload?.(this._runtime.draftIndex);
+    }
+
+    /** Saves the whole screen as PNG (to see windows the hooks can't read, like Settings). */
+    ScreenshotAsync([path]: [string], invocation: Gio.DBusMethodInvocation): void {
+        const stream = Gio.File.new_for_path(path).replace(null, false, Gio.FileCreateFlags.NONE, null);
+        const shooter = new Shell.Screenshot();
+        shooter.screenshot(false, stream, (_s, res) => {
+            try {
+                shooter.screenshot_finish(res);
+                stream.close(null);
+                invocation.return_value(null);
+            } catch (e) {
+                invocation.return_dbus_error('com.andystmc.MeiDev.Error.Failed', String(e));
+            }
+        });
+    }
+
+    /** A left click at stage coordinates, for driving windows such as Settings. */
+    Click(x: number, y: number): void {
+        this._pointer ??= Clutter.get_default_backend().get_default_seat()
+            .create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
+        const t = GLib.get_monotonic_time();
+        this._pointer.notify_absolute_motion(t, x, y);
+        this._pointer.notify_button(t + 10_000, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.PRESSED);
+        this._pointer.notify_button(t + 20_000, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.RELEASED);
     }
 
     State(): string {

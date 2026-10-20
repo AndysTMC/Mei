@@ -18,6 +18,9 @@ def run(scenario: str, tmp_path: Path) -> dict:
     services.mkdir(parents=True)
     (services / "com.andystmc.Mei1.service").write_text(
         f"[D-BUS Service]\nName=com.andystmc.Mei1\nExec={sys.executable} -m mei serve\n")
+    # No keyring on the private bus (and never the real one): setup reports it as missing.
+    (services / "org.freedesktop.secrets.service").write_text(
+        "[D-BUS Service]\nName=org.freedesktop.secrets\nExec=/bin/false\n")
     env = {**os.environ, "XDG_DATA_HOME": str(tmp_path / "xdg-data"), "MEI_DATA_DIR": str(tmp_path / "mei"),
            "MEI_LOG_LEVEL": "warning"}
     proc = subprocess.run(["dbus-run-session", "--", sys.executable, str(HERE / "ipc_scenarios.py"), scenario,
@@ -57,3 +60,12 @@ def test_duplicate_commands(tmp_path):
 def test_second_instance_exits_on_the_writer_lock(tmp_path):
     r = run("lock", tmp_path)
     assert r["exit_code"] == 75 and r["said_why"] and r["seconds"] < 10
+
+
+def test_setup_and_provider_test_over_the_bus(tmp_path):
+    r = run("setup", tmp_path)
+    assert r["before"] == {"completed": False, "offered": False, "keyring": "missing", "models": "todo"}
+    assert r["test"]["ok"] and r["test"]["reply"].startswith("OK")
+    assert r["after"] == {"completed": True, "skipped": ["shortcuts"]}
+    assert r["rerun_changed"] == [False, False] and r["revision_unchanged"]
+    assert r["bad_step"] == "com.andystmc.Mei1.Error.InvalidArgument"

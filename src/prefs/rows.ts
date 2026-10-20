@@ -1,0 +1,125 @@
+/**
+ * Settings rows shared by the setup assistant and the Settings pages, so a choice made in setup
+ * is the same control (and the same setting) afterwards.
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
+
+import Adw from 'gi://Adw';
+import Gdk from 'gi://Gdk';
+import Gio from 'gi://Gio';
+import Gtk from 'gi://Gtk';
+
+import type { RuntimeSettings } from '../runtime/settings.js';
+import { periodText, retentionLabel, retentionOptions, retentionShrinks } from './setupText.js';
+
+export interface Row<T extends Gtk.Widget = Gtk.Widget> {
+    row: T;
+    destroy(): void;
+}
+
+/** Conversation retention (§14.4). Choosing a shorter period asks first: it deletes at once. */
+export function buildRetentionRow(window: Gtk.Window, settings: RuntimeSettings): Row<Adw.ComboRow> {
+    const labels = new Gtk.StringList();
+    const row = new Adw.ComboRow({
+        title: 'Delete old conversations',
+        subtitle: 'Conversations you haven’t used for this long are deleted',
+        model: labels,
+    });
+    let options: (number | null)[] = [];
+    let updating = false;
+
+    const render = () => {
+        updating = true;
+        options = retentionOptions(settings.retentionDays);
+        labels.splice(0, labels.get_n_items(), options.map(retentionLabel));
+        row.set_selected(options.indexOf(settings.retentionDays));
+        updating = false;
+    };
+
+    row.connect('notify::selected', () => {
+        if (updating) return;
+        const next = options[row.get_selected()] ?? null;
+        const current = settings.retentionDays;
+        if (next === current) return;
+        if (!retentionShrinks(current, next)) {
+            settings.setRetentionDays(next);
+            return;
+        }
+        const dialog = new Adw.AlertDialog({
+            heading: 'Delete old conversations?',
+            body: `Conversations you haven’t used for ${periodText(next as number)} are deleted now, ` +
+                'and from then on automatically. This can’t be undone.',
+        });
+        dialog.add_response('cancel', 'Cancel');
+        dialog.add_response('delete', 'Delete');
+        dialog.set_response_appearance('delete', Adw.ResponseAppearance.DESTRUCTIVE);
+        dialog.set_default_response('cancel');
+        dialog.set_close_response('cancel');
+        dialog.connect('response', (_d: Adw.AlertDialog, response: string) => {
+            if (response === 'delete') settings.setRetentionDays(next);
+            else render();
+        });
+        dialog.present(window);
+    });
+
+    const signal = settings.connect('changed::privacy', render);
+    render();
+    return { row, destroy: () => settings.disconnect(signal) };
+}
+
+/** A global shortcut stored in the extension's GSettings (keybindings have to live there). */
+export function buildShortcutRow(window: Gtk.Window, gsettings: Gio.Settings, key: string,
+    title: string): Row<Adw.ActionRow> {
+    const row = new Adw.ActionRow({ title });
+    const label = new Gtk.ShortcutLabel({ disabled_text: 'Off', valign: Gtk.Align.CENTER });
+    const change = new Gtk.Button({ label: 'Change…', valign: Gtk.Align.CENTER });
+    const clear = new Gtk.Button({
+        icon_name: 'edit-clear-symbolic', valign: Gtk.Align.CENTER, tooltip_text: 'Turn off', css_classes: ['flat'],
+    });
+    row.add_suffix(label);
+    row.add_suffix(change);
+    row.add_suffix(clear);
+
+    const render = () => {
+        const accel = gsettings.get_strv(key)[0] ?? '';
+        label.set_accelerator(accel);
+        clear.set_sensitive(Boolean(accel));
+    };
+    change.connect('clicked', () => captureShortcut(window, title, accel => gsettings.set_strv(key, accel ? [accel] : [])));
+    clear.connect('clicked', () => gsettings.set_strv(key, []));
+    const signal = gsettings.connect(`changed::${key}`, render);
+    render();
+    return { row, destroy: () => gsettings.disconnect(signal) };
+}
+
+/** Wait for a key combination with at least one modifier. Esc cancels; Backspace turns it off. */
+function captureShortcut(parent: Gtk.Window, title: string, done: (accel: string) => void): void {
+    const dialog = new Adw.Window({ modal: true, transient_for: parent, default_width: 420, title });
+    const status = new Adw.StatusPage({
+        icon_name: 'preferences-desktop-keyboard-shortcuts-symbolic',
+        title: 'Press the new shortcut',
+        description: 'Use at least one of Super, Ctrl, or Alt. Esc cancels; Backspace turns the shortcut off.',
+    });
+    const view = new Adw.ToolbarView({ content: status });
+    view.add_top_bar(new Adw.HeaderBar());
+    dialog.set_content(view);
+
+    const keys = new Gtk.EventControllerKey();
+    keys.connect('key-pressed', (_c: Gtk.EventControllerKey, keyval: number, keycode: number, state: Gdk.ModifierType) => {
+        const mods = state & Gtk.accelerator_get_default_mod_mask();
+        const lower = Gdk.keyval_to_lower(keyval);
+        if (!mods && lower === Gdk.KEY_Escape) {
+            dialog.close();
+        } else if (!mods && lower === Gdk.KEY_BackSpace) {
+            done('');
+            dialog.close();
+        } else if (mods && Gtk.accelerator_valid(lower, mods)) {
+            done(Gtk.accelerator_name_with_keycode(null, lower, keycode, mods));
+            dialog.close();
+        }
+        return true;
+    });
+    dialog.add_controller(keys);
+    dialog.present();
+}

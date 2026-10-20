@@ -24,6 +24,7 @@ WORDS = [f"w{i:02d}" for i in range(60)]
 PIECES = ["Mock reply:"] + [" " + w for w in WORDS]
 REPLY = "".join(PIECES)
 DELAY_S = 0.08
+NEXT_BUTTON = (920, 665)  # in the setup assistant, in the nested Shell's 1280×800 screen
 
 
 class MockProvider(BaseHTTPRequestHandler):
@@ -69,6 +70,10 @@ class Harness:
         body = await self._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", member,
                                 "s" if arg is not None else "", [arg] if arg is not None else [])
         return json.loads(body[0]) if member == "State" else None
+
+    async def click(self, x: int, y: int) -> None:
+        await self._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "Click", "ii", [x, y])
+        await asyncio.sleep(0.8)  # the step transition
 
     async def runtime(self, member: str, args: dict) -> dict:
         body = await self._call("com.andystmc.Mei1", "/com/andystmc/Mei1", "com.andystmc.Mei1.Runtime",
@@ -128,6 +133,27 @@ async def main() -> int:
         # 1. The extension starts the runtime by D-Bus activation. Settings live in the runtime: configure
         #    it the way Settings would, and the popup picks the change up from config.changed.
         await h.until(lambda s: s["controller"]["status"] == "connected", 60, "the extension to connect")
+
+        # 0. First run: setup was never offered, so the extension opens Settings, and Settings opens on
+        #    the setup assistant and marks it offered.
+        deadline = time.monotonic() + 40
+        while not (setup := await h.runtime("SetupStatus", {}))["offered"] and time.monotonic() < deadline:
+            await asyncio.sleep(0.25)
+        st = await h.state()
+        h.check("setup_opens_on_first_run", setup["offered"] and not setup["completed"]
+                and st["controller"]["setupOffered"], {"offered": setup["offered"]})
+        await asyncio.sleep(2.0)  # let the window finish drawing
+        await h.hook("Screenshot", os.path.join(OUT, "setup-1-service.png"))
+        for name in ("2-models", "3-privacy", "4-shortcuts", "5-done"):
+            await h.click(*NEXT_BUTTON)
+            await h.hook("Screenshot", os.path.join(OUT, f"setup-{name}.png"))
+        await h.click(*NEXT_BUTTON)  # Finish
+        await asyncio.sleep(1.0)
+        setup = await h.runtime("SetupStatus", {})
+        h.check("setup_finishes_from_the_assistant", setup["completed"] and setup["skipped"] == [],
+                {"completed": setup["completed"], "skipped": setup["skipped"]})
+        await h.hook("Screenshot", os.path.join(OUT, "settings.png"))
+
         cfg = await h.runtime("GetConfig", {})
         url = f"http://127.0.0.1:{PORT}/v1/chat/completions"
         await h.runtime("UpdateConfig", {"revision": cfg["revision"], "config": {
@@ -159,7 +185,9 @@ async def main() -> int:
         subprocess.run(["gnome-extensions", "disable", "mei@andystmc.com"], check=True)
         await asyncio.sleep(1.5)
         subprocess.run(["gnome-extensions", "enable", "mei@andystmc.com"], check=True)
-        await h.until(lambda s: s["controller"]["status"] == "connected", 30, "reconnect after re-enable")
+        st = await h.until(lambda s: s["controller"]["status"] == "connected", 30, "reconnect after re-enable")
+        await asyncio.sleep(1.0)
+        h.check("setup_not_reopened", not (await h.state())["controller"]["setupOffered"])
         await h.hook("Popup", "open")
         await h.hook("Popup", "expand")
         await h.hook("Popup", "load-latest")
@@ -174,7 +202,7 @@ async def main() -> int:
         await h.hook("Send", "third question")
         await h.until(lambda s: stream_len(s) > 60, 20, "the third reply to start")
         await asyncio.sleep(2.2)  # past the runtime's 2 s draft checkpoint
-        pid = (await h.runtime("Hello", {"client": {"kind": "e2e"}, "protocol": [2, 0]}))["pid"]
+        pid = (await h.runtime("Hello", {"client": {"kind": "e2e"}, "protocol": [2, 1]}))["pid"]
         before = len(requests())
         os.kill(pid, signal.SIGKILL)
         st = await h.until(lambda s: s["controller"]["interrupted"] is not None and s["controller"]["status"] == "connected",

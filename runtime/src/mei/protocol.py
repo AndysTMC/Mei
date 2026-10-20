@@ -11,7 +11,7 @@ from typing import Literal
 import msgspec
 
 PROTOCOL_MAJOR = 2  # 2.0: the runtime owns all provider settings (Config.active + Config.providers)
-PROTOCOL_MINOR = 0
+PROTOCOL_MINOR = 1  # 2.1: SetupStatus, SetupApply, TestProvider; retention is enforced
 BUS_NAME = "com.andystmc.Mei1"
 OBJECT_PATH = "/com/andystmc/Mei1"
 INTERFACE = "com.andystmc.Mei1.Runtime"
@@ -129,8 +129,12 @@ class Config(msgspec.Struct, kw_only=True):
 
 
 def active_provider(config: Config) -> ProviderConfig:
-    settings = config.providers.get(config.active, ProviderSettings())
-    return ProviderConfig(id=config.active, **msgspec.structs.asdict(settings))
+    return provider_config(config, config.active)
+
+
+def provider_config(config: Config, provider_id: str) -> ProviderConfig:
+    settings = config.providers.get(provider_id, ProviderSettings())
+    return ProviderConfig(id=provider_id, **msgspec.structs.asdict(settings))
 
 
 class UpdateConfigArgs(msgspec.Struct):
@@ -145,6 +149,15 @@ class ListModelsArgs(msgspec.Struct):
 
 class GetLogsArgs(msgspec.Struct):
     after: int = 0
+
+
+class SetupApplyArgs(msgspec.Struct):
+    step: str
+    choices: dict = msgspec.field(default_factory=dict)
+
+
+class TestProviderArgs(msgspec.Struct):
+    provider: str = ""  # empty: the active provider
 
 
 def decode_args(data: str, kind: type):
@@ -168,7 +181,8 @@ def encode(value) -> str:
 def json_schema() -> dict:
     """JSON Schema for the commands and the event envelope, for tooling and docs."""
     kinds = [Envelope, HelloArgs, AttachArgs, SubmitInputArgs, TaskCommandArgs,
-             ConversationCommandArgs, UpdateConfigArgs, Config, ListModelsArgs, GetLogsArgs]
+             ConversationCommandArgs, UpdateConfigArgs, Config, ListModelsArgs, GetLogsArgs, SetupApplyArgs,
+             TestProviderArgs]
     _schemas, components = msgspec.json.schema_components(kinds)
     return {"$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": f"Mei runtime protocol {PROTOCOL_MAJOR}.{PROTOCOL_MINOR}",

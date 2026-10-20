@@ -157,6 +157,30 @@ async def lock(c: Client, workdir: str) -> dict:
             "said_why": "another Mei runtime" in second.stderr}
 
 
+async def setup(c: Client, workdir: str) -> dict:
+    await c.hello()
+    before = await c.call("SetupStatus")
+    steps = {s["id"]: s for s in before["steps"]}
+    await configure(c, workdir, reply="OK, ready.")
+    test = await c.call("TestProvider")
+    revision = (await c.call("GetConfig"))["revision"]
+    await c.call("SetupApply", {"step": "offered"})
+    await c.call("SetupApply", {"step": "finish", "choices": {"skipped": ["shortcuts"]}})
+    after = await c.call("SetupStatus")
+    rerun = [(await c.call("SetupApply", {"step": "offered"}))["changed"],
+             (await c.call("SetupApply", {"step": "finish", "choices": {"skipped": ["shortcuts"]}}))["changed"]]
+    try:
+        await c.call("SetupApply", {"step": "voice"})
+        bad = ""
+    except RuntimeError as e:
+        bad = str(e).split(":")[0]
+    return {"before": {"completed": before["completed"], "offered": before["offered"],
+                       "keyring": steps["service"]["keyring"], "models": steps["models"]["state"]},
+            "test": test, "after": {"completed": after["completed"], "skipped": after["skipped"]},
+            "rerun_changed": rerun, "revision_unchanged": (await c.call("GetConfig"))["revision"] == revision,
+            "bad_step": bad}
+
+
 async def main() -> None:
     scenario, workdir = sys.argv[1], sys.argv[2]
     from mei.ipc import dbus_patch

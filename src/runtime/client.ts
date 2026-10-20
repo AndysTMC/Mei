@@ -25,6 +25,12 @@ import {
 } from './protocol.js';
 
 const CALL_TIMEOUT_MS = 10_000;
+
+export interface CallOptions {
+    flags?: Gio.DBusCallFlags;
+    /** For methods that wait on the network or the user (TestProvider, unlocking the keyring). */
+    timeoutMs?: number;
+}
 const RECONNECT_FAST_MS = 300;
 const RECONNECT_SLOW_MS = 5_000;
 const KNOWN_EVENTS = new Set([
@@ -78,7 +84,7 @@ export class RuntimeClient {
         this._subscription = this._watch = this._retryId = 0;
         this._buffer = [];
         // Tell the runtime to stop sending us events; never start it just to say goodbye.
-        this.call('Detach', {}, Gio.DBusCallFlags.NO_AUTO_START).catch(() => {});
+        this.call('Detach', {}, { flags: Gio.DBusCallFlags.NO_AUTO_START }).catch(() => {});
     }
 
     /** Re-attach from the current cursor, e.g. after the projection saw a gap. */
@@ -86,11 +92,11 @@ export class RuntimeClient {
         void this._connect();
     }
 
-    call<T>(method: string, args: object = {}, flags: Gio.DBusCallFlags = Gio.DBusCallFlags.NONE): Promise<T> {
+    call<T>(method: string, args: object = {}, opts: CallOptions = {}): Promise<T> {
         return new Promise((resolve, reject) => {
             Gio.DBus.session.call(
                 BUS_NAME, OBJECT_PATH, INTERFACE, method, new GLib.Variant('(s)', [JSON.stringify(args)]),
-                new GLib.VariantType('(s)'), flags, CALL_TIMEOUT_MS, null,
+                new GLib.VariantType('(s)'), opts.flags ?? Gio.DBusCallFlags.NONE, opts.timeoutMs ?? CALL_TIMEOUT_MS, null,
                 (conn, res) => {
                     try {
                         const reply = conn!.call_finish(res).deepUnpack() as [string];

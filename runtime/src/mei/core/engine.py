@@ -21,7 +21,7 @@ from mei.providers.base import Done, ModelRequest, Provider, ProviderError, Text
 from mei.providers.factory import label_of
 from mei.providers.openai_chat import to_turns
 from mei.store import repo
-from mei.store.db import Store, Tx, iso_now, new_id
+from mei.store.db import Store, Tx, iso_now, new_id, now_ms
 
 from .states import TERMINAL, TaskState
 
@@ -199,7 +199,32 @@ class Engine:
         with self.store.tx() as tx:
             revision = repo.put_config(tx, args.revision, args.config)
         self.publisher.publish(tx.events)
+        if args.config.privacy != current.privacy:
+            self.apply_retention()
         return {"revision": revision, "changed": True}
+
+    def apply_retention(self, now: int | None = None) -> int:
+        """Delete conversations untouched for longer than the user's retention setting (§14.4).
+
+        Conversations with a reply still in progress are left for the next pass.
+        """
+        _revision, config = repo.get_config(self.store)
+        days = config.privacy.conversation_retention_days
+        if days is None:
+            return 0
+        cutoff = (now if now is not None else now_ms()) - days * 86_400_000
+        rows = self.store.read("SELECT id FROM conversations WHERE updated_at < ?", (cutoff,))
+        deleted = 0
+        for row in rows:
+            with self.store.tx() as tx:
+                if repo.blocking_task(tx, row["id"]) is not None:
+                    continue
+                repo.delete_conversation(tx, row["id"])
+            self.publisher.publish(tx.events)
+            deleted += 1
+        if deleted:
+            log.info("retention: deleted %d conversation%s older than %d days", deleted, "s" if deleted != 1 else "", days)
+        return deleted
 
     def get_config(self) -> dict:
         revision, config = repo.get_config(self.store)

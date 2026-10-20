@@ -21,8 +21,10 @@ from mei import protocol
 from mei.core.engine import Engine
 from mei.obs import RECENT
 from mei.protocol import (AttachArgs, ConversationCommandArgs, Envelope, GetLogsArgs, HelloArgs, ListModelsArgs,
-                          ProtocolError, SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs, decode_args, encode)
+                          ProtocolError, SetupApplyArgs, SubmitInputArgs, TaskCommandArgs, TestProviderArgs,
+                          UpdateConfigArgs, decode_args, encode)
 from mei.providers.profiles import PROFILES
+from mei.setup import Setup
 from mei.store import repo
 
 log = logging.getLogger("mei.ipc")
@@ -42,10 +44,14 @@ class Client:
 
 class RuntimeService:
     def __init__(self, bus: MessageBus, engine: Engine,
-                 list_models: Callable[[str, str], Awaitable[dict]] | None = None) -> None:
+                 list_models: Callable[[str, str], Awaitable[dict]] | None = None,
+                 setup: Setup | None = None,
+                 test_provider: Callable[[str], Awaitable[dict]] | None = None) -> None:
         self._bus = bus
         self._engine = engine
         self._list_models = list_models
+        self._setup = setup
+        self._test_provider = test_provider
         self._store = engine.store
         self.clients: dict[str, Client] = {}
         self._kinds: dict[str, str] = {}
@@ -55,7 +61,8 @@ class RuntimeService:
             "Cancel": self._cancel, "Resume": self._resume, "DeleteConversation": self._delete_conversation,
             "GetConfig": self._get_config, "UpdateConfig": self._update_config, "Ping": self._ping,
             "ListProviders": self._list_providers, "ListModels": self._models, "GetLogs": self._get_logs,
-            "ClearLogs": self._clear_logs,
+            "ClearLogs": self._clear_logs, "SetupStatus": self._setup_status, "SetupApply": self._setup_apply,
+            "TestProvider": self._test,
         }
 
     async def start(self) -> None:
@@ -198,6 +205,26 @@ class RuntimeService:
         if self._list_models is None:
             raise ProtocolError("Unsupported", "model discovery is not available")
         return await self._list_models(args.provider, args.url)
+
+    def _need_setup(self) -> Setup:
+        if self._setup is None:
+            raise ProtocolError("Unsupported", "setup is not available")
+        return self._setup
+
+    async def _setup_status(self, _sender: str, _data: str) -> dict:
+        return await self._need_setup().status()
+
+    async def _setup_apply(self, _sender: str, data: str) -> dict:
+        args = decode_args(data, SetupApplyArgs)
+        return await self._need_setup().apply(args.step, args.choices)
+
+    async def _test(self, _sender: str, data: str) -> dict:
+        args = decode_args(data, TestProviderArgs)
+        if args.provider and args.provider not in PROFILES:
+            raise ProtocolError("NotFound", f"no provider {args.provider!r}")
+        if self._test_provider is None:
+            raise ProtocolError("Unsupported", "provider tests are not available")
+        return await self._test_provider(args.provider)
 
     def _get_logs(self, _sender: str, data: str) -> dict:
         entries = RECENT.after(decode_args(data, GetLogsArgs).after)

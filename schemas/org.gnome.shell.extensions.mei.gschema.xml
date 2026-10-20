@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-    <!-- Provider, model, and privacy settings live in the Mei runtime (ADR 0002), not here. -->
+    <!-- Provider, model, and privacy settings live in the Mei runtime (ADR 0002), not here. Only
+         what the Shell itself needs stays in GSettings: keybindings must be GSettings keys. -->
     <schema id="org.gnome.shell.extensions.mei"
             path="/org/gnome/shell/extensions/mei/">
+        <key name="open-shortcut" type="as">
+            <default><![CDATA[['<Super><Alt>m']]]></default>
+            <summary>Open Mei</summary>
+            <description>Keyboard shortcut that opens Mei with the message box focused. An empty list turns it off.</description>
+        </key>
     </schema>
 </schemalist>

@@ -43,6 +43,9 @@ import { lookupProviderApiKey } from './utils/secretStore.js';
 import { Logger, Tag } from './utils/logger.js';
 import { RuntimeClient } from './runtime/client.js';
 import { RuntimeSettings, type ModelListResult } from './runtime/settings.js';
+import type { SetupStatusReply } from './runtime/protocol.js';
+import { buildRetentionRow, buildShortcutRow } from './prefs/rows.js';
+import { buildSetupAssistant, type Call } from './prefs/setupAssistant.js';
 
 export default class MeiPreferences extends ExtensionPreferences {
     override async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
@@ -74,6 +77,25 @@ export default class MeiPreferences extends ExtensionPreferences {
         });
         window.add(mainPage);
 
+        const gsettings = this.getSettings();
+        const call: Call = (method, args, opts) => client.call(method, args, opts);
+
+        const meiGroup = new Adw.PreferencesGroup({ title: 'Mei' });
+        mainPage.add(meiGroup);
+        const serviceRow = new Adw.ActionRow({
+            title: 'Mei service',
+            subtitle: 'Checking…',
+            icon_name: 'emblem-system-symbolic',
+        });
+        const setupRow = new Adw.ActionRow({
+            title: 'Run setup again',
+            subtitle: 'Go through the setup steps; nothing changes unless you change it',
+            icon_name: 'view-refresh-symbolic',
+            activatable: true,
+        });
+        meiGroup.add(serviceRow);
+        meiGroup.add(setupRow);
+
         // Replace 'Options' with 'Settings'
         const mainMenuGroup = new Adw.PreferencesGroup({
             title: 'Settings',
@@ -97,6 +119,16 @@ export default class MeiPreferences extends ExtensionPreferences {
             activatable: true,
         });
         mainMenuGroup.add(logsRow);
+
+        const privacyGroup = new Adw.PreferencesGroup({ title: 'Privacy' });
+        const retentionRow = buildRetentionRow(window, settings);
+        privacyGroup.add(retentionRow.row);
+        mainPage.add(privacyGroup);
+
+        const shortcutsGroup = new Adw.PreferencesGroup({ title: 'Shortcuts' });
+        const shortcutRow = buildShortcutRow(window, gsettings, 'open-shortcut', 'Open Mei');
+        shortcutsGroup.add(shortcutRow.row);
+        mainPage.add(shortcutsGroup);
 
         /* ── Page 1: Provider Subpage ─────────────────── */
         const providerBox = new Gtk.Box({
@@ -701,6 +733,29 @@ export default class MeiPreferences extends ExtensionPreferences {
             window.push_subpage(providerSubpage);
         });
 
+        /* ── Setup assistant ──────────────────────────── */
+        const showServiceStatus = (status: SetupStatusReply) => {
+            const service = status.steps.find(step => step.id === 'service');
+            if (service?.id === 'service')
+                serviceRow.set_subtitle(`Running · version ${service.runtime_version} · keyring ${service.keyring === 'missing' ? 'not found' : service.keyring}`);
+        };
+        const setup = buildSetupAssistant({
+            window, call, settings, gsettings,
+            openProviders: () => window.push_subpage(providerSubpage),
+            onStatus: showServiceStatus,
+        });
+        setupRow.connect('activated', () => {
+            setup.restart();
+            window.push_subpage(setup.page);
+        });
+        // Until setup is finished, Settings opens on it (the extension opens Settings once, at the
+        // first login after installing).
+        void setup.refresh().then(status => {
+            if (destroyed || !status || status.completed) return;
+            window.push_subpage(setup.page);
+            if (!status.offered) call('SetupApply', { step: 'offered' }).catch(() => {});
+        });
+
         /* ── Page 2: Logs Subpage ─────────────────────── */
         const logsBox = new Gtk.Box({
             orientation: Gtk.Orientation.VERTICAL,
@@ -901,6 +956,9 @@ export default class MeiPreferences extends ExtensionPreferences {
                 settings.disconnect(signalId);
             }
             settingsSignalIds.length = 0;
+            setup.destroy();
+            retentionRow.destroy();
+            shortcutRow.destroy();
         });
     }
 }

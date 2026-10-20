@@ -9,7 +9,7 @@ export const BUS_NAME = 'com.andystmc.Mei1';
 export const OBJECT_PATH = '/com/andystmc/Mei1';
 export const INTERFACE = 'com.andystmc.Mei1.Runtime';
 export const ERROR_PREFIX = 'com.andystmc.Mei1.Error.';
-export const PROTOCOL_VERSION: [number, number] = [2, 0];
+export const PROTOCOL_VERSION: [number, number] = [2, 1];
 
 export type TaskState =
     | 'ACCEPTED' | 'RUNNING' | 'WAITING_APPROVAL' | 'WAITING_INPUT' | 'WAITING_RESOURCE' | 'VERIFYING'
@@ -120,6 +120,8 @@ export interface ConfigDoc {
     active: string;
     providers: Record<string, ProviderSettings>;
     privacy: { conversation_retention_days: number | null };
+    /** Fields a newer runtime added; kept as they are when this client writes the config back. */
+    [field: string]: unknown;
 }
 
 export interface ConfigReply {
@@ -140,4 +142,46 @@ export interface LogEntry {
     level: string;
     logger: string;
     msg: string;
+}
+
+/** Setup steps the runtime can check (§18.3). The Shell's shortcut step is the UI's own. */
+export interface ServiceStep {
+    id: 'service';
+    state: 'done' | 'attention';
+    runtime_version: string;
+    keyring: 'unlocked' | 'locked' | 'missing';
+    data_dir: string;
+    data_bytes: number;
+    free_bytes: number;
+}
+
+export interface ModelsStep {
+    id: 'models';
+    state: 'done' | 'todo';
+    provider: string;
+    label: string;
+    model: string;
+    requires_key: boolean;
+    has_key: boolean | null;
+}
+
+export interface PrivacyStep {
+    id: 'privacy';
+    state: 'done';
+    conversation_retention_days: number | null;
+}
+
+export interface SetupStatusReply {
+    version: number;
+    completed: boolean;
+    offered: boolean;
+    skipped: string[];
+    steps: (ServiceStep | ModelsStep | PrivacyStep)[];
+}
+
+export interface TestProviderReply {
+    ok: boolean;
+    reply?: string;
+    error?: string;
+    ms: number;
 }

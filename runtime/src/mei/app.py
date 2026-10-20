@@ -4,6 +4,8 @@ import asyncio
 import logging
 import os
 import signal
+import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import httpx
@@ -14,11 +16,15 @@ from mei import legacy
 from mei.core.engine import Engine
 from mei.ipc import dbus_patch
 from mei.ipc.service import RUNTIME_VERSION, RuntimeService
-from mei.protocol import ProviderConfig
+from mei.protocol import ProviderConfig, provider_config
 from mei.providers import factory, models
-from mei.providers.base import Provider, ProviderError
+from mei.providers.base import ChatTurn, ModelRequest, Provider, ProviderError, TextDelta
+from mei.providers.factory import label_of
 from mei.providers.profiles import PROFILES
-from mei.secrets import KeyringLocked, KeyringUnavailable, lookup_provider_key, store_provider_key
+from mei.secrets import (KeyringLocked, KeyringUnavailable, keyring_state, lookup_provider_key, store_provider_key,
+                         unlock_keyring)
+from mei.setup import Probes, Setup
+from mei.store import repo
 from mei.store.db import Store
 
 log = logging.getLogger("mei.app")
@@ -66,6 +72,61 @@ def model_lister(client: httpx.AsyncClient, key_for):
     return list_for
 
 
+TEST_PROMPT = "Reply with the single word OK."
+RETENTION_EVERY_S = 3600
+
+
+def provider_tester(store: Store, make: Callable[[ProviderConfig], Awaitable[Provider]]):
+    """One short request to a configured provider, for the "Test" button in setup and Settings."""
+
+    async def test(provider_id: str) -> dict:
+        _revision, config = repo.get_config(store)
+        cfg = provider_config(config, provider_id or config.active)
+        if not cfg.id:
+            return {"ok": False, "error": "Choose a provider first.", "ms": 0}
+        started, text = time.monotonic(), ""
+        try:
+            provider = await make(cfg)
+            async with asyncio.timeout(45):
+                async for event in provider.stream(ModelRequest([ChatTurn("user", TEST_PROMPT)])):
+                    if isinstance(event, TextDelta):
+                        text += event.text
+                        if len(text) > 200:
+                            break
+        except ProviderError as e:
+            return {"ok": False, "error": str(e), "ms": int((time.monotonic() - started) * 1000)}
+        except TimeoutError:
+            return {"ok": False, "error": f"{label_of(cfg)} didn't answer within 45 seconds.",
+                    "ms": int((time.monotonic() - started) * 1000)}
+        ms = int((time.monotonic() - started) * 1000)
+        if not text.strip():
+            return {"ok": False, "error": f"{label_of(cfg)} answered with no text.", "ms": ms}
+        return {"ok": True, "reply": text.strip()[:80], "ms": ms}
+
+    return test
+
+
+def setup_probes(bus: MessageBus) -> Probes:
+    async def has_key(provider_id: str) -> bool | None:
+        try:
+            return bool(await lookup_provider_key(bus, provider_id))
+        except KeyringLocked:
+            return None
+        except KeyringUnavailable:
+            return False
+
+    return Probes(keyring=lambda: keyring_state(bus), has_key=has_key, unlock=lambda: unlock_keyring(bus))
+
+
+async def retention_loop(engine: Engine) -> None:
+    while True:
+        try:
+            engine.apply_retention()
+        except Exception:
+            log.exception("applying the retention setting failed")
+        await asyncio.sleep(RETENTION_EVERY_S)
+
+
 async def import_legacy(store: Store, bus: MessageBus) -> None:
     keyring = legacy.Keyring(store=lambda pid, key: store_provider_key(bus, pid, key),
                              lookup=lambda pid: lookup_provider_key(bus, pid))
@@ -92,13 +153,18 @@ async def serve() -> int:
     key_for = key_lookup(bus)
     async with httpx.AsyncClient(http2=False, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
         engine = Engine(store, publisher=None, provider_factory=provider_factory(client, key_for))
-        service = RuntimeService(bus, engine, list_models=model_lister(client, key_for))
+        make_provider = provider_factory(client, key_for)
+        setup = Setup(store, setup_probes(bus), data_dir(), RUNTIME_VERSION)
+        service = RuntimeService(bus, engine, list_models=model_lister(client, key_for), setup=setup,
+                                 test_provider=provider_tester(store, make_provider))
         engine.publisher = service  # the service needs the engine and the engine publishes through it
         engine.recover()
         await service.start()
+        retention = asyncio.ensure_future(retention_loop(engine))
         disconnected = asyncio.ensure_future(bus.wait_for_disconnect())
         stopped = asyncio.ensure_future(stop.wait())
         done, _ = await asyncio.wait({disconnected, stopped}, return_when=asyncio.FIRST_COMPLETED)
+        retention.cancel()
         await engine.shutdown()
         if disconnected in done:
             disconnected.exception()  # retrieve it (EOFError from dbus-fast) so asyncio doesn't warn

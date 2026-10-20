@@ -52,11 +52,26 @@ export class RuntimeSettings {
     applyRemote(reply: ConfigReply): void {
         if (reply.revision <= this._revision && this.loaded) return;
         const before = KEYS.map(k => this.get_string(k));
+        const retention = this.retentionDays;
         this._doc = normalize(reply.config);
         this._revision = reply.revision;
         KEYS.forEach((k, i) => {
             if (this.get_string(k) !== before[i]) this._emit(k);
         });
+        if (this.retentionDays !== retention) this._emit('privacy');
+    }
+
+    /** Days after which untouched conversations are deleted; null keeps them until the user deletes them. */
+    get retentionDays(): number | null {
+        return this._doc.privacy.conversation_retention_days;
+    }
+
+    setRetentionDays(days: number | null): void {
+        if (!this.loaded) throw new Error('settings are not loaded yet');
+        if (days === this.retentionDays) return;
+        this._mutate(doc => {
+            doc.privacy = { ...doc.privacy, conversation_retention_days: days };
+        }, 'privacy');
     }
 
     get_string(key: string): string {
@@ -189,9 +204,10 @@ function emptyDoc(): ConfigDoc {
 
 function normalize(doc: Partial<ConfigDoc> | undefined): ConfigDoc {
     return {
+        ...doc,
         active: doc?.active ?? '',
         providers: { ...(doc?.providers ?? {}) },
-        privacy: { conversation_retention_days: doc?.privacy?.conversation_retention_days ?? null },
+        privacy: { ...doc?.privacy, conversation_retention_days: doc?.privacy?.conversation_retention_days ?? null },
     };
 }
 

@@ -4,6 +4,8 @@ Stage 0a: a locked collection makes GetSecrets return nothing *without an error*
 are checked explicitly and reported as `KeyringLocked`, never as a missing key.
 """
 
+import asyncio
+
 from dbus_fast import Message, MessageType, Variant
 from dbus_fast.aio import MessageBus
 
@@ -84,3 +86,51 @@ async def delete_provider_keys(bus: MessageBus) -> tuple[int, int]:
             await _call(bus, prompt, "org.freedesktop.Secret.Prompt", "Dismiss")
             left += 1
     return deleted, left
+
+
+async def _default_collection(bus: MessageBus) -> str | None:
+    (collection,) = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "ReadAlias", "s", ["default"])
+    return None if collection == "/" else collection
+
+
+async def keyring_state(bus: MessageBus) -> str:
+    """"unlocked", "locked", or "missing" (no Secret Service, or no default keyring)."""
+    try:
+        collection = await _default_collection(bus)
+        if collection is None:
+            return "missing"
+        (locked,) = await _call(bus, collection, "org.freedesktop.DBus.Properties", "Get", "ss",
+                                ["org.freedesktop.Secret.Collection", "Locked"])
+    except KeyringUnavailable:
+        return "missing"
+    return "locked" if locked.value else "unlocked"
+
+
+async def unlock_keyring(bus: MessageBus, timeout: float = 120.0) -> str:
+    """Ask the keyring to unlock; the desktop shows its own password prompt. Returns the new state."""
+    collection = await _default_collection(bus)
+    if collection is None:
+        return "missing"
+    _unlocked, prompt = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "Unlock", "ao", [[collection]])
+    if prompt != "/":
+        done = asyncio.get_running_loop().create_future()
+        rule = f"type='signal',interface='org.freedesktop.Secret.Prompt',member='Completed',path='{prompt}'"
+
+        def on_message(msg: Message) -> None:
+            if msg.member == "Completed" and msg.path == prompt and not done.done():
+                done.set_result(None)
+
+        bus.add_message_handler(on_message)
+        await bus.call(Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+                               interface="org.freedesktop.DBus", member="AddMatch", signature="s", body=[rule]))
+        try:
+            await _call(bus, prompt, "org.freedesktop.Secret.Prompt", "Prompt", "s", [""])
+            async with asyncio.timeout(timeout):
+                await done
+        except TimeoutError:
+            await _call(bus, prompt, "org.freedesktop.Secret.Prompt", "Dismiss")
+        finally:
+            bus.remove_message_handler(on_message)
+            await bus.call(Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+                                   interface="org.freedesktop.DBus", member="RemoveMatch", signature="s", body=[rule]))
+    return await keyring_state(bus)

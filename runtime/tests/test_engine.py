@@ -263,3 +263,46 @@ async def test_refuses_empty_input(tmp_path):
     eng, _ = make_engine(tmp_path)
     with pytest.raises(ProtocolError):
         submit(eng, text="   ")
+
+
+def _age(eng: Engine, conversation_id: str, days: float) -> None:
+    with eng.store.tx() as tx:
+        tx.execute("UPDATE conversations SET updated_at = ? WHERE id = ?",
+                   (repo.now_ms() - int(days * 86_400_000), conversation_id))
+
+
+def _retention(eng: Engine, days: int | None) -> dict:
+    revision, config = repo.get_config(eng.store)
+    config.privacy.conversation_retention_days = days
+    return eng.update_config(UpdateConfigArgs(revision, config))
+
+
+async def test_retention_deletes_only_conversations_older_than_the_setting(tmp_path):
+    eng, rec = make_engine(tmp_path)
+    old = submit(eng, "old", "c1")
+    await wait_state(eng, old["task_id"])
+    new = submit(eng, "new", "c2")
+    await wait_state(eng, new["task_id"])
+    _age(eng, old["conversation_id"], 45)
+    _age(eng, new["conversation_id"], 5)
+    assert eng.apply_retention() == 0  # keep until I delete: the default
+    rec.events.clear()
+
+    _retention(eng, 30)  # choosing a retention period applies it at once
+    ids = [c["id"] for c in repo.list_conversations(eng.store)]
+    assert ids == [new["conversation_id"]]
+    assert [e.payload for e in rec.events if e.type == "conversation.deleted"] == \
+        [{"conversation_id": old["conversation_id"]}]
+    assert eng.apply_retention() == 0
+
+
+async def test_retention_leaves_a_conversation_that_is_still_answering(tmp_path):
+    eng, _rec = make_engine(tmp_path, delay_ms=50)
+    r = submit(eng)
+    await wait_state(eng, r["task_id"], states={S.RUNNING})
+    _age(eng, r["conversation_id"], 400)
+    _retention(eng, 1)
+    assert [c["id"] for c in repo.list_conversations(eng.store)] == [r["conversation_id"]]
+    await wait_state(eng, r["task_id"])
+    _age(eng, r["conversation_id"], 400)
+    assert eng.apply_retention() == 1

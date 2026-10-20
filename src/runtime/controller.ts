@@ -16,7 +16,7 @@ import type { ChatPopup } from '../ui/chatPopup.js';
 import { Logger, Tag } from '../utils/logger.js';
 import { RuntimeClient, RuntimeError, type ConnectionStatus } from './client.js';
 import { Projection } from './projection.js';
-import type { ConversationReply, Envelope, MessageView, SubmitReply } from './protocol.js';
+import type { ConversationReply, Envelope, MessageView, SetupStatusReply, SubmitReply } from './protocol.js';
 import { RuntimeSettings } from './settings.js';
 
 interface PopupMessage {
@@ -40,6 +40,11 @@ export class RuntimeChatController {
     private _draftIndex = -1;
 
     private _popup!: ChatPopup;
+    private _setupChecked = false;
+    /** Called once when setup was never offered (the extension opens Settings). */
+    onSetupNeeded: (() => void) | null = null;
+    /** Whether this controller asked for setup to open (read by the dev-build test hooks). */
+    setupOffered = false;
 
     constructor() {
         this.settings = new RuntimeSettings((method, args) => this._client.call(method, args));
@@ -47,6 +52,7 @@ export class RuntimeChatController {
             this._projection.applyAttach(reply);
             if (reply.mode === 'snapshot' && this._current) void this._loadConversation(this._current);
             this._reloadSettings();
+            void this._checkSetup();
             this._render();
         };
         this._client.onEvent = event => this._onEvent(event);
@@ -82,6 +88,7 @@ export class RuntimeChatController {
             stream: stream ? { text: stream.text, chunk: stream.chunk, stale: stream.stale } : null,
             interrupted: this._current ? this._projection.interruptedTask(this._current)?.draft ?? null : null,
             provider: this.settings.get_string('provider'),
+            setupOffered: this.setupOffered,
         };
     }
 
@@ -272,6 +279,23 @@ export class RuntimeChatController {
         this._popup.setLoading(false);
         this._popup.showError(`⚠ ${message}`);
         this._popup.open();
+    }
+
+    // ── Setup ───────────────────────────────────────────────────────────────
+
+    /** Asks once per enable whether setup was ever offered; Settings marks it offered when it opens. */
+    private async _checkSetup(): Promise<void> {
+        if (this._setupChecked) return;
+        this._setupChecked = true;
+        try {
+            const status = await this._client.call<SetupStatusReply>('SetupStatus');
+            if (!status.completed && !status.offered && this.onSetupNeeded) {
+                this.setupOffered = true;
+                this.onSetupNeeded();
+            }
+        } catch (e) {
+            Logger.warn(Tag.Extension, `Checking setup failed: ${(e as Error).message}`);
+        }
     }
 
     // ── Provider settings ───────────────────────────────────────────────────
