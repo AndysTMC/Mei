@@ -6,6 +6,8 @@ from typing import Literal
 
 import httpx
 
+from mei.obs import redact
+
 from .base import ProviderError
 from .sse import SseDecoder
 
@@ -13,6 +15,7 @@ MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_ERROR_BODY_BYTES = 64 * 1024
 RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504, 529})
 TIMEOUT = httpx.Timeout(connect=15.0, read=60.0, write=30.0, pool=15.0)
+_CREDENTIAL_HEADERS = frozenset({"authorization", "x-api-key", "x-goog-api-key", "api-key"})
 
 
 async def stream_post(client: httpx.AsyncClient, url: str, body: dict, headers: dict[str, str], *,
@@ -23,7 +26,7 @@ async def stream_post(client: httpx.AsyncClient, url: str, body: dict, headers: 
         async with client.stream("POST", url, json=body, headers={"Accept": accept, **headers},
                                  timeout=TIMEOUT) as response:
             if response.status_code >= 400:
-                raise await _http_error(label, response)
+                raise await _http_error(label, response, headers)
             received = 0
             sse = SseDecoder()
             pending = b""
@@ -51,13 +54,23 @@ async def stream_post(client: httpx.AsyncClient, url: str, body: dict, headers: 
         raise ProviderError(f"{label}: connection failed ({type(e).__name__})", retryable=True) from None
 
 
-async def _http_error(label: str, response: httpx.Response) -> ProviderError:
+def scrub(text: str, headers: dict[str, str]) -> str:
+    """Remove this request's own credentials from text the upstream sent back (some echo the key)."""
+    for name, value in headers.items():
+        if name.lower() in _CREDENTIAL_HEADERS and value:
+            secret = value.split(" ", 1)[1] if name.lower() == "authorization" and " " in value else value
+            if len(secret) >= 8:
+                text = text.replace(secret, "[redacted]")
+    return redact(text)
+
+
+async def _http_error(label: str, response: httpx.Response, headers: dict[str, str]) -> ProviderError:
     body = b""
     async for chunk in response.aiter_bytes():
         body += chunk
         if len(body) >= MAX_ERROR_BODY_BYTES:
             break
-    detail = error_message(body[:MAX_ERROR_BODY_BYTES])
+    detail = scrub(error_message(body[:MAX_ERROR_BODY_BYTES]), headers)
     return ProviderError(f"{label}: HTTP {response.status_code}" + (f": {detail}" if detail else ""),
                          retryable=response.status_code in RETRYABLE_STATUS, status=response.status_code)
 

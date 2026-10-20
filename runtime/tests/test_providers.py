@@ -336,3 +336,13 @@ def test_deepseek_body():
     assert factory.deepseek_body("deepseek-v4", "disabled", "") == {"thinking": {"type": "disabled"}}
     assert factory.deepseek_body("deepseek-v3.2", "enabled", "max") == {}
     assert factory.deepseek_body("deepseek-v4", "", "max") == {}
+
+
+def test_upstream_errors_never_repeat_the_request_credentials():
+    from mei.providers.http_stream import scrub
+    text = "bad key abcd1234efgh5678 and AIzaSyD-not-the-key-but-looks-like-one-123456"
+    assert "abcd1234efgh5678" not in scrub(text, {"Authorization": "Bearer abcd1234efgh5678"})
+    assert "abcd1234efgh5678" not in scrub(text, {"x-goog-api-key": "abcd1234efgh5678"})
+    assert "abcd1234efgh5678" not in scrub(text, {"x-api-key": "abcd1234efgh5678"})
+    assert scrub("short", {"Authorization": "Bearer short"}) == "short"  # too short to be a key: left alone
+    assert "abcd1234efgh5678" in scrub(text, {"Content-Type": "abcd1234efgh5678"})

@@ -15,6 +15,7 @@ from typing import Protocol
 
 import msgspec
 
+from mei.obs import redact
 from mei.protocol import (MAX_INPUT_CHARS, ConversationCommandArgs, active_provider, Envelope, ProtocolError,
                           ProviderConfig, SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs)
 from mei.providers.base import Done, ModelRequest, Provider, ProviderError, TextDelta, ThinkingDelta, Usage
@@ -310,7 +311,7 @@ class Engine:
                     self._finish(task_id, stream, S.CANCELLED)
             except ProviderError as e:
                 self._flush(stream)
-                self._finish(task_id, stream, S.FAILED, error=str(e))
+                self._finish(task_id, stream, S.FAILED, error=redact(str(e)))
             except TimeoutError:
                 self._flush(stream)
                 self._finish(task_id, stream, S.FAILED, error=f"no complete reply within {int(TURN_TIMEOUT_S)} s")

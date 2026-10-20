@@ -13,7 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import httpx
 
 from .base import ProviderError
-from .http_stream import TIMEOUT, error_message
+from .http_stream import TIMEOUT, error_message, scrub
 from .profiles import PROFILES
 
 MAX_PAGES = 10
@@ -143,7 +143,7 @@ async def _get(client: httpx.AsyncClient, url: str, headers: dict[str, str], lab
                 if len(body) > MAX_PAGE_BYTES:
                     raise ProviderError(f"{label}: model list is larger than {MAX_PAGE_BYTES} bytes")
             if response.status_code >= 400:
-                detail = error_message(body)
+                detail = scrub(error_message(body), headers)
                 raise ProviderError(f"{label}: HTTP {response.status_code}" + (f": {detail}" if detail else ""),
                                     status=response.status_code)
             return body.decode("utf-8", "replace")
