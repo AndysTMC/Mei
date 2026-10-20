@@ -61,6 +61,11 @@ export class RuntimeSettings {
         if (this.retentionDays !== retention) this._emit('privacy');
     }
 
+    /** The model chosen for a provider, or '' when none is. */
+    modelFor(provider: string): string {
+        return this._doc.providers[provider]?.model ?? '';
+    }
+
     /** Days after which untouched conversations are deleted; null keeps them until the user deletes them. */
     get retentionDays(): number | null {
         return this._doc.privacy.conversation_retention_days;
@@ -105,12 +110,7 @@ export class RuntimeSettings {
             return true;
         }
         if (key === 'provider-configs') {
-            let parsed: Record<string, StoredProviderConfig>;
-            try {
-                parsed = parseProviderConfigs(value);
-            } catch {
-                return false;
-            }
+            const parsed = parseProviderConfigs(value); // malformed JSON parses to {}: nothing changes
             this._mutate(doc => {
                 for (const [id, stored] of Object.entries(parsed)) {
                     const previous = doc.providers[id];

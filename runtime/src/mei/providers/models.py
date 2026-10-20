@@ -73,26 +73,41 @@ def endpoint(provider_id: str, *, url: str = "", api_key: str = "") -> Endpoint:
 
 
 def parse_models(text: str, kind: str) -> list[str]:
+    """Model ids from one catalog page. Raises ValueError if the page isn't JSON."""
     data = json.loads(text)
-    if isinstance(data, list) and kind != "github":
-        return []
-    root = data if isinstance(data, dict) else {}
-    items = (data if isinstance(data, list) else root.get("models") or root.get("data")) if kind == "github" else \
-        root.get("models") if kind in ("gemini", "ollama") else root.get("data")
     out: list[str] = []
-    for item in items if isinstance(items, list) else []:
+    for item in _catalog_items(data, kind):
         if not isinstance(item, dict):
             continue
-        if kind == "gemini" and isinstance(item.get("supportedGenerationMethods"), list) \
-                and "generateContent" not in item["supportedGenerationMethods"]:
-            continue
-        value = item.get("name") if kind == "gemini" else \
-            (item.get("name") or item.get("model")) if kind == "ollama" else (item.get("id") or item.get("display_name"))
-        if isinstance(value, str) and value:
-            value = value.removeprefix("models/") if kind == "gemini" else value
-            if value not in out:
-                out.append(value)
+        methods = item.get("supportedGenerationMethods")
+        if kind == "gemini" and isinstance(methods, list) and "generateContent" not in methods:
+            continue  # embedding-only and similar models can't chat
+        value = _model_id(item, kind)
+        if value and value not in out:
+            out.append(value)
     return out
+
+
+def _catalog_items(data: object, kind: str) -> list:
+    if kind == "github":
+        items = data if isinstance(data, list) else _field(data, "models") or _field(data, "data")
+    elif kind in ("gemini", "ollama"):
+        items = _field(data, "models")
+    else:
+        items = _field(data, "data")
+    return items if isinstance(items, list) else []
+
+
+def _field(data: object, name: str) -> object:
+    return data.get(name) if isinstance(data, dict) else None
+
+
+def _model_id(item: dict, kind: str) -> str:
+    if kind == "gemini":
+        value = item.get("name")
+        return value.removeprefix("models/") if isinstance(value, str) else ""
+    value = item.get("name") or item.get("model") if kind == "ollama" else item.get("id") or item.get("display_name")
+    return value if isinstance(value, str) else ""
 
 
 def next_page_url(current: str, text: str, kind: str) -> str | None:
@@ -127,7 +142,12 @@ async def list_models(client: httpx.AsyncClient, provider_id: str, *, url: str =
         if not page:
             break
         text = await _get(client, page, ep.headers, profile.label)
-        models += [m for m in parse_models(text, ep.kind) if m not in models]
+        try:
+            found = parse_models(text, ep.kind)
+        except ValueError:
+            raise ProviderError(f"{profile.label}: the model list from {page} isn't JSON (check the endpoint URL)") \
+                from None
+        models += [m for m in found if m not in models]
         page = next_page_url(page, text, ep.kind)
     if models:
         return ModelList(models, requires_key=ep.requires_key)

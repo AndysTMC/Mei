@@ -102,3 +102,9 @@ async def test_http_errors_surface_the_providers_message():
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(401, json={"error": {"message": "bad key"}})))
     with pytest.raises(ProviderError, match="bad key"):
         await list_models(client, "groq", api_key="k")
+
+
+async def test_a_page_that_is_not_json_is_a_clear_error():
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html>login</html>")))
+    with pytest.raises(ProviderError, match="isn't JSON"):
+        await list_models(client, "custom", url="http://127.0.0.1:9/v1/chat/completions")

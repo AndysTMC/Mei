@@ -6,7 +6,7 @@ import os
 import signal
 import time
 from collections.abc import Awaitable, Callable
-from pathlib import Path
+from contextlib import aclosing
 
 import httpx
 from dbus_fast import BusType
@@ -16,6 +16,8 @@ from mei import legacy
 from mei.core.engine import Engine
 from mei.ipc import dbus_patch
 from mei.ipc.service import RUNTIME_VERSION, RuntimeService
+from mei.obs import redact
+from mei.paths import data_dir
 from mei.protocol import ProviderConfig, provider_config
 from mei.providers import factory, models
 from mei.providers.base import ChatTurn, ModelRequest, Provider, ProviderError, TextDelta
@@ -31,13 +33,6 @@ log = logging.getLogger("mei.app")
 
 EXIT_LOCKED = 75  # EX_TEMPFAIL: another instance owns the data directory
 USER_AGENT = f"Mei/{RUNTIME_VERSION} (+https://github.com/AndysTMC/Mei)"
-
-
-def data_dir() -> Path:
-    if os.environ.get("MEI_DATA_DIR"):
-        return Path(os.environ["MEI_DATA_DIR"])
-    base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-    return Path(base) / "mei"
 
 
 def key_lookup(bus: MessageBus):
@@ -66,18 +61,19 @@ def model_lister(client: httpx.AsyncClient, key_for):
         try:
             result = await models.list_models(client, provider_id, url=url, api_key=await key_for(provider_id))
         except ProviderError as e:
-            return {"models": [], "requires_key": False, "from_fallback": False, "error": str(e)}
+            return {"models": [], "requires_key": False, "from_fallback": False, "error": redact(str(e))}
         return {"models": result.models, "requires_key": result.requires_key, "from_fallback": result.from_fallback}
 
     return list_for
 
 
 TEST_PROMPT = "Reply with the single word OK."
+TEST_TIMEOUT_S = 45
 RETENTION_EVERY_S = 3600
 
 
 def provider_tester(store: Store, make: Callable[[ProviderConfig], Awaitable[Provider]]):
-    """One short request to a configured provider, for the "Test" button in setup and Settings."""
+    """One short request to a configured provider, for the setup assistant's Test button."""
 
     async def test(provider_id: str) -> dict:
         _revision, config = repo.get_config(store)
@@ -85,23 +81,27 @@ def provider_tester(store: Store, make: Callable[[ProviderConfig], Awaitable[Pro
         if not cfg.id:
             return {"ok": False, "error": "Choose a provider first.", "ms": 0}
         started, text = time.monotonic(), ""
+
+        def elapsed() -> int:
+            return int((time.monotonic() - started) * 1000)
+
         try:
             provider = await make(cfg)
-            async with asyncio.timeout(45):
-                async for event in provider.stream(ModelRequest([ChatTurn("user", TEST_PROMPT)])):
+            async with asyncio.timeout(TEST_TIMEOUT_S), \
+                    aclosing(provider.stream(ModelRequest([ChatTurn("user", TEST_PROMPT)]))) as events:
+                async for event in events:
                     if isinstance(event, TextDelta):
                         text += event.text
                         if len(text) > 200:
-                            break
+                            break  # it answers; that's all the test needs to know
         except ProviderError as e:
-            return {"ok": False, "error": str(e), "ms": int((time.monotonic() - started) * 1000)}
+            return {"ok": False, "error": redact(str(e)), "ms": elapsed()}
         except TimeoutError:
-            return {"ok": False, "error": f"{label_of(cfg)} didn't answer within 45 seconds.",
-                    "ms": int((time.monotonic() - started) * 1000)}
-        ms = int((time.monotonic() - started) * 1000)
+            return {"ok": False, "error": f"{label_of(cfg)} didn't answer within {TEST_TIMEOUT_S} seconds.",
+                    "ms": elapsed()}
         if not text.strip():
-            return {"ok": False, "error": f"{label_of(cfg)} answered with no text.", "ms": ms}
-        return {"ok": True, "reply": text.strip()[:80], "ms": ms}
+            return {"ok": False, "error": f"{label_of(cfg)} answered with no text.", "ms": elapsed()}
+        return {"ok": True, "reply": text.strip()[:80], "ms": elapsed()}
 
     return test
 
@@ -130,7 +130,7 @@ async def retention_loop(engine: Engine) -> None:
 async def import_legacy(store: Store, bus: MessageBus) -> None:
     keyring = legacy.Keyring(store=lambda pid, key: store_provider_key(bus, pid, key),
                              lookup=lambda pid: lookup_provider_key(bus, pid))
-    report, _events = await legacy.run(store, data_dir(), legacy.DconfCli(), keyring)
+    report = await legacy.run(store, data_dir(), legacy.DconfCli(), keyring)
     if report.settings_imported or report.conversations or report.keys_moved or report.keys_pending:
         log.info("imported earlier settings: providers=%s keys_moved=%s keys_pending=%s conversations=%d messages=%d",
                  report.providers, report.keys_moved, report.keys_pending, report.conversations, report.messages)

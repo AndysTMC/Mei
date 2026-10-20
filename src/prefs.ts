@@ -43,6 +43,7 @@ import { lookupProviderApiKey } from './utils/secretStore.js';
 import { Logger, Tag } from './utils/logger.js';
 import { RuntimeClient } from './runtime/client.js';
 import { RuntimeSettings, type ModelListResult } from './runtime/settings.js';
+import { formatLogEntry } from './runtime/logFormat.js';
 import type { SetupStatusReply } from './runtime/protocol.js';
 import { buildRetentionRow, buildShortcutRow } from './prefs/rows.js';
 import { buildSetupAssistant, type Call } from './prefs/setupAssistant.js';
@@ -753,7 +754,10 @@ export default class MeiPreferences extends ExtensionPreferences {
         void setup.refresh().then(status => {
             if (destroyed || !status || status.completed) return;
             window.push_subpage(setup.page);
-            if (!status.offered) call('SetupApply', { step: 'offered' }).catch(() => {});
+            if (!status.offered) {
+                call('SetupApply', { step: 'offered' }).catch(e =>
+                    Logger.warn(Tag.Prefs, `Couldn't record that setup was offered: ${(e as Error).message}`));
+            }
         });
 
         /* ── Page 2: Logs Subpage ─────────────────────── */
@@ -876,10 +880,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         function loadLogs() {
             settings.fetchLogs().then(entries => {
                 if (destroyed) return;
-                logLines = entries.map(e => {
-                    const time = GLib.DateTime.new_from_unix_local(e.t)?.format('%H:%M:%S') ?? String(e.t);
-                    return `${time} [${e.level.toUpperCase()}] [${e.logger}] ${e.msg}`;
-                });
+                logLines = entries.map(formatLogEntry);
                 updateView();
             }).catch(e => {
                 if (!destroyed) buffer.set_text(`Failed to load logs: ${e instanceof Error ? e.message : e}`, -1);

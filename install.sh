@@ -154,18 +154,16 @@ install_runtime() {
             return 1
         fi
         tmp=$(mktemp -d)
+        trap "rm -rf $(printf %q "$tmp")" EXIT  # also when a step below fails
         file="$tmp/mei_runtime-$MEI_VERSION-py3-none-any.whl"
         echo "Downloading mei-runtime $MEI_VERSION"
         curl -fsSL --proto '=https' --tlsv1.2 -o "$file" "$RELEASES/v$MEI_VERSION/$(basename "$file")"
         if [ "$(sha256sum "$file" | cut -d' ' -f1)" != "$MEI_WHEEL_SHA256" ]; then
             echo "The download doesn't match the published checksum; nothing was installed." >&2
-            rm -rf "$tmp"
             return 1
         fi
     fi
     "$(uv_cmd)" tool install --quiet --force --reinstall-package mei-runtime --python '>=3.12' "$file"
-    [ -n "${tmp:-}" ] && rm -rf "$tmp"
-    return 0
 }
 
 uninstall_mei() {

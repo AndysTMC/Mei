@@ -38,8 +38,9 @@ export function buildRetentionRow(window: Gtk.Window, settings: RuntimeSettings)
     };
 
     row.connect('notify::selected', () => {
-        if (updating) return;
-        const next = options[row.get_selected()] ?? null;
+        const index = row.get_selected();
+        if (updating || index >= options.length) return; // no selection (GTK_INVALID_LIST_POSITION)
+        const next = options[index];
         const current = settings.retentionDays;
         if (next === current) return;
         if (!retentionShrinks(current, next)) {

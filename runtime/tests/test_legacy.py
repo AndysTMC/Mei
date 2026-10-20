@@ -170,9 +170,26 @@ def test_a_changed_chats_file_only_adds_new_conversations(tmp_path):
     assert repo.conversation_snapshot(store, "legacy-abc")["conversation"]["title"] == "First chat"
 
 
+def test_malformed_timestamps_fall_back_instead_of_blocking_the_import(tmp_path):
+    store = Store(tmp_path / "db")
+    chats = tmp_path / "chats.json"
+    chats.write_text(json.dumps([
+        {"id": "bad", "createdAt": "yesterday", "updatedAt": None, "messages": [{"role": "user", "content": "x"}]},
+        {"id": "neg", "createdAt": -5, "updatedAt": True, "messages": [{"role": "user", "content": "y"}]},
+        {"id": "ok", "createdAt": 10, "updatedAt": 20.5, "messages": []},
+    ]))
+    report = legacy.Report()
+    legacy.import_chats(store, chats, report)
+    assert report.conversations == 3
+    ok = repo.conversation_snapshot(store, "legacy-ok")["conversation"]
+    assert (ok["created_at"], ok["updated_at"]) == (10, 20)
+    bad = repo.conversation_snapshot(store, "legacy-bad")["conversation"]
+    assert bad["created_at"] > 1_000_000_000_000 and bad["updated_at"] == bad["created_at"]
+
+
 async def test_run_does_everything_and_survives_a_broken_source(tmp_path):
     store = Store(tmp_path / "db")
     (tmp_path / "chats.json").write_text("{not json")
-    report, _ = await legacy.run(store, tmp_path, dconf(), FakeKeyring().port())
+    report = await legacy.run(store, tmp_path, dconf(), FakeKeyring().port())
     assert report.settings_imported and "gemini" in report.keys_moved
     assert report.skipped == ["chats.json is not valid JSON"]

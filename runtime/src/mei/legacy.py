@@ -135,16 +135,16 @@ def _is_placeholder(key: str) -> bool:
 # ── Settings ────────────────────────────────────────────────────────────────
 
 
-async def import_settings(store: Store, dconf: Dconf, report: Report) -> list[Callable]:
+async def import_settings(store: Store, dconf: Dconf, report: Report) -> None:
     raw_configs = await dconf.read("provider-configs")
     raw_active = await dconf.read("provider")
     source = json.dumps({"provider-configs": raw_configs, "provider": raw_active})
     digest = _sha(source)
     if raw_configs is None and raw_active is None:
-        return []
+        return
     revision, config = repo.get_config(store)
-    if _already(store, "dconf-settings", digest) or revision > 0 and config.active:
-        return []  # same source already imported, or the user configured the runtime since
+    if _already(store, "dconf-settings", digest) or (revision > 0 and config.active):
+        return  # same source already imported, or the user configured the runtime since
     try:
         stored = json.loads(raw_configs or "{}")
     except ValueError:
@@ -165,7 +165,6 @@ async def import_settings(store: Store, dconf: Dconf, report: Report) -> list[Ca
         _record(tx, "dconf-settings", digest, {"providers": len(providers)})
     report.settings_imported = True
     report.providers = sorted(providers)
-    return tx.events  # type: ignore[return-value]
 
 
 # ── Keys (ADR-10) ───────────────────────────────────────────────────────────
@@ -234,8 +233,8 @@ def import_chats(store: Store, path: Path, report: Report) -> None:
             conv_id = f"legacy-{s['id']}"
             if tx.one("SELECT 1 FROM conversations WHERE id = ?", (conv_id,)):
                 continue  # never touch a conversation we already have
-            created = int(s.get("createdAt") or now_ms())
-            updated = int(s.get("updatedAt") or created)
+            created = _timestamp(s.get("createdAt"), now_ms())
+            updated = _timestamp(s.get("updatedAt"), created)
             title = repo.make_title(str(s.get("title") or "Imported chat")) or "Imported chat"
             tx.execute("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
                        (conv_id, title, created, updated))
@@ -260,7 +259,14 @@ def import_chats(store: Store, path: Path, report: Report) -> None:
     report.messages += added_msgs
 
 
-def _metadata(meta) -> dict:
+def _timestamp(value: object, default: int) -> int:
+    """Milliseconds from the old file, or `default` when the field is missing or malformed."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return default
+    return int(value)
+
+
+def _metadata(meta: object) -> dict:
     if not isinstance(meta, dict):
         return {}
     tokens = meta.get("tokens") if isinstance(meta.get("tokens"), dict) else {}
@@ -271,12 +277,15 @@ def _metadata(meta) -> dict:
     return {k: v for k, v in out.items() if v is not None}
 
 
-async def run(store: Store, data_dir: Path, dconf: Dconf, keyring: Keyring) -> tuple[Report, list]:
-    """Everything, in order: settings, then keys (needs the settings source), then chats."""
+async def run(store: Store, data_dir: Path, dconf: Dconf, keyring: Keyring) -> Report:
+    """Everything, in order: settings, then keys (needs the settings source), then chats.
+
+    Runs before the service accepts clients, so the events it records reach them through the
+    snapshot they attach with; nothing needs publishing here.
+    """
     report = Report()
-    events: list = []
     try:
-        events += await import_settings(store, dconf, report)
+        await import_settings(store, dconf, report)
         await migrate_keys(dconf, keyring, report)
     except Exception:
         log.exception("importing settings from dconf failed; will retry next start")
@@ -284,4 +293,4 @@ async def run(store: Store, data_dir: Path, dconf: Dconf, keyring: Keyring) -> t
         import_chats(store, data_dir / "chats.json", report)
     except Exception:
         log.exception("importing chats.json failed; will retry next start")
-    return report, events
+    return report

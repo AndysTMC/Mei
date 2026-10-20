@@ -2179,6 +2179,9 @@ export class ChatPopup {
                 configs[provider] = await updateStoredProviderApiKey(provider, configs[provider], value);
             } catch (e) {
                 Logger.warn(Tag.Extension, `Saving the ${provider} API key failed: ${e}`);
+                if (this._destroyed) return;
+                this._settingsSaveStatus = `⚠ ${e instanceof Error ? e.message : String(e)}`;
+                this._refreshSettingsView();
                 return;
             }
             if (value.trim()) {

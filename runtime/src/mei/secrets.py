@@ -9,11 +9,12 @@ import asyncio
 from dbus_fast import Message, MessageType, Variant
 from dbus_fast.aio import MessageBus
 
+from mei.protocol import EXTENSION_UUID
+
 SERVICE = "org.freedesktop.secrets"
 SERVICE_PATH = "/org/freedesktop/secrets"
 SERVICE_IFACE = "org.freedesktop.Secret.Service"
 SCHEMA = "com.andystmc.mei.provider-api-key"
-EXTENSION_ID = "mei@andystmc.com"
 
 
 class KeyringLocked(Exception):
@@ -33,7 +34,7 @@ async def _call(bus: MessageBus, path: str, iface: str, member: str, signature: 
 
 
 async def lookup_provider_key(bus: MessageBus, provider_id: str) -> str | None:
-    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_ID, "provider": provider_id}
+    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_UUID, "provider": provider_id}
     _output, session = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "OpenSession", "sv", ["plain", Variant("s", "")])
     try:
         unlocked, locked = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "SearchItems", "a{ss}", [attrs])
@@ -51,7 +52,7 @@ async def lookup_provider_key(bus: MessageBus, provider_id: str) -> str | None:
 
 async def store_provider_key(bus: MessageBus, provider_id: str, value: str) -> None:
     """Store (or replace) a provider key in the default collection. Raises KeyringLocked if locked."""
-    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_ID, "provider": provider_id}
+    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_UUID, "provider": provider_id}
     _output, session = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "OpenSession", "sv", ["plain", Variant("s", "")])
     try:
         (collection,) = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "ReadAlias", "s", ["default"])
@@ -75,7 +76,7 @@ async def store_provider_key(bus: MessageBus, provider_id: str, value: str) -> N
 
 async def delete_provider_keys(bus: MessageBus) -> tuple[int, int]:
     """Delete every Mei key (uninstall --purge). Returns (deleted, left); locked items are left."""
-    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_ID}
+    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_UUID}
     unlocked, locked = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "SearchItems", "a{ss}", [attrs])
     deleted, left = 0, len(locked)
     for item in unlocked:

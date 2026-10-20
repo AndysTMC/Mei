@@ -39,6 +39,10 @@ export interface SetupAssistant {
     destroy(): void;
 }
 
+function errorText(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
+}
+
 export function shortcutLabel(gsettings: Gio.Settings, key: string): string {
     const accel = gsettings.get_strv(key)[0] ?? '';
     if (!accel) return '';
@@ -75,10 +79,12 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
         unlock.set_sensitive(false);
         keyringRow.set_subtitle('Waiting for the keyring…');
         call('SetupApply', { step: 'service', choices: { unlock_keyring: true } }, { timeoutMs: 130_000 })
-            .catch(() => {})
+            .then(() => refresh())
+            .catch(e => {
+                if (!destroyed) keyringRow.set_subtitle(`Couldn’t unlock the keyring: ${errorText(e)}`);
+            })
             .finally(() => {
-                unlock.set_sensitive(true);
-                void refresh();
+                if (!destroyed) unlock.set_sensitive(true);
             });
     });
 
@@ -105,7 +111,7 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
                 if (!destroyed) testRow.set_subtitle(testText(reply));
             })
             .catch(e => {
-                if (!destroyed) testRow.set_subtitle(`Didn't work: ${e instanceof Error ? e.message : e}`);
+                if (!destroyed) testRow.set_subtitle(`Didn't work: ${errorText(e)}`);
             })
             .finally(() => {
                 if (destroyed) return;
@@ -182,7 +188,7 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
                 void refresh();
             })
             .catch(e => {
-                if (!destroyed) done.set_description(`Couldn’t save that setup is finished: ${e instanceof Error ? e.message : e}`);
+                if (!destroyed) done.set_description(`Couldn’t save that setup is finished: ${errorText(e)}`);
             })
             .finally(() => {
                 if (!destroyed) next.set_sensitive(true);
@@ -196,7 +202,7 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
         try {
             status = await call<SetupStatusReply>('SetupStatus');
         } catch (e) {
-            if (!destroyed) runtimeRow.set_subtitle(`Not reachable: ${e instanceof Error ? e.message : e}`);
+            if (!destroyed) runtimeRow.set_subtitle(`Not reachable: ${errorText(e)}`);
             return null;
         }
         if (destroyed) return status;

@@ -58,7 +58,7 @@ def _dir_bytes(path: Path) -> int:
             try:
                 total += os.lstat(os.path.join(root, name)).st_size
             except OSError:
-                pass
+                pass  # removed while we walked (SQLite's journal files come and go)
     return total
 
 

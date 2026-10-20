@@ -13,6 +13,7 @@ import msgspec
 PROTOCOL_MAJOR = 2  # 2.0: the runtime owns all provider settings (Config.active + Config.providers)
 PROTOCOL_MINOR = 1  # 2.1: SetupStatus, SetupApply, TestProvider; retention is enforced
 BUS_NAME = "com.andystmc.Mei1"
+EXTENSION_UUID = "mei@andystmc.com"  # the Shell extension this runtime pairs with
 OBJECT_PATH = "/com/andystmc/Mei1"
 INTERFACE = "com.andystmc.Mei1.Runtime"
 ERROR_PREFIX = "com.andystmc.Mei1.Error"

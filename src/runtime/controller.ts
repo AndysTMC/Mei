@@ -311,13 +311,7 @@ export class RuntimeChatController {
         if (!id) return 'Choose a model provider in Mei\'s settings first.';
         const profile = getProviderProfile(id);
         if (!profile.selectable) return `${profile.label} is no longer available. Choose another provider in Mei's settings.`;
-        let model = '';
-        try {
-            model = JSON.parse(this.settings.get_string('provider-configs'))[id]?.modelName ?? '';
-        } catch {
-            model = '';
-        }
-        return model.trim() ? null : `Choose a ${profile.label} model in Mei's settings first.`;
+        return this.settings.modelFor(id).trim() ? null : `Choose a ${profile.label} model in Mei's settings first.`;
     }
 }
 

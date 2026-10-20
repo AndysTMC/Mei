@@ -12,40 +12,38 @@ from mei.obs import setup_logging
 
 
 def _report(result) -> int:
+    """Print what an install step did. Returns the exit code: 1 if any step failed."""
     for line in result.lines:
         print(line)
-    for problem in result.problems:
-        print(f"note: {problem}", file=sys.stderr)
-    return 0
+    for note in result.notes:
+        print(f"note: {note}", file=sys.stderr)
+    for error in result.errors:
+        print(f"error: {error}", file=sys.stderr)
+    return 1 if result.errors else 0
 
 
 def install_dev() -> int:
     """Register this interpreter's runtime as the session service (development installs)."""
     from mei import install
     result = install.Result()
-    install._write_service_files(install.paths(), sys.executable, result)
-    install.Host().reload_buses()
+    install.install_service(install.Host(), install.paths(), sys.executable, result)
     return _report(result)
 
 
 def uninstall_dev() -> int:
     from mei import install
-    host, p = install.Host(), install.paths()
-    host.systemctl("stop", install.UNIT_NAME)
-    for path in (p.unit, p.dbus_service):
-        if path.exists():
-            path.unlink()
-            print(f"removed {path}")
-    host.reload_buses()
-    return 0
+    result = install.Result()
+    install.remove_service(install.Host(), install.paths(), result)
+    return _report(result)
 
 
 def run_install(args) -> int:
     from mei import install
     result = install.install(extension=Path(args.extension).resolve() if args.extension else None,
                              force=args.force)
-    _report(result)
-    if result.problems and not result.lines:
+    if _report(result):
+        print("\nMei isn't fully installed; see the errors above. Running the installer again is safe.",
+              file=sys.stderr)
         return 1
     if result.log_out:
         print("\nLog out and back in (or restart) to finish. Mei's setup opens on your next login.")
@@ -57,7 +55,8 @@ def run_install(args) -> int:
 def run_uninstall(args) -> int:
     from mei import install
     result = install.uninstall(purge=args.purge)
-    _report(result)
+    if _report(result):
+        return 1
     print("\nMei is uninstalled." + ("" if args.purge else " Your data is still there."))
     return 0
 

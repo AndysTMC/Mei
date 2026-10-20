@@ -4,8 +4,8 @@ Everything goes under the user's XDG directories; nothing needs root. System GNO
 by absolute path because the ones on PATH may be Homebrew's, Nix's, or conda's (Stage 0a).
 """
 
+import asyncio
 import hashlib
-import os
 import shutil
 import subprocess
 import sys
@@ -13,12 +13,17 @@ from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
 
-from mei.legacy import gvariant_string, parse_gvariant_string
+from dbus_fast import BusType
+from dbus_fast.aio import MessageBus
+from dbus_fast.errors import AuthError, DBusError, InvalidAddressError
 
-UUID = "mei@andystmc.com"
+from mei import paths as xdg
+from mei.legacy import DCONF_DIR, gvariant_string, parse_gvariant_string
+from mei.protocol import BUS_NAME, EXTENSION_UUID
+from mei.secrets import KeyringUnavailable, delete_provider_keys
+
 UNIT_NAME = "mei-runtime.service"
-BUS_NAME = "com.andystmc.Mei1"
-SETTINGS_DIR = "/org/gnome/shell/extensions/mei/"
+TOOL_ERRORS = (OSError, subprocess.SubprocessError, ValueError)  # a system tool missing, failing, or odd output
 
 
 # ── Paths and file contents ──────────────────────────────────────────────────
@@ -33,16 +38,14 @@ class Paths:
 
     @property
     def extension(self) -> Path:
-        return self.extensions / UUID
+        return self.extensions / EXTENSION_UUID
 
 
 def paths() -> Paths:
-    config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
-    return Paths(unit=config / "systemd/user" / UNIT_NAME,
-                 dbus_service=data / "dbus-1/services" / f"{BUS_NAME}.service",
-                 extensions=data / "gnome-shell/extensions",
-                 data=Path(os.environ.get("MEI_DATA_DIR") or data / "mei"))
+    return Paths(unit=xdg.config_home() / "systemd/user" / UNIT_NAME,
+                 dbus_service=xdg.data_home() / "dbus-1/services" / f"{BUS_NAME}.service",
+                 extensions=xdg.data_home() / "gnome-shell/extensions",
+                 data=xdg.data_dir())
 
 
 def systemd_unit(python: str = sys.executable) -> str:
@@ -118,35 +121,35 @@ class Host:
         self._run("/usr/bin/gsettings", "set", schema, key, value)
 
     def dconf_reset_dir(self, path: str) -> None:
-        self._run("/usr/bin/dconf", "reset", "-f", path, check=False)
+        self._run("/usr/bin/dconf", "reset", "-f", path)
 
-    def systemctl(self, *args: str) -> None:
-        self._run("/usr/bin/systemctl", "--user", *args, check=False)
+    def systemctl(self, *args: str) -> bool:
+        try:
+            return self._run("/usr/bin/systemctl", "--user", *args, check=False).returncode == 0
+        except TOOL_ERRORS:
+            return False
 
-    def reload_buses(self) -> None:
-        self.systemctl("daemon-reload")
-        self._run("/usr/bin/gdbus", "call", "--session", "--dest", "org.freedesktop.DBus", "--object-path",
-                  "/org/freedesktop/DBus", "--method", "org.freedesktop.DBus.ReloadConfig", check=False)
+    def reload_buses(self) -> bool:
+        """Make systemd and the session bus see changed unit and service files. False if systemd didn't."""
+        try:
+            self._run("/usr/bin/gdbus", "call", "--session", "--dest", "org.freedesktop.DBus", "--object-path",
+                      "/org/freedesktop/DBus", "--method", "org.freedesktop.DBus.ReloadConfig", check=False)
+        except TOOL_ERRORS:
+            pass  # the bus also notices new service files on its own; systemd is the one that matters
+        return self.systemctl("daemon-reload")
 
     def shell_has_extension(self) -> bool:
         """Whether the running Shell loaded the extension at login (if not, it appears after the next one)."""
         try:
             out = self._run("/usr/bin/gdbus", "call", "--session", "--dest", "org.gnome.Shell.Extensions",
                             "--object-path", "/org/gnome/Shell/Extensions", "--method",
-                            "org.gnome.Shell.Extensions.GetExtensionInfo", UUID).stdout
-        except (OSError, subprocess.SubprocessError):
+                            "org.gnome.Shell.Extensions.GetExtensionInfo", EXTENSION_UUID).stdout
+        except TOOL_ERRORS:
             return False
-        return f"'{UUID}'" in out
+        return f"'{EXTENSION_UUID}'" in out
 
     def delete_keys(self) -> tuple[int, int]:
-        import asyncio
-
-        from dbus_fast import BusType
-        from dbus_fast.aio import MessageBus
-
-        from mei.secrets import delete_provider_keys
-
-        async def go():
+        async def go() -> tuple[int, int]:
             bus = await MessageBus(bus_type=BusType.SESSION).connect()
             try:
                 return await delete_provider_keys(bus)
@@ -161,15 +164,17 @@ class Host:
 
 @dataclass
 class Result:
-    lines: list[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)  # what was done
+    notes: list[str] = field(default_factory=list)  # done, but the user should know something
+    errors: list[str] = field(default_factory=list)  # a step failed
     log_out: bool = False
-    problems: list[str] = field(default_factory=list)
 
     def say(self, line: str) -> None:
         self.lines.append(line)
 
 
-def _write_service_files(p: Paths, python: str, r: Result) -> None:
+def install_service(host: Host, p: Paths, python: str, r: Result) -> None:
+    """Write the systemd unit and D-Bus activation file for `python -m mei serve`."""
     for path, text in ((p.unit, systemd_unit(python)), (p.dbus_service, dbus_service(python))):
         if path.is_file() and path.read_text() == text:
             continue
@@ -178,19 +183,29 @@ def _write_service_files(p: Paths, python: str, r: Result) -> None:
         tmp.write_text(text)
         tmp.replace(path)
         r.say(f"wrote {path}")
+    if not host.reload_buses():
+        r.notes.append("systemd didn't reload its units; Mei starts after your next login")
+
+
+def remove_service(host: Host, p: Paths, r: Result) -> None:
+    host.systemctl("stop", UNIT_NAME)
+    for path in (p.unit, p.dbus_service):
+        if path.exists():
+            path.unlink()
+            r.say(f"removed {path}")
+    host.reload_buses()
 
 
 def _copy_extension(p: Paths, src: Path, force: bool, r: Result) -> bool:
     """Install the extension files. Returns True if they changed."""
     target = p.extension
     if target.is_symlink() and not force:
-        r.problems.append(f"{target} is a symlink (a development install); left it alone. "
-                          "Use --force to replace it.")
+        r.notes.append(f"{target} is a symlink (a development install); left it alone. Use --force to replace it.")
         return False
     if target.is_dir() and not target.is_symlink() and tree_hash(target) == tree_hash(src):
         return False
     # Stage next to the extensions folder (same filesystem, but not inside it: the Shell would
-    # try to load the staging directory), then swap it in.
+    # try to load the staging directory), then swap it in, putting the old one back on failure.
     staging, old = p.extensions.parent / ".mei-extension.new", p.extensions.parent / ".mei-extension.old"
     for d in (staging, old):
         shutil.rmtree(d, ignore_errors=True)
@@ -200,27 +215,40 @@ def _copy_extension(p: Paths, src: Path, force: bool, r: Result) -> bool:
         target.unlink()
     elif target.exists():
         target.rename(old)
-    staging.rename(target)
+    try:
+        staging.rename(target)
+    except OSError:
+        if old.exists():
+            old.rename(target)
+        raise
     shutil.rmtree(old, ignore_errors=True)
     r.say(f"installed the extension in {target}")
     return True
 
 
-def _enable(host: Host, r: Result) -> bool:
-    """Add the extension to enabled-extensions (and out of disabled-extensions). True if it changed."""
+def _set_enabled(host: Host, enable: bool, r: Result) -> bool:
+    """Add the extension to enabled-extensions (and take it out of disabled-extensions), or remove it."""
     changed = False
     enabled = parse_strv(host.gsettings_get("org.gnome.shell", "enabled-extensions"))
-    if UUID not in enabled:
-        host.gsettings_set("org.gnome.shell", "enabled-extensions", format_strv(enabled + [UUID]))
-        r.say(f"added {UUID} to the enabled extensions")
+    if enable and EXTENSION_UUID not in enabled:
+        host.gsettings_set("org.gnome.shell", "enabled-extensions", format_strv(enabled + [EXTENSION_UUID]))
+        r.say(f"added {EXTENSION_UUID} to the enabled extensions")
         changed = True
-    disabled = parse_strv(host.gsettings_get("org.gnome.shell", "disabled-extensions"))
-    if UUID in disabled:
-        host.gsettings_set("org.gnome.shell", "disabled-extensions", format_strv([u for u in disabled if u != UUID]))
+    elif not enable and EXTENSION_UUID in enabled:
+        # Leaving enabled-extensions makes the running Shell disable it at once.
+        host.gsettings_set("org.gnome.shell", "enabled-extensions",
+                           format_strv([u for u in enabled if u != EXTENSION_UUID]))
+        r.say(f"removed {EXTENSION_UUID} from the enabled extensions")
         changed = True
-    if host.gsettings_get("org.gnome.shell", "disable-user-extensions") == "true":
-        r.problems.append("Extensions are switched off for this user, so Mei won't appear. "
-                          "Turn on Extensions in the Extensions app.")
+    if enable:
+        disabled = parse_strv(host.gsettings_get("org.gnome.shell", "disabled-extensions"))
+        if EXTENSION_UUID in disabled:
+            host.gsettings_set("org.gnome.shell", "disabled-extensions",
+                               format_strv([u for u in disabled if u != EXTENSION_UUID]))
+            changed = True
+        if host.gsettings_get("org.gnome.shell", "disable-user-extensions") == "true":
+            r.notes.append("Extensions are switched off for this user, so Mei won't appear. "
+                           "Turn on Extensions in the Extensions app.")
     return changed
 
 
@@ -229,17 +257,24 @@ def install(host: Host | None = None, *, extension: Path | None = None, force: b
     host, p, r = host or Host(), p or paths(), Result()
     src = extension or bundled_extension()
     if src is None:
-        r.problems.append("this mei-runtime has no bundled extension (a source checkout?); "
-                          "pass --extension DIR, for example the repository's dist/")
+        r.errors.append("this mei-runtime has no bundled extension (a source checkout?); "
+                        "pass --extension DIR, for example the repository's dist/")
         return r
     if not (src / "metadata.json").is_file():
-        r.problems.append(f"{src} is not a built extension (no metadata.json)")
+        r.errors.append(f"{src} is not a built extension (no metadata.json)")
         return r
 
-    _write_service_files(p, python, r)
-    host.reload_buses()
-    changed = _copy_extension(p, src, force, r)
-    newly_enabled = _enable(host, r)
+    install_service(host, p, python, r)
+    try:
+        changed = _copy_extension(p, src, force, r)
+    except OSError as e:
+        r.errors.append(f"couldn't install the extension in {p.extension}: {e}")
+        return r
+    try:
+        newly_enabled = _set_enabled(host, True, r)
+    except TOOL_ERRORS as e:
+        r.errors.append(f"couldn't add {EXTENSION_UUID} to the enabled extensions: {e}")
+        return r
     host.systemctl("try-restart", UNIT_NAME)  # a running runtime picks up the new code now
     r.log_out = changed or newly_enabled or not host.shell_has_extension()
     return r
@@ -247,18 +282,11 @@ def install(host: Host | None = None, *, extension: Path | None = None, force: b
 
 def uninstall(host: Host | None = None, *, purge: bool = False, p: Paths | None = None) -> Result:
     host, p, r = host or Host(), p or paths(), Result()
-    host.systemctl("stop", UNIT_NAME)
-    for path in (p.unit, p.dbus_service):
-        if path.exists():
-            path.unlink()
-            r.say(f"removed {path}")
-    host.reload_buses()
-
-    # Leaving enabled-extensions makes the running Shell disable it at once.
-    enabled = parse_strv(host.gsettings_get("org.gnome.shell", "enabled-extensions"))
-    if UUID in enabled:
-        host.gsettings_set("org.gnome.shell", "enabled-extensions", format_strv([u for u in enabled if u != UUID]))
-        r.say(f"removed {UUID} from the enabled extensions")
+    remove_service(host, p, r)
+    try:
+        _set_enabled(host, False, r)
+    except TOOL_ERRORS as e:
+        r.errors.append(f"couldn't remove {EXTENSION_UUID} from the enabled extensions: {e}")
     if p.extension.is_symlink():
         p.extension.unlink()  # a development install: remove the link, never what it points to
         r.say(f"removed the link {p.extension}")
@@ -266,20 +294,23 @@ def uninstall(host: Host | None = None, *, purge: bool = False, p: Paths | None 
         shutil.rmtree(p.extension)
         r.say(f"removed {p.extension}")
 
-    if purge:
-        if p.data.exists():
-            shutil.rmtree(p.data)
-            r.say(f"deleted Mei's data in {p.data}")
-        host.dconf_reset_dir(SETTINGS_DIR)
-        try:
-            deleted, left = host.delete_keys()
-        except Exception as e:  # no keyring: nothing of ours can be in it
-            r.say(f"could not reach the keyring ({type(e).__name__}); no keys deleted")
-        else:
-            r.say(f"deleted {deleted} API key{'s' if deleted != 1 else ''} from the keyring")
-            if left:
-                r.problems.append(f"{left} key{'s' if left != 1 else ''} stayed in the keyring because it is "
-                                  "locked; unlock it and run uninstall --purge again")
-    else:
+    if not purge:
         r.say(f"kept your conversations and settings in {p.data} (delete them with --purge)")
+        return r
+    if p.data.exists():
+        shutil.rmtree(p.data)
+        r.say(f"deleted Mei's data in {p.data}")
+    try:
+        host.dconf_reset_dir(DCONF_DIR)
+    except TOOL_ERRORS as e:
+        r.errors.append(f"couldn't clear Mei's settings from dconf: {e}")
+    try:
+        deleted, left = host.delete_keys()
+    except (KeyringUnavailable, OSError, AuthError, InvalidAddressError, DBusError) as e:
+        r.notes.append(f"couldn't reach the keyring ({type(e).__name__}), so no API keys were deleted")
+    else:
+        r.say(f"deleted {deleted} API key{'s' if deleted != 1 else ''} from the keyring")
+        if left:
+            r.notes.append(f"{left} key{'s' if left != 1 else ''} stayed in the keyring because it is locked; "
+                           "unlock it and run uninstall --purge again")
     return r

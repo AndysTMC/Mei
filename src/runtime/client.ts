@@ -83,8 +83,10 @@ export class RuntimeClient {
         if (this._retryId) GLib.source_remove(this._retryId);
         this._subscription = this._watch = this._retryId = 0;
         this._buffer = [];
-        // Tell the runtime to stop sending us events; never start it just to say goodbye.
-        this.call('Detach', {}, { flags: Gio.DBusCallFlags.NO_AUTO_START }).catch(() => {});
+        // Tell the runtime to stop sending us events; never start it just to say goodbye. If it
+        // isn't running there is nothing to detach from, so a failure only matters for debugging.
+        this.call('Detach', {}, { flags: Gio.DBusCallFlags.NO_AUTO_START })
+            .catch(e => Logger.debug(Tag.Extension, `Detach: ${(e as Error).message}`));
     }
 
     /** Re-attach from the current cursor, e.g. after the projection saw a gap. */

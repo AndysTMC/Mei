@@ -12,11 +12,12 @@ main() {
     wheel="mei_runtime-$version-py3-none-any.whl"
 
     (cd "$root" && npm run build >/dev/null && node scripts/check-bundle.js)
-    rm -rf "$root/runtime/src/mei/extension"
-    cp -a "$root/dist" "$root/runtime/src/mei/extension"
+    local bundle="$root/runtime/src/mei/extension"
+    rm -rf "$bundle"
+    trap "rm -rf $(printf %q "$bundle")" EXIT  # never leave the copy in the source tree
+    cp -a "$root/dist" "$bundle"
     rm -f "$out/$wheel"
     (cd "$root/runtime" && uv build --wheel --out-dir "$out" >/dev/null)
-    rm -rf "$root/runtime/src/mei/extension"
 
     sha=$(sha256sum "$out/$wheel" | cut -d' ' -f1)
     sed -e "s/^    local MEI_VERSION=.*/    local MEI_VERSION=$version/" \

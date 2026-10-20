@@ -1,11 +1,13 @@
 """Per-user install and uninstall against a fake host and temporary XDG directories."""
 
 import json
+from pathlib import Path
 
 import pytest
 
 from mei import install
-from mei.install import UUID, Paths, format_strv, parse_strv
+from mei.install import Paths, format_strv, parse_strv
+from mei.protocol import EXTENSION_UUID as UUID
 
 
 class FakeHost(install.Host):
@@ -15,9 +17,13 @@ class FakeHost(install.Host):
         self.calls: list[tuple] = []
         self.shell_has = shell_has
         self.keys = (2, 0)
+        self.systemd_ok = True
+        self.gsettings_broken = False
 
     def gsettings_get(self, schema, key):
         assert schema == "org.gnome.shell"
+        if self.gsettings_broken:
+            raise FileNotFoundError("/usr/bin/gsettings")
         return self.settings[key]
 
     def gsettings_set(self, schema, key, value):
@@ -28,9 +34,11 @@ class FakeHost(install.Host):
 
     def systemctl(self, *args):
         self.calls.append(("systemctl", *args))
+        return True
 
     def reload_buses(self):
         self.calls.append(("reload",))
+        return self.systemd_ok
 
     def shell_has_extension(self):
         return self.shell_has
@@ -67,7 +75,7 @@ def test_first_install_writes_everything_and_asks_for_a_log_out(env):
     ext, p = env
     host = FakeHost(disabled=f"['{UUID}']")
     r = install.install(host, extension=ext, python="/opt/venv/bin/python", p=p)
-    assert not r.problems and r.log_out
+    assert not r.notes and not r.errors and r.log_out
     assert "ExecStart=/opt/venv/bin/python -m mei serve" in p.unit.read_text()
     assert "SystemdService=mei-runtime.service" in p.dbus_service.read_text()
     assert (p.extension / "extension.js").read_text() == "// v1"
@@ -85,7 +93,7 @@ def test_rerun_is_a_quiet_no_op_once_the_shell_has_loaded_it(env):
     install.install(FakeHost(), extension=ext, p=p)
     host = FakeHost(enabled=f"['other@x.org', '{UUID}']", shell_has=True)
     r = install.install(host, extension=ext, p=p)
-    assert r.lines == [] and not r.problems and not r.log_out
+    assert r.lines == [] and not r.notes and not r.log_out
     assert parse_strv(host.settings["enabled-extensions"]) == ["other@x.org", UUID]
 
 
@@ -116,7 +124,7 @@ def test_a_development_symlink_is_left_alone_unless_forced(env, tmp_path):
     p.extension.symlink_to(checkout)
 
     r = install.install(FakeHost(), extension=ext, p=p)
-    assert p.extension.is_symlink() and any("symlink" in x for x in r.problems)
+    assert p.extension.is_symlink() and any("symlink" in x for x in r.notes)
 
     r = install.install(FakeHost(), extension=ext, force=True, p=p)
     assert not p.extension.is_symlink() and (p.extension / "extension.js").is_file()
@@ -126,13 +134,49 @@ def test_a_development_symlink_is_left_alone_unless_forced(env, tmp_path):
 def test_user_extensions_switched_off_is_reported(env):
     ext, p = env
     r = install.install(FakeHost(user_off="true"), extension=ext, p=p)
-    assert any("Extensions are switched off" in x for x in r.problems)
+    assert any("Extensions are switched off" in x for x in r.notes)
 
 
 def test_missing_bundle_is_a_clear_error(env, tmp_path):
     _ext, p = env
     r = install.install(FakeHost(), extension=tmp_path / "nothing", p=p)
-    assert r.problems and not p.unit.exists()
+    assert r.errors and not p.unit.exists()
+
+
+def test_a_failing_system_tool_is_an_error_not_a_crash(env):
+    ext, p = env
+    host = FakeHost()
+    host.gsettings_broken = True
+    r = install.install(host, extension=ext, p=p)
+    assert r.errors and "enabled extensions" in r.errors[0]
+    assert p.unit.exists() and (p.extension / "extension.js").exists()  # the steps before it stand
+    r = install.uninstall(host, p=p)
+    assert r.errors and not p.unit.exists() and not p.extension.exists()
+
+
+def test_systemd_not_reloading_is_reported(env):
+    ext, p = env
+    host = FakeHost()
+    host.systemd_ok = False
+    r = install.install(host, extension=ext, p=p)
+    assert not r.errors and any("next login" in n for n in r.notes)
+
+
+def test_a_failed_swap_puts_the_old_extension_back(env, monkeypatch):
+    ext, p = env
+    install.install(FakeHost(), extension=ext, p=p)
+    (ext / "extension.js").write_text("// v2")
+    real_rename = Path.rename
+
+    def rename(self, target):
+        if self.name == ".mei-extension.new":
+            raise OSError("disk full")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    r = install.install(FakeHost(enabled=f"['{UUID}']", shell_has=True), extension=ext, p=p)
+    assert r.errors and "disk full" in r.errors[0]
+    assert (p.extension / "extension.js").read_text() == "// v1"
 
 
 def test_uninstall_keeps_data_unless_purged(env):
@@ -152,7 +196,7 @@ def test_uninstall_keeps_data_unless_purged(env):
     r = install.uninstall(host, purge=True, p=p)
     assert not p.data.exists()
     assert ("dconf-reset", "/org/gnome/shell/extensions/mei/") in host.calls
-    assert any("locked" in x for x in r.problems)
+    assert any("locked" in x for x in r.notes)
 
 
 def test_uninstall_removes_only_the_link_of_a_development_install(env, tmp_path):

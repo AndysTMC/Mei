@@ -4,9 +4,9 @@
 
 import Atk from 'gi://Atk';
 import Clutter from 'gi://Clutter';
-import GLib from 'gi://GLib';
 import St from 'gi://St';
 
+import { formatLogEntry } from '../runtime/logFormat.js';
 import type { LogEntry } from '../runtime/protocol.js';
 
 /** Where the runtime's recent log entries come from (GetLogs / ClearLogs). */
@@ -116,7 +116,7 @@ export class PopupLogPanel {
             return;
         }
         this.source.fetchLogs().then(entries => {
-            this._lines = entries.slice(-LOG_MAX_LINES).map(formatEntry);
+            this._lines = entries.slice(-LOG_MAX_LINES).map(formatLogEntry);
             this._page = Math.min(this._page, this._getPageCount(this._getVisibleLines()) - 1);
         }).catch(e => {
             this._lines = [`[ERROR] Failed to load logs: ${e instanceof Error ? e.message : e}`];
@@ -214,7 +214,3 @@ export class PopupLogPanel {
     }
 }
 
-function formatEntry(entry: LogEntry): string {
-    const time = GLib.DateTime.new_from_unix_local(entry.t)?.format('%H:%M:%S') ?? String(entry.t);
-    return `${time} [${entry.level.toUpperCase()}] [${entry.logger}] ${entry.msg}`;
-}
