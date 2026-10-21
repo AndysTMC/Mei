@@ -44,7 +44,7 @@ class Resource(msgspec.Struct, frozen=True, kw_only=True):
     aliases: tuple[str, ...] = ()
 
 
-DataClass = Literal["none", "metadata", "file_content", "settings", "memory"]
+DataClass = Literal["none", "metadata", "file_content", "clipboard", "settings", "memory"]
 ErrorClass = Literal["", "invalid", "not_found", "exists", "permission", "unavailable", "failed", "timeout"]
 
 
@@ -97,6 +97,7 @@ class Window(msgspec.Struct, frozen=True, kw_only=True):
     app_id: str
     title: str
     focused: bool = False
+    id: int = 0  # the Shell's window id, for focusing it
 
 
 class BridgePort(Protocol):
@@ -104,6 +105,29 @@ class BridgePort(Protocol):
 
     async def list_windows(self) -> list[Window]: ...
     async def launch_app(self, app_id: str, uris: list[str]) -> None: ...
+    async def focus_window(self, window_id: int) -> None: ...
+    async def clipboard_get(self) -> str: ...
+    async def clipboard_set(self, text: str) -> None: ...
+    async def idle_ms(self) -> int: ...
+
+
+class Player(msgspec.Struct, frozen=True, kw_only=True):
+    name: str  # its bus name, org.mpris.MediaPlayer2.<name>
+    identity: str  # "Rhythmbox"
+    status: str = ""  # Playing, Paused, Stopped
+    title: str = ""
+    artist: str = ""
+
+
+class MediaPort(Protocol):
+    """Media players on the session bus (MPRIS)."""
+
+    async def players(self) -> list[Player]: ...
+    async def control(self, name: str, action: str) -> None: ...
+
+
+class StatusPort(Protocol):
+    async def read(self) -> dict: ...
 
 
 @dataclass(frozen=True)
@@ -195,6 +219,8 @@ class Env:
     volume: Volume | None = None
     memory: MemoryPort | None = None
     runner: Runner | None = None
+    media: MediaPort | None = None
+    status: StatusPort | None = None
     cache_home: Path | None = None  # $XDG_CACHE_HOME: task workspaces live under it
     clock: Callable[[], float] = time.time
 
@@ -276,8 +302,9 @@ class Capability(ABC):
         """What it touches. Raises CapabilityError("invalid") for parameters that name nothing usable."""
         return []
 
-    def reads_content(self, p, env: Env) -> list[Path]:
-        """Paths whose contents its result will carry (for disclosure to cloud models, §13.5)."""
+    def reads_content(self, p, env: Env) -> list[Path | str]:
+        """What its result will carry the contents of (for disclosure to cloud models, §13.5): paths,
+        or the value of a non-path resource ("clipboard")."""
         return []
 
     def available(self, env: Env) -> Availability:

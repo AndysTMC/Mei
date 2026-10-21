@@ -81,7 +81,7 @@ def prepare(registry: Registry, env: Env, action, seen: Seen) -> Proposal:
         resources = cap.resources(params, env)
         effects = cap.effects(params, env)
         description = cap.describe(params, env)
-        content = tuple(str(_real(p)) for p in cap.reads_content(params, env))
+        content = tuple(str(_real(c)) if isinstance(c, Path) else c for c in cap.reads_content(params, env))
     except CapabilityError as e:
         raise Refused(e.message) from None
     anchored = provenance.resolved_anchors(provenance.anchors(seen.user_texts, env))

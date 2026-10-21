@@ -21,7 +21,9 @@ from mei.desktop import apps as desktop_apps
 from mei.desktop.gsettings import GSETTINGS, GSettingsCli
 from mei.desktop.notify import BusNotifier
 from mei.desktop.pdf import PdfToText
+from mei.desktop.media import Mpris
 from mei.desktop.sandbox import Sandbox
+from mei.desktop.system import SystemStatus
 from mei.desktop.sound import WPCTL, Wpctl
 from mei.ipc import dbus_patch
 from mei.ipc.service import RUNTIME_VERSION, RuntimeService
@@ -158,7 +160,8 @@ def desktop_env(bus: MessageBus, bridge: Callable) -> Env:
                gsettings=GSettingsCli() if os.access(GSETTINGS, os.X_OK) else None, bridge=bridge, apps=app_index(),
                launcher=desktop_apps.Launcher(bridge), notifier=BusNotifier(bus),
                extractor=PdfToText() if PdfToText.available() else None,
-               volume=Wpctl() if os.access(WPCTL, os.X_OK) else None, runner=Sandbox(), cache_home=cache_home())
+               volume=Wpctl() if os.access(WPCTL, os.X_OK) else None, runner=Sandbox(), cache_home=cache_home(),
+               media=Mpris(bus), status=SystemStatus(home))
 
 
 async def retention_loop(engine: Engine) -> None:

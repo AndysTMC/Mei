@@ -7,6 +7,8 @@ from .fs_write import FsEdit, FsMakeDir, FsMove, FsTrash, FsWriteText
 from .memory import HistorySearch, MemoryForget, MemorySave, MemorySearch
 from .meta import AskUser, PlanUpdate, TaskFinish
 from .notify import NotifySend
+from .os import (ClipboardRead, ClipboardWrite, MediaControl, MediaStatus, SystemStatusCap, WindowsFocus,
+                 WindowsList)
 from .registry import Registry
 from .settings import SettingsGet, SettingsSet
 from .shell import ShellOutput, ShellRun, ShellRunHost
@@ -22,7 +24,9 @@ def shell_capabilities() -> list[Capability]:
 
 
 def desktop_capabilities() -> list[Capability]:
-    return [AppsList(), AppsLaunch(), SettingsGet(), SettingsSet(), SoundGetVolume(), SoundSetVolume(), NotifySend()]
+    return [AppsList(), AppsLaunch(), WindowsList(), WindowsFocus(), ClipboardRead(), ClipboardWrite(), SettingsGet(),
+            SettingsSet(), SoundGetVolume(), SoundSetVolume(), MediaStatus(), MediaControl(), SystemStatusCap(),
+            NotifySend()]
 
 
 def meta_capabilities() -> list[Capability]:

@@ -45,8 +45,20 @@ class ShellBridgeClient:
 
     async def list_windows(self) -> list[Window]:
         reply = await self._call("ListWindows", {})
-        return [Window(app_id=str(w.get("app_id", "")), title=str(w.get("title", "")), focused=bool(w.get("focused")))
-                for w in reply.get("windows", []) if isinstance(w, dict)]
+        return [Window(app_id=str(w.get("app_id", "")), title=str(w.get("title", "")), focused=bool(w.get("focused")),
+                       id=int(w.get("id") or 0)) for w in reply.get("windows", []) if isinstance(w, dict)]
 
     async def launch_app(self, app_id: str, uris: list[str]) -> None:
         await self._call("LaunchApp", {"app_id": app_id, "uris": uris})
+
+    async def focus_window(self, window_id: int) -> None:
+        await self._call("FocusWindow", {"id": window_id})
+
+    async def clipboard_get(self) -> str:
+        return str((await self._call("ClipboardGet", {})).get("text") or "")
+
+    async def clipboard_set(self, text: str) -> None:
+        await self._call("ClipboardSet", {"text": text})
+
+    async def idle_ms(self) -> int:
+        return int((await self._call("GetIdleTime", {})).get("ms") or 0)

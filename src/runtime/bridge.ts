@@ -1,5 +1,6 @@
 /**
- * The ShellBridge (§12.6): the few things only the Shell can do, offered to the Mei runtime.
+ * The ShellBridge (§12.6): the few things only the Shell can do, offered to the Mei runtime: list
+ * and focus windows, open apps, read and set the clipboard, and say how long the person has been idle.
  *
  * Exported on the extension's own session-bus connection and named in Hello. Only the unique name
  * that owns `com.andystmc.Mei1` right now may call it; anyone else gets AccessDenied. Methods take
@@ -10,18 +11,36 @@
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import type Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
+import St from 'gi://St';
 
 import { Logger, Tag } from '../utils/logger.js';
 
 export const BRIDGE_PATH = '/com/andystmc/Mei1/ShellBridge';
 const INTERFACE = 'com.andystmc.Mei1.ShellBridge';
-const XML = `<node><interface name="${INTERFACE}">
-  <method name="ListWindows"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
-  <method name="LaunchApp"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
+const METHODS = ['ListWindows', 'LaunchApp', 'FocusWindow', 'ClipboardGet', 'ClipboardSet', 'GetIdleTime'] as const;
+const XML = `<node><interface name="${INTERFACE}">${METHODS.map(m =>
+    `<method name="${m}"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>`).join('')}
 </interface></node>`;
+const MAX_CLIPBOARD = 20_000;
+
+type Handler = (args: Record<string, unknown>) => Promise<object> | object;
+
+const HANDLERS: Record<(typeof METHODS)[number], Handler> = {
+    ListWindows: () => ({ windows: listWindows() }),
+    LaunchApp: args => launchApp(args),
+    FocusWindow: args => focusWindow(Number(args.id)),
+    ClipboardGet: () => clipboardGet(),
+    ClipboardSet: args => {
+        St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, String(args.text ?? '').slice(0, MAX_CLIPBOARD));
+        return {};
+    },
+    GetIdleTime: () => ({ ms: global.backend.get_core_idle_monitor().get_idletime() }),
+};
 
 export interface WindowInfo {
+    id: number;
     app_id: string;
     title: string;
     focused: boolean;
@@ -59,25 +78,41 @@ export class ShellBridge {
             invocation.return_dbus_error('org.freedesktop.DBus.Error.InvalidArgs', 'Expected one JSON object.');
             return;
         }
-        try {
-            const result = method === 'ListWindows' ? { windows: listWindows() } : launchApp(args);
-            invocation.return_value(new GLib.Variant('(s)', [JSON.stringify(result)]));
-        } catch (e) {
-            invocation.return_dbus_error('com.andystmc.Mei1.Error.Failed', e instanceof Error ? e.message : String(e));
-        }
+        const handler = HANDLERS[method as (typeof METHODS)[number]];
+        Promise.resolve()
+            .then(() => handler(args))
+            .then(result => invocation.return_value(new GLib.Variant('(s)', [JSON.stringify(result)])))
+            .catch(e => invocation.return_dbus_error('com.andystmc.Mei1.Error.Failed',
+                e instanceof Error ? e.message : String(e)));
     }
+}
+
+function normalWindows(): Meta.Window[] {
+    return global.get_window_actors()
+        .map(actor => actor.get_meta_window())
+        .filter((w): w is Meta.Window => w !== null && !w.is_skip_taskbar());
 }
 
 export function listWindows(): WindowInfo[] {
     const tracker = Shell.WindowTracker.get_default();
-    return global.get_window_actors()
-        .map(actor => actor.get_meta_window())
-        .filter(w => w !== null && !w.is_skip_taskbar())
-        .map(w => ({
-            app_id: tracker.get_window_app(w!)?.get_id() ?? '',
-            title: w!.get_title() ?? '',
-            focused: w!.has_focus(),
-        }));
+    return normalWindows().map(w => ({
+        id: w.get_id(),
+        app_id: tracker.get_window_app(w)?.get_id() ?? '',
+        title: w.get_title() ?? '',
+        focused: w.has_focus(),
+    }));
+}
+
+function focusWindow(id: number): Record<string, never> {
+    const window = normalWindows().find(w => w.get_id() === id);
+    if (!window) throw new Error(`No window ${id} is open.`);
+    window.activate(global.get_current_time());
+    return {};
+}
+
+function clipboardGet(): Promise<{ text: string }> {
+    return new Promise(resolve => St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD,
+        (_clipboard, text) => resolve({ text: (text ?? '').slice(0, MAX_CLIPBOARD) })));
 }
 
 /** Open an app as the person would from the Shell, optionally with files (file:// URIs only). */

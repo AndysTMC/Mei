@@ -166,7 +166,7 @@ def _tool_turn(inputs: Inputs, action, message) -> ChatTurn:
 
 
 def _may_send(inputs: Inputs, action, result: dict) -> bool:
-    if result.get("data_class") != "file_content" or not is_cloud(inputs.provider):
+    if result.get("data_class") not in ("file_content", "clipboard") or not is_cloud(inputs.provider):
         return True
     choice = inputs.privacy.cloud_files
     if choice == "always":
