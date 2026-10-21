@@ -360,3 +360,14 @@ async def test_retry_after_is_kept_with_the_error():
         await collect(p)
     assert err.value.retryable and err.value.details["retry_after"] == 20.0
     assert retry_after("1.5") == 1.5 and retry_after("Wed, 21 Oct 2026 07:28:00 GMT") is None and retry_after("-3") is None
+
+
+async def test_a_rejected_generation_is_retryable_but_a_bad_request_is_not():
+    def respond(code):
+        return httpx.AsyncClient(transport=httpx.MockTransport(lambda _r: httpx.Response(400, json={"error": {
+            "message": "Failed to parse tool call arguments as JSON", "code": code}})))
+    for code, retryable in (("tool_use_failed", True), ("invalid_request_error", False), (None, False)):
+        p = OpenAIChatProvider(respond(code), label="Groq", url="https://x.test/v1/chat/completions", model="m")
+        with pytest.raises(ProviderError) as err:
+            await collect(p)
+        assert err.value.retryable is retryable, code

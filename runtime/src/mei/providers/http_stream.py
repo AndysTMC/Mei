@@ -14,6 +14,9 @@ from .sse import SseDecoder
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_ERROR_BODY_BYTES = 64 * 1024
 RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504, 529})
+# Refusals that are about this one generation, not the request: Groq rejects a reply whose tool-call
+# arguments aren't valid JSON or don't fit the schema. Nothing was produced, so asking again is safe.
+RETRYABLE_CODES = frozenset({"tool_use_failed"})
 TIMEOUT = httpx.Timeout(connect=15.0, read=60.0, write=30.0, pool=15.0)
 _CREDENTIAL_HEADERS = frozenset({"authorization", "x-api-key", "x-goog-api-key", "api-key"})
 
@@ -74,8 +77,9 @@ async def _http_error(label: str, response: httpx.Response, headers: dict[str, s
         if len(body) >= MAX_ERROR_BODY_BYTES:
             break
     detail = scrub(error_message(body[:MAX_ERROR_BODY_BYTES]), headers)
+    retryable = response.status_code in RETRYABLE_STATUS or error_code(body[:MAX_ERROR_BODY_BYTES]) in RETRYABLE_CODES
     error = ProviderError(f"{label}: HTTP {response.status_code}" + (f": {detail}" if detail else ""),
-                          retryable=response.status_code in RETRYABLE_STATUS, status=response.status_code)
+                          retryable=retryable, status=response.status_code)
     wait = retry_after(response.headers.get("retry-after"))
     if wait is not None:
         error.details["retry_after"] = wait
@@ -111,6 +115,16 @@ def error_message(body: bytes | str | dict) -> str:
         if isinstance(data.get("message"), str):
             return data["message"][:300]
     return ""
+
+
+def error_code(body: bytes) -> str:
+    """The provider's machine-readable error code (`error.code`), if it gave one."""
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return ""
+    err = data.get("error") if isinstance(data, dict) else None
+    return err.get("code") if isinstance(err, dict) and isinstance(err.get("code"), str) else ""
 
 
 def loads(data: str) -> dict | None:

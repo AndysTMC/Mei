@@ -105,14 +105,19 @@ async def run_task(task: Task, root: Path, provider: ProviderConfig, make) -> Re
     final = driver.task(task_id)
     reply = _last_reply(driver, submitted["conversation_id"])
     passed, detail = await task.check(world, reply)
-    if final["state"] in (S.FAILED, S.INTERRUPTED):  # the provider failed, not the model: neither pass nor fail
-        passed, state = False, "ERROR"
+    if final["state"] in (S.FAILED, S.INTERRUPTED) and _unavailable(final["error"] or ""):
+        passed, state = False, "ERROR"  # the provider was unavailable: says nothing about the model or Mei
     outcome = (final["outcome"] or {}).get("kind")
     calls = driver.store.read_one("SELECT model_calls FROM tasks WHERE id = ?", (task_id,))["model_calls"]
     error = redact(final["error"] or "") if final["state"] in (S.FAILED, S.INTERRUPTED, S.BLOCKED) else ""
     driver.store.close()
     return Result(task.name, task.kind, passed, detail, str(state), outcome, prompts, denied, questions, calls,
                   round(time.monotonic() - started, 1), error)
+
+
+def _unavailable(error: str) -> bool:
+    """Rate limits, outages, and timeouts; not a model's bad tool call, which is a real failure."""
+    return any(sign in error for sign in ("HTTP 429", "HTTP 5", "timed out", "connection failed", "no complete reply"))
 
 
 def _last_reply(driver: Driver, conversation_id: str) -> str:
@@ -138,10 +143,12 @@ def summarize(results: list[Result]) -> dict:
     }
 
 
-async def run_all(tasks: list[Task], provider: ProviderConfig, make, repeat: int = 1) -> list[Result]:
+async def run_all(tasks: list[Task], provider: ProviderConfig, make, repeat: int = 1, pause: float = 0.0) -> list[Result]:
     results = []
     for _ in range(repeat):
-        for task in tasks:
+        for n, task in enumerate(tasks):
+            if pause and (n or results):
+                await asyncio.sleep(pause)  # free tiers limit tokens per minute
             with tempfile.TemporaryDirectory(prefix=f"mei-eval-{task.name}-") as tmp:
                 options = {**provider.options, "script": task.script} if provider.id == "fake" else provider.options
                 results.append(await run_task(task, Path(tmp), ProviderConfig(
@@ -160,6 +167,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--tasks", default="", help="comma-separated task names (default: all)")
     p.add_argument("--repeat", type=int, default=1)
     p.add_argument("--out", default="", help="write the results as JSON here")
+    p.add_argument("--pause", type=float, default=0.0, help="seconds between tasks (for rate-limited free tiers)")
     return p.parse_args(argv)
 
 
@@ -184,7 +192,7 @@ async def main(argv: list[str]) -> int:
     async with httpx.AsyncClient(follow_redirects=False) as client:
         async def make(cfg: ProviderConfig):
             return await factory.build(cfg, client, key_for)
-        results = await run_all(tasks, ProviderConfig(id=args.provider, model=model), make, args.repeat)
+        results = await run_all(tasks, ProviderConfig(id=args.provider, model=model), make, args.repeat, args.pause)
     return _report(results, f"{args.provider} {model}", args.out)
 
 
