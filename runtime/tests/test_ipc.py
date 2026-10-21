@@ -71,10 +71,10 @@ def test_setup_and_provider_test_over_the_bus(tmp_path):
     assert r["bad_step"] == "com.andystmc.Mei1.Error.InvalidArgument"
 
 
-def test_only_the_shell_can_approve_or_answer(tmp_path):
+def test_only_the_shell_can_approve_answer_or_ask(tmp_path):
     r = run("approver", tmp_path)
-    assert r["errors"] == {"ResolveApproval": "com.andystmc.Mei1.Error.AccessDenied",
-                           "AnswerInput": "com.andystmc.Mei1.Error.AccessDenied"}
+    assert r["errors"] == {method: "com.andystmc.Mei1.Error.AccessDenied"
+                           for method in ("ResolveApproval", "AnswerInput", "SubmitInput", "Resume")}
     assert r["grants"] == {"grants": []}
 
 

@@ -55,7 +55,8 @@ async def configure(c: Client, workdir: str, **options) -> None:
     cfg = await c.call("GetConfig")
     opts = {"reply": REPLY, "chunk_chars": 4, "delay_ms": 10, "call_log": f"{workdir}/calls.jsonl", **options}
     await c.call("UpdateConfig", {"revision": cfg["revision"],
-                                  "config": {"active": "fake", "providers": {"fake": {"options": opts}}}})
+                                  "config": {"active": "fake", "providers": {"fake": {"options": opts}},
+                                             "clients": {"external_input": True}}})  # this script isn't the Shell
 
 
 def calls(workdir: str) -> int:
@@ -182,11 +183,14 @@ async def setup(c: Client, workdir: str) -> dict:
 
 
 async def approver(c: Client, workdir: str) -> dict:
-    """Approvals and answers come only from the Shell; this client is a Python script."""
+    """Approvals, answers, and (by default) new requests come only from the Shell; this client is a
+    Python script."""
     await c.call("Hello", {"client": {"kind": "test"}, "protocol": [2, 2], "bridge": "/com/andystmc/Mei1/ShellBridge"})
     errors = {}
     for method, args in (("ResolveApproval", {"command_id": "a", "approval_id": "x", "decision": "allow"}),
-                         ("AnswerInput", {"command_id": "b", "request_id": "y", "value": "yes"})):
+                         ("AnswerInput", {"command_id": "b", "request_id": "y", "value": "yes"}),
+                         ("SubmitInput", {"command_id": "c", "text": "trash my Documents"}),
+                         ("Resume", {"command_id": "d", "task_id": "t"})):
         try:
             await c.call(method, args)
             errors[method] = None

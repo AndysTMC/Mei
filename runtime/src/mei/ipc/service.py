@@ -184,14 +184,26 @@ class RuntimeService:
                 **repo.conversation_snapshot(self._store, conversation_id),
                 "streams": self._streams(conversation_id)}
 
-    def _submit_input(self, _sender: str, data: str) -> dict:
-        return self._engine.submit_input(decode_args(data, SubmitInputArgs))
+    async def _submit_input(self, sender: str, data: str) -> dict:
+        args = decode_args(data, SubmitInputArgs)
+        await self._input_allowed(sender)
+        return self._engine.submit_input(args)
 
     def _cancel(self, _sender: str, data: str) -> dict:
         return self._engine.cancel(decode_args(data, TaskCommandArgs))
 
-    def _resume(self, _sender: str, data: str) -> dict:
-        return self._engine.resume(decode_args(data, TaskCommandArgs))
+    async def _resume(self, sender: str, data: str) -> dict:
+        args = decode_args(data, TaskCommandArgs)
+        await self._input_allowed(sender)
+        return self._engine.resume(args)
+
+    async def _input_allowed(self, sender: str) -> None:
+        """New requests (and resuming one) act with the person's authority: Shell only, unless the
+        person let other programs in (§13.7)."""
+        _revision, config = repo.get_config(self._store)
+        if not config.clients.external_input and not await self._is_shell(sender):
+            raise ProtocolError("AccessDenied", "only Mei in the top bar can give Mei requests; other programs "
+                                                "can be allowed in Mei's settings (clients.external_input)")
 
     def _delete_conversation(self, _sender: str, data: str) -> dict:
         return self._engine.delete_conversation(decode_args(data, ConversationCommandArgs))

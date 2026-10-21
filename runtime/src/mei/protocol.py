@@ -163,11 +163,19 @@ class Approvals(msgspec.Struct, kw_only=True):
     preset: Literal["cautious", "balanced", "hands_off"] = "balanced"
 
 
+class Clients(msgspec.Struct, kw_only=True):
+    # Whether programs other than Mei's own Shell extension may give Mei requests (§13.7). Off by
+    # default: a request carries the person's authority, so any local program could otherwise
+    # have Mei act on things "the person named".
+    external_input: bool = False
+
+
 class Config(msgspec.Struct, kw_only=True):
     active: str = ""  # provider id used for new tasks
     providers: dict[str, ProviderSettings] = msgspec.field(default_factory=dict)
     privacy: Privacy = msgspec.field(default_factory=Privacy)
     approvals: Approvals = msgspec.field(default_factory=Approvals)
+    clients: Clients = msgspec.field(default_factory=Clients)
 
 
 def active_provider(config: Config) -> ProviderConfig:

@@ -130,7 +130,8 @@ async def main() -> None:
     await call(bus, "Attach", {"scope": "all", "after_seq": 0})
     cfg = await call(bus, "GetConfig")
     await call(bus, "UpdateConfig", {"revision": cfg["revision"], "config": {
-        "active": "openai", "providers": {"openai": {"url": url, "model": "mock-1"}}}})
+        "active": "openai", "providers": {"openai": {"url": url, "model": "mock-1"}},
+        "clients": {"external_input": True}}})  # this script isn't the Shell
     models = await call(bus, "ListModels", {"provider": "openai", "url": url})
     # Another local process asking Mei to list models somewhere else must not get the key sent there.
     sent_before = SEEN_AUTH.count(f"Bearer {KEY}")
