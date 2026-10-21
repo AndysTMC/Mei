@@ -1,0 +1,1021 @@
+{
+ "description": "A task plans, asks to trash a file the person didn't name, is allowed once, acts, and finishes as outcome_verified.",
+ "attach": {
+  "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+  "seq": 1,
+  "mode": "snapshot",
+  "snapshot": {
+   "conversations": []
+  },
+  "streams": []
+ },
+ "events": [
+  {
+   "v": 2,
+   "type": "conversation.created",
+   "event_id": "e8014a8a-cbad-4feb-89e9-6577ce0c110b",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.067Z",
+   "required": true,
+   "seq": 2,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": null,
+   "payload": {
+    "conversation": {
+     "id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+     "title": "clean up the old file",
+     "created_at": 1792574443067,
+     "updated_at": 1792574443067
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "message.completed",
+   "event_id": "731332f9-92bd-49e7-8088-7cb22d4e79f2",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.067Z",
+   "required": true,
+   "seq": 3,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": null,
+   "payload": {
+    "message": {
+     "id": "22c33155-87ae-4fb7-b88a-179437c86c98",
+     "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+     "task_id": null,
+     "role": "user",
+     "content": "clean up the old file",
+     "thinking": null,
+     "metadata": {},
+     "created_at": 1792574443067
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "task.accepted",
+   "event_id": "4f76cf0a-fa7a-4194-934f-c4e670dce56e",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.067Z",
+   "required": true,
+   "seq": 4,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task": {
+     "id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+     "state": "ACCEPTED",
+     "input_message_id": "22c33155-87ae-4fb7-b88a-179437c86c98",
+     "error": null,
+     "created_at": 1792574443067,
+     "updated_at": 1792574443067,
+     "mode": "INTERACTIVE",
+     "plan": {},
+     "outcome": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "task.state_changed",
+   "event_id": "29b2f2c3-b918-4b61-9218-91c90203133e",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.067Z",
+   "required": true,
+   "seq": 5,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+    "from": "ACCEPTED",
+    "to": "RUNNING",
+    "error": null
+   }
+  },
+  {
+   "v": 2,
+   "type": "model.started",
+   "event_id": "f961dd99-8899-4533-9cd9-aaba970b417e",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.068Z",
+   "required": true,
+   "seq": 6,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+    "turn_id": "4312fcd0-d525-4621-a287-0f4f8c65fd5d",
+    "attempt": 1,
+    "message_id": "43363877-76c4-4849-8f6f-3c12d7da5322",
+    "provider": {
+     "id": "fake",
+     "label": "Fake",
+     "model": "fake-1"
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "message.delta",
+   "event_id": "fe5a704e-3470-48d8-a338-76906eda3196",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.100Z",
+   "required": false,
+   "seq": null,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "message_id": "43363877-76c4-4849-8f6f-3c12d7da5322",
+    "chunk": 1,
+    "text": "I'll move it to the trash.",
+    "thinking": ""
+   }
+  },
+  {
+   "v": 2,
+   "type": "message.completed",
+   "event_id": "76728171-d330-40d9-9f01-b565d5cdca27",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.100Z",
+   "required": true,
+   "seq": 7,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "message": {
+     "id": "43363877-76c4-4849-8f6f-3c12d7da5322",
+     "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "role": "assistant",
+     "content": "I'll move it to the trash.",
+     "thinking": null,
+     "metadata": {
+      "id": "fake",
+      "label": "Fake",
+      "model": "fake-1",
+      "duration_ms": 32,
+      "tokens": {
+       "input": 1647,
+       "output": 26
+      }
+     },
+     "created_at": 1792574443100
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "action.proposed",
+   "event_id": "6cb2804f-140f-40b5-91f6-782cae09bbbf",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.100Z",
+   "required": false,
+   "seq": 8,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "63a3c063-ec25-4332-80f7-bffd4cfd0e55",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "ca08e3c2-c2ae-467f-997d-ad2fba5098bc",
+     "position": 0,
+     "tool": "plan_update",
+     "capability": null,
+     "description": "",
+     "execution": "PROPOSED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": null,
+     "decision_reason": null,
+     "error": null,
+     "summary": "",
+     "effects": null,
+     "resources": [],
+     "undo_recorded": false,
+     "created_at": 1792574443100,
+     "finished_at": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "action.proposed",
+   "event_id": "a785442c-b8a6-48ef-a40c-3d08360ed204",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.101Z",
+   "required": false,
+   "seq": 9,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "1fec3f41-87d4-4b01-bb28-321299dd78d5",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "ca08e3c2-c2ae-467f-997d-ad2fba5098bc",
+     "position": 1,
+     "tool": "fs_trash",
+     "capability": null,
+     "description": "",
+     "execution": "PROPOSED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": null,
+     "decision_reason": null,
+     "error": null,
+     "summary": "",
+     "effects": null,
+     "resources": [],
+     "undo_recorded": false,
+     "created_at": 1792574443100,
+     "finished_at": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "policy.decided",
+   "event_id": "43c32983-0368-429b-adeb-49e3f0cca117",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.101Z",
+   "required": false,
+   "seq": 10,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "63a3c063-ec25-4332-80f7-bffd4cfd0e55",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "ca08e3c2-c2ae-467f-997d-ad2fba5098bc",
+     "position": 0,
+     "tool": "plan_update",
+     "capability": "plan.update",
+     "description": "Update the plan",
+     "execution": "AUTHORIZED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": "allow",
+     "decision_reason": "meta",
+     "error": null,
+     "summary": "",
+     "effects": {
+      "mutates": "no",
+      "undo": "n/a",
+      "visibility": "private",
+      "disclosure": "none",
+      "loses_data": false
+     },
+     "resources": [],
+     "undo_recorded": false,
+     "created_at": 1792574443100,
+     "finished_at": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "action.started",
+   "event_id": "badfe7c6-66c5-4ec8-b35a-f04ef5d7724c",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.101Z",
+   "required": false,
+   "seq": 11,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "63a3c063-ec25-4332-80f7-bffd4cfd0e55",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "ca08e3c2-c2ae-467f-997d-ad2fba5098bc",
+     "position": 0,
+     "tool": "plan_update",
+     "capability": "plan.update",
+     "description": "Update the plan",
+     "execution": "STARTED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": "allow",
+     "decision_reason": "meta",
+     "error": null,
+     "summary": "",
+     "effects": {
+      "mutates": "no",
+      "undo": "n/a",
+      "visibility": "private",
+      "disclosure": "none",
+      "loses_data": false
+     },
+     "resources": [],
+     "undo_recorded": false,
+     "created_at": 1792574443100,
+     "finished_at": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "plan.updated",
+   "event_id": "5e8fe796-2b4c-4288-aa5a-f4e67ea65770",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.101Z",
+   "required": false,
+   "seq": 12,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+    "plan": {
+     "steps": [
+      {
+       "text": "Trash old.txt",
+       "status": "in_progress"
+      }
+     ],
+     "criteria": [
+      {
+       "text": "old.txt is gone",
+       "check": {
+        "type": "file_absent",
+        "path": "~/Music/old.txt"
+       },
+       "status": "pending"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "action.finished",
+   "event_id": "20a6d28c-dea7-44b0-9317-c352216ae031",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.102Z",
+   "required": false,
+   "seq": 13,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "63a3c063-ec25-4332-80f7-bffd4cfd0e55",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "ca08e3c2-c2ae-467f-997d-ad2fba5098bc",
+     "position": 0,
+     "tool": "plan_update",
+     "capability": "plan.update",
+     "description": "Update the plan",
+     "execution": "SUCCEEDED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": "allow",
+     "decision_reason": "meta",
+     "error": null,
+     "summary": "Updated the plan",
+     "effects": {
+      "mutates": "no",
+      "undo": "n/a",
+      "visibility": "private",
+      "disclosure": "none",
+      "loses_data": false
+     },
+     "resources": [],
+     "undo_recorded": false,
+     "created_at": 1792574443100,
+     "finished_at": 1792574443102
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "policy.decided",
+   "event_id": "5612369c-978d-45ef-b7ea-5cc6b44c5f11",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.103Z",
+   "required": false,
+   "seq": 14,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "1fec3f41-87d4-4b01-bb28-321299dd78d5",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "ca08e3c2-c2ae-467f-997d-ad2fba5098bc",
+     "position": 1,
+     "tool": "fs_trash",
+     "capability": "fs.trash",
+     "description": "Move ~/Music/old.txt to the trash",
+     "execution": "AWAITING_APPROVAL",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": "ask",
+     "decision_reason": "needs_approval",
+     "error": null,
+     "summary": "",
+     "effects": {
+      "mutates": "local",
+      "undo": "recorded",
+      "visibility": "private",
+      "disclosure": "none",
+      "loses_data": false
+     },
+     "resources": [
+      {
+       "kind": "path",
+       "value": "/tmp/tmphszbhcg3/home/Music/old.txt",
+       "access": "write",
+       "role": "path",
+       "provenance": "model"
+      }
+     ],
+     "undo_recorded": false,
+     "created_at": 1792574443100,
+     "finished_at": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "approval.requested",
+   "event_id": "c188eb35-15d1-42d7-8eaf-4d5c6aacb48a",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.103Z",
+   "required": true,
+   "seq": 15,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "approval": {
+     "id": "4e4508bc-6855-437d-9373-95770a28c764",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "action_id": "1fec3f41-87d4-4b01-bb28-321299dd78d5",
+     "state": "pending",
+     "card": {
+      "title": "Move ~/Music/old.txt to the trash",
+      "capability": "fs.trash",
+      "why": "I'll move it to the trash.",
+      "why_is_models": true,
+      "reason": "needs_approval",
+      "reason_text": "this changes something you didn't name",
+      "resources": [
+       {
+        "role": "path",
+        "kind": "path",
+        "value": "~/Music/old.txt",
+        "provenance": "model"
+       }
+      ],
+      "effects": [
+       "Changes things on this computer (can be undone)"
+      ],
+      "read_from": [],
+      "scopes": [
+       "once",
+       "task",
+       "always"
+      ],
+      "default_scope": "once",
+      "scope_text": {
+       "once": "Allow once",
+       "task": "Allow trash in ~/Music for the rest of this task",
+       "always": "Allow trash in ~/Music from now on"
+      }
+     },
+     "created_at": 1792574443103
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "task.state_changed",
+   "event_id": "98cb11a4-ca0c-4cf8-a3d8-bc0057f2510a",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.103Z",
+   "required": true,
+   "seq": 16,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+    "from": "RUNNING",
+    "to": "WAITING_APPROVAL",
+    "error": null
+   }
+  },
+  {
+   "v": 2,
+   "type": "approval.resolved",
+   "event_id": "5cbe63f3-f88a-4085-babe-7454dead0db5",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.106Z",
+   "required": true,
+   "seq": 17,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "approval_id": "4e4508bc-6855-437d-9373-95770a28c764",
+    "action_id": "1fec3f41-87d4-4b01-bb28-321299dd78d5",
+    "state": "allowed",
+    "scope": "once"
+   }
+  },
+  {
+   "v": 2,
+   "type": "action.updated",
+   "event_id": "8b6117a6-d6cb-485c-bfaf-f7e6777b32db",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.106Z",
+   "required": false,
+   "seq": 18,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "1fec3f41-87d4-4b01-bb28-321299dd78d5",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "ca08e3c2-c2ae-467f-997d-ad2fba5098bc",
+     "position": 1,
+     "tool": "fs_trash",
+     "capability": "fs.trash",
+     "description": "Move ~/Music/old.txt to the trash",
+     "execution": "AUTHORIZED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": "ask",
+     "decision_reason": "needs_approval",
+     "error": null,
+     "summary": "",
+     "effects": {
+      "mutates": "local",
+      "undo": "recorded",
+      "visibility": "private",
+      "disclosure": "none",
+      "loses_data": false
+     },
+     "resources": [
+      {
+       "kind": "path",
+       "value": "/tmp/tmphszbhcg3/home/Music/old.txt",
+       "access": "write",
+       "role": "path",
+       "provenance": "model"
+      }
+     ],
+     "undo_recorded": false,
+     "created_at": 1792574443100,
+     "finished_at": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "task.state_changed",
+   "event_id": "ea2da1ba-52dc-4e82-92f4-56e56c4c7eb6",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.106Z",
+   "required": true,
+   "seq": 19,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+    "from": "WAITING_APPROVAL",
+    "to": "RUNNING",
+    "error": null
+   }
+  },
+  {
+   "v": 2,
+   "type": "action.started",
+   "event_id": "0d453427-7e23-4166-8698-8e12dee90e62",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.107Z",
+   "required": false,
+   "seq": 20,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "1fec3f41-87d4-4b01-bb28-321299dd78d5",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "ca08e3c2-c2ae-467f-997d-ad2fba5098bc",
+     "position": 1,
+     "tool": "fs_trash",
+     "capability": "fs.trash",
+     "description": "Move ~/Music/old.txt to the trash",
+     "execution": "STARTED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": "ask",
+     "decision_reason": "needs_approval",
+     "error": null,
+     "summary": "",
+     "effects": {
+      "mutates": "local",
+      "undo": "recorded",
+      "visibility": "private",
+      "disclosure": "none",
+      "loses_data": false
+     },
+     "resources": [
+      {
+       "kind": "path",
+       "value": "/tmp/tmphszbhcg3/home/Music/old.txt",
+       "access": "write",
+       "role": "path",
+       "provenance": "model"
+      }
+     ],
+     "undo_recorded": false,
+     "created_at": 1792574443100,
+     "finished_at": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "action.finished",
+   "event_id": "1fc3d75e-bbab-4f96-b46c-1af39e4b9091",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.107Z",
+   "required": false,
+   "seq": 21,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "1fec3f41-87d4-4b01-bb28-321299dd78d5",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "ca08e3c2-c2ae-467f-997d-ad2fba5098bc",
+     "position": 1,
+     "tool": "fs_trash",
+     "capability": "fs.trash",
+     "description": "Move ~/Music/old.txt to the trash",
+     "execution": "SUCCEEDED",
+     "verification": "passed",
+     "disposition": "confirmed",
+     "decision": "ask",
+     "decision_reason": "needs_approval",
+     "error": null,
+     "summary": "Trashed old.txt",
+     "effects": {
+      "mutates": "local",
+      "undo": "recorded",
+      "visibility": "private",
+      "disclosure": "none",
+      "loses_data": false
+     },
+     "resources": [
+      {
+       "kind": "path",
+       "value": "/tmp/tmphszbhcg3/home/Music/old.txt",
+       "access": "write",
+       "role": "path",
+       "provenance": "model"
+      }
+     ],
+     "undo_recorded": true,
+     "created_at": 1792574443100,
+     "finished_at": 1792574443107
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "model.started",
+   "event_id": "0f03317b-cdf7-4c46-8b5c-297ae974e6c3",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.108Z",
+   "required": true,
+   "seq": 22,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+    "turn_id": "fed3e542-4bce-4109-ba9a-d8f3aae0e163",
+    "attempt": 2,
+    "message_id": "00f59c2f-0492-403e-84cd-449cfacbc68a",
+    "provider": {
+     "id": "fake",
+     "label": "Fake",
+     "model": "fake-1"
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "message.completed",
+   "event_id": "d37e088e-7edd-48bb-b627-02fe0d5d6421",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.113Z",
+   "required": true,
+   "seq": 23,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "message": {
+     "id": "00f59c2f-0492-403e-84cd-449cfacbc68a",
+     "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "role": "assistant",
+     "content": "",
+     "thinking": null,
+     "metadata": {
+      "id": "fake",
+      "label": "Fake",
+      "model": "fake-1",
+      "duration_ms": 5,
+      "tokens": {
+       "input": 1871,
+       "output": 0
+      }
+     },
+     "created_at": 1792574443113
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "action.proposed",
+   "event_id": "5cec36ae-69dd-404d-ae7b-c4079e8a44af",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.113Z",
+   "required": false,
+   "seq": 24,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "41477f20-d909-4aa6-9021-f021405f4911",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "390c6660-d7b6-478b-9ddc-09fbd0e7c9a9",
+     "position": 0,
+     "tool": "task_finish",
+     "capability": null,
+     "description": "",
+     "execution": "PROPOSED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": null,
+     "decision_reason": null,
+     "error": null,
+     "summary": "",
+     "effects": null,
+     "resources": [],
+     "undo_recorded": false,
+     "created_at": 1792574443113,
+     "finished_at": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "policy.decided",
+   "event_id": "168a3a11-ebde-4df2-9f45-8299ec54b3e5",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.114Z",
+   "required": false,
+   "seq": 25,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "41477f20-d909-4aa6-9021-f021405f4911",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "390c6660-d7b6-478b-9ddc-09fbd0e7c9a9",
+     "position": 0,
+     "tool": "task_finish",
+     "capability": "task.finish",
+     "description": "Finish the task",
+     "execution": "AUTHORIZED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": "allow",
+     "decision_reason": "meta",
+     "error": null,
+     "summary": "",
+     "effects": {
+      "mutates": "no",
+      "undo": "n/a",
+      "visibility": "private",
+      "disclosure": "none",
+      "loses_data": false
+     },
+     "resources": [],
+     "undo_recorded": false,
+     "created_at": 1792574443113,
+     "finished_at": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "task.state_changed",
+   "event_id": "c57ad6ad-c917-4066-83a9-710da876f694",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.114Z",
+   "required": true,
+   "seq": 26,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+    "from": "RUNNING",
+    "to": "VERIFYING",
+    "error": null
+   }
+  },
+  {
+   "v": 2,
+   "type": "action.started",
+   "event_id": "876e1156-a79e-4bd1-b887-b8429c21c4e6",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.114Z",
+   "required": false,
+   "seq": 27,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "41477f20-d909-4aa6-9021-f021405f4911",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "390c6660-d7b6-478b-9ddc-09fbd0e7c9a9",
+     "position": 0,
+     "tool": "task_finish",
+     "capability": "task.finish",
+     "description": "Finish the task",
+     "execution": "STARTED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": "allow",
+     "decision_reason": "meta",
+     "error": null,
+     "summary": "",
+     "effects": {
+      "mutates": "no",
+      "undo": "n/a",
+      "visibility": "private",
+      "disclosure": "none",
+      "loses_data": false
+     },
+     "resources": [],
+     "undo_recorded": false,
+     "created_at": 1792574443113,
+     "finished_at": null
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "action.finished",
+   "event_id": "a10f2954-b0a9-4249-9c25-2a6507e41856",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.115Z",
+   "required": false,
+   "seq": 28,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "action": {
+     "id": "41477f20-d909-4aa6-9021-f021405f4911",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "batch_id": "390c6660-d7b6-478b-9ddc-09fbd0e7c9a9",
+     "position": 0,
+     "tool": "task_finish",
+     "capability": "task.finish",
+     "description": "Finish the task",
+     "execution": "SUCCEEDED",
+     "verification": "not_applicable",
+     "disposition": "none",
+     "decision": "allow",
+     "decision_reason": "meta",
+     "error": null,
+     "summary": "Finished the task",
+     "effects": {
+      "mutates": "no",
+      "undo": "n/a",
+      "visibility": "private",
+      "disclosure": "none",
+      "loses_data": false
+     },
+     "resources": [],
+     "undo_recorded": false,
+     "created_at": 1792574443113,
+     "finished_at": 1792574443114
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "plan.updated",
+   "event_id": "d598c923-df60-4f0d-866b-504de8729cf3",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.115Z",
+   "required": false,
+   "seq": 29,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+    "plan": {
+     "steps": [
+      {
+       "text": "Trash old.txt",
+       "status": "in_progress"
+      }
+     ],
+     "criteria": [
+      {
+       "text": "old.txt is gone",
+       "check": {
+        "type": "file_absent",
+        "path": "~/Music/old.txt"
+       },
+       "status": "passed"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "message.completed",
+   "event_id": "5f92ed5a-e53a-4210-b8fa-c6852504351d",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.115Z",
+   "required": true,
+   "seq": 30,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "message": {
+     "id": "3b373c22-7114-4110-a82c-183362bfa1bb",
+     "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+     "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+     "role": "assistant",
+     "content": "Moved old.txt to the trash.",
+     "thinking": null,
+     "metadata": {
+      "outcome": "outcome_verified"
+     },
+     "created_at": 1792574443115
+    }
+   }
+  },
+  {
+   "v": 2,
+   "type": "task.state_changed",
+   "event_id": "6f0ce6a9-c3c1-49c4-9ddf-7ad1f6f426f1",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.115Z",
+   "required": true,
+   "seq": 31,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+    "from": "VERIFYING",
+    "to": "COMPLETED",
+    "error": null
+   }
+  },
+  {
+   "v": 2,
+   "type": "task.finished",
+   "event_id": "e2079f76-2d3f-4fbb-a556-779ff6d3adbd",
+   "epoch": "7dcc0c47-9b1c-4f74-8b4c-8359623c6370",
+   "at": "2026-10-21T09:20:43.115Z",
+   "required": true,
+   "seq": 32,
+   "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+   "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+   "payload": {
+    "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d",
+    "state": "COMPLETED",
+    "error": null,
+    "outcome": {
+     "kind": "outcome_verified",
+     "summary": "Moved old.txt to the trash.",
+     "criteria": [
+      {
+       "index": 0,
+       "text": "old.txt is gone",
+       "check": "file_absent",
+       "status": "passed",
+       "detail": "~/Music/old.txt is gone",
+       "reported": "met",
+       "note": ""
+      }
+     ],
+     "open_issues": [],
+     "note": ""
+    }
+   }
+  }
+ ],
+ "expect": {
+  "conversation_id": "d4a9b885-7836-4e81-b41d-8eda8a10f652",
+  "state": "COMPLETED",
+  "outcome": "outcome_verified",
+  "task_id": "2d3fa485-41ba-462d-808e-94b010d5b37d"
+ }
+}

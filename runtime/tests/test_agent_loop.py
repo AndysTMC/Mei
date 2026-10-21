@@ -2,6 +2,7 @@
 home (§20 "Loop" layer): outcomes, approvals, steering, cancelling, policy, and disclosure."""
 
 import datetime
+import os
 
 import pytest
 
@@ -9,7 +10,11 @@ from mei.core import context
 from mei.core.states import Execution, TaskState
 from mei.store import agent
 
-from agent_harness import Harness, assert_provider_valid, call, put, turn
+from mei.desktop.apps import Launcher
+from mei.desktop.gsettings import GSETTINGS, GSettingsCli
+
+from agent_harness import Harness, assert_provider_valid, call, make_world, put, turn
+from test_desktop import FILES, RecordingBridge
 
 S, E = TaskState, Execution
 INVOICES = "Find last week's PDF invoices in Downloads and move them to Documents/Invoices/2026"
@@ -326,3 +331,33 @@ async def test_sensitive_files_need_a_card_that_says_where_they_go(tmp_path):
     card = agent.approval_view(h.approval(r["task_id"]))["card"]
     assert card["reason"] == "sensitive" and any("sent to Fake" in e for e in card["effects"])
     assert all("API_TOKEN" not in t["content"] for req in h.requests() for t in req["turns"])
+
+
+# ── The second slice: "Switch to dark mode and open Files in Downloads" ─────
+
+
+async def test_dark_mode_slice_is_verified_without_a_prompt(tmp_path):
+    if not os.access(GSETTINGS, os.X_OK):
+        pytest.skip("needs /usr/bin/gsettings")
+    env = make_world(tmp_path)
+    gs = GSettingsCli(env={"GSETTINGS_BACKEND": "keyfile", "XDG_CONFIG_HOME": str(tmp_path / "config")})
+    await gs.set("org.gnome.desktop.interface", "color-scheme", "'default'")
+    bridge = RecordingBridge()
+    env.gsettings, env.apps, env.bridge, env.launcher = gs, (lambda: [FILES]), (lambda: bridge), Launcher(lambda: bridge)
+    criteria = [
+        {"text": "Dark mode is on", "check": {"type": "setting_equals", "schema": "org.gnome.desktop.interface",
+                                              "key": "color-scheme", "value": "prefer-dark"}},
+        {"text": "Files is open on Downloads", "check": {"type": "window_present", "app_id": "org.gnome.Nautilus",
+                                                         "title": "Downloads"}}]
+    h = Harness(tmp_path, env=env, script=[
+        turn(call("plan_update", criteria=criteria)),
+        turn(call("settings_set", schema="org.gnome.desktop.interface", key="color-scheme", value="prefer-dark"),
+             call("apps_launch", app_id="org.gnome.Nautilus", files=["~/Downloads"])),
+        turn(call("task_finish", summary="Dark mode is on and Files shows Downloads.",
+                  criteria=[{"index": 0, "status": "met"}, {"index": 1, "status": "met"}]))])
+    r = h.submit("Switch to dark mode and open Files in Downloads")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    assert h.task(r["task_id"])["outcome"]["kind"] == "outcome_verified", h.task(r["task_id"])["outcome"]
+    assert "approval.requested" not in h.rec.types()
+    assert await gs.get("org.gnome.desktop.interface", "color-scheme") == "'prefer-dark'"
+    assert bridge.launched == [("org.gnome.Nautilus", [f"file://{env.home}/Downloads"])]

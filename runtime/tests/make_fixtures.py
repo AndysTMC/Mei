@@ -123,9 +123,46 @@ async def reattach_mid_stream(d: Path) -> dict:
             "expect": {"conversation_id": r["conversation_id"], "reply": long_reply, "state": "COMPLETED"}}
 
 
+async def agent_with_approval(d: Path) -> dict:
+    """A task that plans, needs one approval, acts, and finishes with a checked outcome."""
+    from mei.capabilities.base import Env
+    from mei.capabilities.catalog import default_registry
+    from mei.protocol import ResolveApprovalArgs
+    from mei.store import agent
+    home = d / "home"
+    (home / "Music").mkdir(parents=True)
+    (home / "Music" / "old.txt").write_text("old")
+    tape = Tape()
+    eng = Engine(Store(d / "mei"), tape, factory, registry=default_registry(),
+                 env=Env(home=home, data_dir=d / "mei", data_home=home / ".local/share", user_dirs={}))
+    script = [
+        {"text": "I'll move it to the trash.", "tool_calls": [{"name": "plan_update", "arguments": {
+            "steps": [{"text": "Trash old.txt", "status": "in_progress"}],
+            "criteria": [{"text": "old.txt is gone", "check": {"type": "file_absent", "path": "~/Music/old.txt"}}]}},
+            {"name": "fs_trash", "arguments": {"path": "~/Music/old.txt"}}]},
+        {"tool_calls": [{"name": "task_finish", "arguments": {"summary": "Moved old.txt to the trash.",
+                                                               "criteria": [{"index": 0, "status": "met"}]}}]}]
+    eng.update_config(UpdateConfigArgs(eng.get_config()["revision"], Config(active="fake", providers={
+        "fake": ProviderSettings(model="fake-1", options={"script": script, "chunk_chars": 8, "delay_ms": 5})})))
+    tape.items.clear()
+    attach = attach_reply(eng)
+    r = eng.submit_input(SubmitInputArgs(command_id="cmd-1", text="clean up the old file"))
+    await until(lambda: any(i["type"] == "approval.requested" for i in tape.items))
+    approval = agent.pending_approval(eng.store, r["task_id"])
+    eng.resolve_approval(ResolveApprovalArgs(command_id="cmd-2", approval_id=approval["id"], decision="allow"),
+                         decided_by=":1.42")
+    await until(lambda: finished(tape, r["task_id"]))
+    return {"description": "A task plans, asks to trash a file the person didn't name, is allowed once, "
+                           "acts, and finishes as outcome_verified.",
+            "attach": attach, "events": tape.items,
+            "expect": {"conversation_id": r["conversation_id"], "state": "COMPLETED", "outcome": "outcome_verified",
+                       "task_id": r["task_id"]}}
+
+
 async def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for scenario in (turn_completed, turn_cancelled, interrupted_then_resumed, reattach_mid_stream):
+    for scenario in (turn_completed, turn_cancelled, interrupted_then_resumed, reattach_mid_stream,
+                     agent_with_approval):
         with tempfile.TemporaryDirectory() as tmp:
             data = await scenario(Path(tmp))
         path = OUT / f"{scenario.__name__}.json"

@@ -181,6 +181,39 @@ async def setup(c: Client, workdir: str) -> dict:
             "bad_step": bad}
 
 
+async def approver(c: Client, workdir: str) -> dict:
+    """Approvals and answers come only from the Shell; this client is a Python script."""
+    await c.call("Hello", {"client": {"kind": "test"}, "protocol": [2, 2], "bridge": "/com/andystmc/Mei1/ShellBridge"})
+    errors = {}
+    for method, args in (("ResolveApproval", {"command_id": "a", "approval_id": "x", "decision": "allow"}),
+                         ("AnswerInput", {"command_id": "b", "request_id": "y", "value": "yes"})):
+        try:
+            await c.call(method, args)
+            errors[method] = None
+        except RuntimeError as e:
+            errors[method] = str(e).split(":")[0]
+    grants = await c.call("ListGrants")
+    return {"errors": errors, "grants": grants}
+
+
+async def agent_events(c: Client, workdir: str) -> dict:
+    """A task that plans and finishes (meta tools only): its actions reach clients as events."""
+    await c.hello()
+    await c.call("Attach", {"scope": "all", "after_seq": 0})
+    await configure(c, workdir, delay_ms=0, script=[
+        {"tool_calls": [{"name": "plan_update", "arguments": {"criteria": [{"text": "it's done"}]}}]},
+        {"tool_calls": [{"name": "task_finish", "arguments": {"summary": "Done.", "criteria": [
+            {"index": 0, "status": "met"}]}}]}])
+    r = await c.call("SubmitInput", {"command_id": str(uuid.uuid4()), "text": "do the thing"})
+    await c.until(lambda: c.finished(r["task_id"]))
+    snapshot = await c.call("GetConversation", {"conversation_id": r["conversation_id"]})
+    task = next(t for t in snapshot["tasks"] if t["id"] == r["task_id"])
+    return {"types": sorted({e["type"] for e in c.events if e["task_id"] == r["task_id"]}),
+            "outcome": c.finished(r["task_id"])["payload"]["outcome"]["kind"],
+            "snapshot_actions": [(a["capability"], a["execution"]) for a in task["actions"]],
+            "shown_roles": [m["role"] for m in snapshot["messages"]]}
+
+
 async def main() -> None:
     scenario, workdir = sys.argv[1], sys.argv[2]
     from mei.ipc import dbus_patch

@@ -69,3 +69,18 @@ def test_setup_and_provider_test_over_the_bus(tmp_path):
     assert r["after"] == {"completed": True, "skipped": ["shortcuts"]}
     assert r["rerun_changed"] == [False, False] and r["revision_unchanged"]
     assert r["bad_step"] == "com.andystmc.Mei1.Error.InvalidArgument"
+
+
+def test_only_the_shell_can_approve_or_answer(tmp_path):
+    r = run("approver", tmp_path)
+    assert r["errors"] == {"ResolveApproval": "com.andystmc.Mei1.Error.AccessDenied",
+                           "AnswerInput": "com.andystmc.Mei1.Error.AccessDenied"}
+    assert r["grants"] == {"grants": []}
+
+
+def test_agent_events_reach_clients(tmp_path):
+    r = run("agent_events", tmp_path)
+    assert {"action.proposed", "policy.decided", "action.finished", "plan.updated", "task.finished"} <= set(r["types"])
+    assert r["outcome"] == "reported"
+    assert r["snapshot_actions"] == [["plan.update", "SUCCEEDED"], ["task.finish", "SUCCEEDED"]]
+    assert r["shown_roles"] == ["user", "assistant", "assistant", "assistant"]

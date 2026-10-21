@@ -20,12 +20,15 @@ from dbus_fast.constants import NameFlag, RequestNameReply
 from mei import protocol
 from mei.core.engine import Engine
 from mei.obs import RECENT
-from mei.protocol import (AttachArgs, ConversationCommandArgs, Envelope, GetLogsArgs, HelloArgs, ListModelsArgs,
-                          ProtocolError, SetupApplyArgs, SubmitInputArgs, TaskCommandArgs, TestProviderArgs,
-                          UpdateConfigArgs, decode_args, encode)
+from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, GetLogsArgs, HelloArgs,
+                          ListModelsArgs, ProtocolError, ResolveApprovalArgs, RevokeGrantArgs, SetupApplyArgs,
+                          SubmitInputArgs, TaskCommandArgs, TestProviderArgs, UpdateConfigArgs, decode_args, encode)
 from mei.providers.profiles import PROFILES
 from mei.setup import Setup
 from mei.store import repo
+
+from .bridge import ShellBridgeClient
+from .peers import shell_check
 
 log = logging.getLogger("mei.ipc")
 MAX_REPLAY_EVENTS = 5000
@@ -46,9 +49,12 @@ class RuntimeService:
     def __init__(self, bus: MessageBus, engine: Engine,
                  list_models: Callable[[str, str], Awaitable[dict]] | None = None,
                  setup: Setup | None = None,
-                 test_provider: Callable[[str], Awaitable[dict]] | None = None) -> None:
+                 test_provider: Callable[[str], Awaitable[dict]] | None = None,
+                 is_shell: Callable[[str], Awaitable[bool]] | None = None) -> None:
         self._bus = bus
         self._engine = engine
+        self._is_shell = is_shell or shell_check(bus)
+        self.bridge: ShellBridgeClient | None = None
         self._list_models = list_models
         self._setup = setup
         self._test_provider = test_provider
@@ -62,7 +68,8 @@ class RuntimeService:
             "GetConfig": self._get_config, "UpdateConfig": self._update_config, "Ping": self._ping,
             "ListProviders": self._list_providers, "ListModels": self._models, "GetLogs": self._get_logs,
             "ClearLogs": self._clear_logs, "SetupStatus": self._setup_status, "SetupApply": self._setup_apply,
-            "TestProvider": self._test,
+            "TestProvider": self._test, "ResolveApproval": self._resolve_approval, "AnswerInput": self._answer_input,
+            "ListGrants": self._list_grants, "RevokeGrant": self._revoke_grant,
         }
 
     async def start(self) -> None:
@@ -98,6 +105,9 @@ class RuntimeService:
         if msg.message_type == MessageType.SIGNAL:
             if msg.member == "NameOwnerChanged" and msg.sender == "org.freedesktop.DBus":
                 name, _old, new = msg.body
+                if not new and self.bridge is not None and self.bridge.name == name:
+                    self.bridge = None  # the Shell went away: windows, clipboard, and launching go with it
+                    log.info("the Shell bridge left")
                 if not new and (self.clients.pop(name, None) or self._kinds.pop(name, None)):
                     log.info("client %s left", name)
             return None
@@ -142,6 +152,8 @@ class RuntimeService:
         if args.protocol[0] != protocol.PROTOCOL_MAJOR:
             raise ProtocolError("Unsupported", f"runtime speaks protocol {protocol.PROTOCOL_MAJOR}.x")
         self._kinds[sender] = args.client.kind
+        if args.bridge:
+            asyncio.ensure_future(self._attach_bridge(sender, args.bridge))
         return {"epoch": self._store.epoch, "protocol": [protocol.PROTOCOL_MAJOR, protocol.PROTOCOL_MINOR],
                 "runtime_version": RUNTIME_VERSION, "seq": self._store.last_seq(), "pid": os.getpid()}
 
@@ -233,6 +245,35 @@ class RuntimeService:
     def _clear_logs(self, _sender: str, _data: str) -> dict:
         RECENT.clear()
         return {}
+
+    async def _attach_bridge(self, sender: str, path: str) -> None:
+        """Only the Shell's own bridge is used: another program offering one could feed Mei false
+        window lists or launch things in the Shell's name."""
+        if not path.startswith("/") or not await self._is_shell(sender):
+            log.warning("ignored a Shell bridge offered by %s", sender)
+            return
+        self.bridge = ShellBridgeClient(self._bus, sender, path)
+        log.info("the Shell bridge is attached")
+
+    async def _shell_only(self, sender: str, what: str) -> None:
+        if not await self._is_shell(sender):
+            raise ProtocolError("AccessDenied", f"only Mei in the top bar can {what}")
+
+    async def _resolve_approval(self, sender: str, data: str) -> dict:
+        args = decode_args(data, ResolveApprovalArgs)
+        await self._shell_only(sender, "approve actions")
+        return self._engine.resolve_approval(args, decided_by=sender)
+
+    async def _answer_input(self, sender: str, data: str) -> dict:
+        args = decode_args(data, AnswerInputArgs)
+        await self._shell_only(sender, "answer Mei's questions")
+        return self._engine.answer_input(args)
+
+    def _list_grants(self, _sender: str, _data: str) -> dict:
+        return self._engine.list_grants()
+
+    def _revoke_grant(self, _sender: str, data: str) -> dict:
+        return self._engine.revoke_grant(decode_args(data, RevokeGrantArgs))
 
     def _streams(self, scope: str) -> list[dict]:
         return [s.view() for s in self._engine.streams.values() if scope in ("all", s.conversation_id)]

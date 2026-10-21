@@ -64,7 +64,7 @@ class Envelope(msgspec.Struct, kw_only=True):
 class ProtocolError(Exception):
     """A request the runtime refuses. `name` becomes the D-Bus error suffix."""
 
-    def __init__(self, name: Literal["InvalidArgument", "NotFound", "Conflict", "Busy", "Unsupported"],
+    def __init__(self, name: Literal["InvalidArgument", "NotFound", "Conflict", "Busy", "Unsupported", "AccessDenied"],
                  message: str) -> None:
         super().__init__(message)
         self.name = name
@@ -82,6 +82,7 @@ class ClientInfo(msgspec.Struct):
 class HelloArgs(msgspec.Struct):
     client: ClientInfo
     protocol: tuple[int, int]
+    bridge: str = ""  # the Shell's ShellBridge object path on its own connection (§12.6)
 
 
 class AttachArgs(msgspec.Struct):

@@ -13,7 +13,7 @@ FIXTURES = sorted((Path(__file__).resolve().parents[2] / "protocol" / "fixtures"
 
 def test_fixtures_exist():
     assert {f.stem for f in FIXTURES} >= {"turn_completed", "turn_cancelled", "interrupted_then_resumed",
-                                          "reattach_mid_stream"}
+                                          "reattach_mid_stream", "agent_with_approval"}
 
 
 @pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)

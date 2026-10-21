@@ -7,17 +7,25 @@ import signal
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import aclosing
+from pathlib import Path
 
 import httpx
 from dbus_fast import BusType
 from dbus_fast.aio import MessageBus
 
 from mei import legacy
+from mei.capabilities.base import App, Env
+from mei.capabilities.catalog import default_registry
 from mei.core.engine import Engine
+from mei.desktop import apps as desktop_apps
+from mei.desktop.gsettings import GSETTINGS, GSettingsCli
+from mei.desktop.notify import BusNotifier
+from mei.desktop.pdf import PdfToText
+from mei.desktop.sound import WPCTL, Wpctl
 from mei.ipc import dbus_patch
 from mei.ipc.service import RUNTIME_VERSION, RuntimeService
 from mei.obs import redact
-from mei.paths import data_dir
+from mei.paths import data_dir, data_home, user_dirs
 from mei.protocol import ProviderConfig, provider_config
 from mei.providers import factory, models
 from mei.providers.base import ChatTurn, ModelRequest, Provider, ProviderError, TextDelta
@@ -125,6 +133,33 @@ def setup_probes(bus: MessageBus) -> Probes:
     return Probes(keyring=lambda: keyring_state(bus), has_key=has_key, unlock=lambda: unlock_keyring(bus))
 
 
+APPS_FRESH_S = 30.0
+
+
+def app_index() -> Callable[[], list[App]]:
+    """Installed apps, rescanned at most every 30 s (installing one shows up without a restart)."""
+    cache: tuple[float, list[App]] = (0.0, [])
+
+    def current() -> list[App]:
+        nonlocal cache
+        if time.monotonic() - cache[0] > APPS_FRESH_S:
+            cache = (time.monotonic(), desktop_apps.installed(desktop_apps.app_dirs()))
+        return cache[1]
+
+    return current
+
+
+def desktop_env(bus: MessageBus, bridge: Callable) -> Env:
+    """The world capabilities act on. Ports whose tools are missing stay None, and the capabilities
+    that need them are left out of what the model is offered."""
+    home = Path.home()
+    return Env(home=home, data_dir=data_dir(), data_home=data_home(), user_dirs=user_dirs(home),
+               gsettings=GSettingsCli() if os.access(GSETTINGS, os.X_OK) else None, bridge=bridge, apps=app_index(),
+               launcher=desktop_apps.Launcher(bridge), notifier=BusNotifier(bus),
+               extractor=PdfToText() if PdfToText.available() else None,
+               volume=Wpctl() if os.access(WPCTL, os.X_OK) else None)
+
+
 async def retention_loop(engine: Engine) -> None:
     while True:
         try:
@@ -159,12 +194,16 @@ async def serve() -> int:
             log.warning("importing earlier settings timed out; will retry next start")
     key_for = key_lookup(bus)
     async with httpx.AsyncClient(http2=False, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
-        engine = Engine(store, publisher=None, provider_factory=provider_factory(client, key_for))
+        holder: list[RuntimeService] = []  # the service owns the Shell bridge; the env asks it when needed
+        env = desktop_env(bus, lambda: holder[0].bridge if holder else None)
+        engine = Engine(store, publisher=None, provider_factory=provider_factory(client, key_for),
+                        registry=default_registry(), env=env)
         make_provider = provider_factory(client, key_for)
         setup = Setup(store, setup_probes(bus), data_dir(), RUNTIME_VERSION)
         service = RuntimeService(bus, engine, list_models=model_lister(store, client, key_for), setup=setup,
                                  test_provider=provider_tester(store, make_provider))
         engine.publisher = service  # the service needs the engine and the engine publishes through it
+        holder.append(service)
         engine.recover()
         await service.start()
         retention = asyncio.ensure_future(retention_loop(engine))

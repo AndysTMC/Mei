@@ -97,10 +97,26 @@ class BridgePort(Protocol):
     """The Shell extension's narrow bridge (§12.6); absent while no Shell is attached."""
 
     async def list_windows(self) -> list[Window]: ...
+    async def launch_app(self, app_id: str, uris: list[str]) -> None: ...
+
+
+@dataclass(frozen=True)
+class App:
+    id: str  # the desktop file id, "org.gnome.Nautilus"
+    name: str  # "Files"
+    generic: str = ""  # "File Manager"
+    comment: str = ""
+    keywords: tuple[str, ...] = ()
+    path: Path = field(default=Path())
 
 
 class Launcher(Protocol):
-    async def launch(self, desktop_file: Path, uris: list[str]) -> None: ...
+    async def launch(self, app: App, uris: list[str]) -> None: ...
+
+
+class Volume(Protocol):
+    async def get(self) -> tuple[int, bool]: ...  # (percent, muted)
+    async def set(self, percent: int, muted: bool) -> None: ...
 
 
 class Notifier(Protocol):
@@ -117,12 +133,13 @@ class Env:
     data_dir: Path  # Mei's own store: backups of overwritten files go under it
     data_home: Path | None = None  # $XDG_DATA_HOME; the trash lives there
     user_dirs: dict[str, Path] = field(default_factory=dict)  # "DOWNLOAD" → ~/Downloads (xdg-user-dirs)
-    app_dirs: list[Path] = field(default_factory=list)  # where .desktop files live, highest priority first
     gsettings: GSettingsPort | None = None
     bridge: Callable[[], BridgePort | None] = lambda: None
+    apps: Callable[[], list[App]] = lambda: []
     launcher: Launcher | None = None
     notifier: Notifier | None = None
     extractor: TextExtractor | None = None
+    volume: Volume | None = None
     clock: Callable[[], float] = time.time
 
     @cached_property
