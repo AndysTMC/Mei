@@ -162,3 +162,34 @@ test('listing models waits for a just-saved endpoint', async () => {
     assert.deepEqual(await settings.listModels('gemini'), { models: ['m'], requiresApiKey: false });
     assert.deepEqual(order, ['GetConfig', 'UpdateConfig', 'ListModels']);
 });
+
+test('the approval preset and cloud-file choice are fields like any other', async () => {
+    const rt = fakeRuntime(BASE);
+    const settings = new RuntimeSettings(rt.call);
+    await settings.reload();
+    assert.equal(settings.approvalPreset, 'balanced'); // the default when a runtime hasn't stored one
+    assert.equal(settings.cloudFiles, 'pointed');
+    const heard: string[] = [];
+    settings.connect('changed', (_s, key) => heard.push(key));
+    settings.setApprovalPreset('cautious');
+    settings.setCloudFiles('never');
+    settings.setCloudFiles('never');
+    await settings.flushed();
+    assert.deepEqual(heard, ['approvals', 'privacy']);
+    assert.deepEqual(rt.doc.approvals, { preset: 'cautious' });
+    assert.deepEqual(rt.doc.privacy, { conversation_retention_days: null, cloud_files: 'never' });
+});
+
+test('grants are listed and revoked through the runtime', async () => {
+    const calls: { method: string; args: Record<string, unknown> }[] = [];
+    const call = async <T>(method: string, args: object = {}): Promise<T> => {
+        calls.push({ method, args: args as Record<string, unknown> });
+        return (method === 'ListGrants' ? { grants: [{ id: 'g1' }] } : {}) as T;
+    };
+    const settings = new RuntimeSettings(call);
+    assert.equal((await settings.listGrants())[0].id, 'g1');
+    await settings.revokeGrant('g1');
+    assert.equal(calls[1].method, 'RevokeGrant');
+    assert.equal(calls[1].args.grant_id, 'g1');
+    assert.match(String(calls[1].args.command_id), /^[0-9a-f-]{36}$/);
+});

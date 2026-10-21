@@ -285,6 +285,13 @@ export interface PrivacyStep {
     id: 'privacy';
     state: 'done';
     conversation_retention_days: number | null;
+    cloud_files?: CloudFiles;
+}
+
+export interface ApprovalsStep {
+    id: 'approvals';
+    state: 'done';
+    preset: ApprovalPreset;
 }
 
 export interface SetupStatusReply {
@@ -292,7 +299,7 @@ export interface SetupStatusReply {
     completed: boolean;
     offered: boolean;
     skipped: string[];
-    steps: (ServiceStep | ModelsStep | PrivacyStep)[];
+    steps: (ServiceStep | ModelsStep | ApprovalsStep | PrivacyStep)[];
 }
 
 export interface TestProviderReply {

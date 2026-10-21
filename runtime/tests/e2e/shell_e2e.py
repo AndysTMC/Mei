@@ -164,7 +164,7 @@ async def main() -> int:
                 and st["controller"]["setupOffered"], {"offered": setup["offered"]})
         await asyncio.sleep(2.0)  # let the window finish drawing
         await h.hook("Screenshot", os.path.join(OUT, "setup-1-service.png"))
-        for name in ("2-models", "3-privacy", "4-shortcuts", "5-done"):
+        for name in ("2-models", "3-approvals", "4-privacy", "5-shortcuts", "6-done"):
             await h.click(*NEXT_BUTTON)
             await h.hook("Screenshot", os.path.join(OUT, f"setup-{name}.png"))
             if name == "2-models":  # "Choose…" opens the provider page on top of setup; Back returns

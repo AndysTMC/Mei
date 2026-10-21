@@ -20,8 +20,9 @@ from mei.providers.profiles import PROFILES
 from mei.store import repo
 from mei.store.db import Store
 
-SETUP_VERSION = 1  # bump when a new step should be shown to everyone who finished an older setup
-STEPS = ("service", "models", "privacy", "shortcuts")
+# Bump when a new step should be shown to everyone who finished an older setup.
+SETUP_VERSION = 2  # 2: Approvals, and the cloud-files choice under Privacy (Stage 3)
+STEPS = ("service", "models", "approvals", "privacy", "shortcuts")
 
 
 class SetupState(msgspec.Struct, kw_only=True):
@@ -90,9 +91,12 @@ class Setup:
         # Keeping everything until the user deletes it is the default (§14.4), so privacy is
         # always in a safe state; setup only offers the choice.
         privacy = {"id": "privacy", "state": "done",
-                   "conversation_retention_days": config.privacy.conversation_retention_days}
+                   "conversation_retention_days": config.privacy.conversation_retention_days,
+                   "cloud_files": config.privacy.cloud_files}
+        # Balanced is a safe default and the floor holds under every preset, so this is always "done" too.
+        approvals = {"id": "approvals", "state": "done", "preset": config.approvals.preset}
         return {"version": SETUP_VERSION, "completed": state.completed_version >= SETUP_VERSION,
-                "offered": state.offered, "skipped": state.skipped, "steps": [service, models, privacy]}
+                "offered": state.offered, "skipped": state.skipped, "steps": [service, models, approvals, privacy]}
 
     async def apply(self, step: str, choices: dict) -> dict:
         state = load_state(self.store)

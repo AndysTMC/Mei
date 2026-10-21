@@ -2,7 +2,7 @@
  * Mei's Settings window (GTK 4 / libadwaita), run by GNOME's extension preferences process.
  *
  * The main page holds the service status, setup, links to the provider and log pages, and the
- * privacy and shortcut settings. Settings live in the Mei runtime (ADR 0002), reached over D-Bus;
+ * approval, privacy, and shortcut settings. Settings live in the Mei runtime (ADR 0002), reached over D-Bus;
  * the keyboard shortcut is the one GSettings key, because keybindings must be GSettings keys.
  *
  * SPDX-License-Identifier: GPL-3.0-only
@@ -13,13 +13,15 @@ import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
+import { GrantsPage } from './prefs/grantsPage.js';
 import { LogsPage } from './prefs/logsPage.js';
 import { ProviderPage } from './prefs/providerPage.js';
-import { buildRetentionRow, buildShortcutRow } from './prefs/rows.js';
+import { buildApprovalRow, buildCloudFilesRow, buildRetentionRow, buildShortcutRow } from './prefs/rows.js';
 import { buildSetupAssistant, type Call } from './prefs/setupAssistant.js';
 import { RuntimeClient } from './runtime/client.js';
 import type { SetupStatusReply } from './runtime/protocol.js';
 import { RuntimeSettings } from './runtime/settings.js';
+import { APPROVAL_FLOOR } from './prefs/setupText.js';
 import { SourceSet } from './ui/sources.js';
 import { Logger, Tag } from './utils/logger.js';
 
@@ -42,7 +44,10 @@ export default class MeiPreferences extends ExtensionPreferences {
         const sources = new SourceSet();
         const providers = new ProviderPage(settings);
         const logs = new LogsPage(window, settings);
+        const grants = new GrantsPage(window, settings);
+        const preset = buildApprovalRow(settings);
         const retention = buildRetentionRow(window, settings);
+        const cloudFiles = buildCloudFilesRow(settings);
         const shortcut = buildShortcutRow(window, this.getSettings(), 'open-shortcut', 'Open Mei');
 
         const page = new Adw.PreferencesPage({ title: 'Mei', icon_name: 'preferences-system-symbolic' });
@@ -60,7 +65,15 @@ export default class MeiPreferences extends ExtensionPreferences {
         more.add(providerRow);
         more.add(logsRow);
         page.add(more);
-        page.add(group('Privacy', retention.row));
+        const approvals = new Adw.PreferencesGroup({ title: 'Approvals', description: APPROVAL_FLOOR });
+        const grantsRow = navRow('Always allowed', 'Things you told Mei it may always do', 'emblem-ok-symbolic');
+        approvals.add(preset.row);
+        approvals.add(grantsRow);
+        page.add(approvals);
+        const privacy = new Adw.PreferencesGroup({ title: 'Privacy' });
+        privacy.add(retention.row);
+        privacy.add(cloudFiles.row);
+        page.add(privacy);
         page.add(group('Shortcuts', shortcut.row));
         window.add(page);
 
@@ -75,6 +88,7 @@ export default class MeiPreferences extends ExtensionPreferences {
             void refresh();
         });
         logsRow.connect('activated', () => window.push_subpage(logs.page));
+        grantsRow.connect('activated', () => window.push_subpage(grants.page));
 
         const setup = buildSetupAssistant({
             window, call, settings, gsettings: this.getSettings(),
@@ -112,7 +126,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         window.connect('destroy', () => {
             sources.destroy();
             settings.disconnect(saveFailed);
-            for (const part of [providers, logs, setup, retention, shortcut]) part.destroy();
+            for (const part of [providers, logs, setup, preset, retention, cloudFiles, shortcut]) part.destroy();
         });
     }
 }

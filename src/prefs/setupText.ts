@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import type { ModelsStep, ServiceStep, TestProviderReply } from '../runtime/protocol.js';
+import type { ApprovalPreset, CloudFiles, ModelsStep, ServiceStep, TestProviderReply } from '../runtime/protocol.js';
 
 export interface StepInfo {
-    id: 'service' | 'models' | 'privacy' | 'shortcuts';
+    id: 'service' | 'models' | 'approvals' | 'privacy' | 'shortcuts';
     title: string;
     skippable: boolean;
 }
@@ -16,8 +16,31 @@ export interface StepInfo {
 export const SETUP_STEPS: StepInfo[] = [
     { id: 'service', title: 'Mei service', skippable: false },
     { id: 'models', title: 'Models', skippable: true },
+    { id: 'approvals', title: 'Approvals', skippable: true },
     { id: 'privacy', title: 'Privacy', skippable: true },
     { id: 'shortcuts', title: 'Shortcuts', skippable: true },
+];
+
+/** The approval presets (§13.2), in the order offered, with what each means in practice. */
+export const APPROVAL_PRESETS: { id: ApprovalPreset; label: string; description: string }[] = [
+    { id: 'cautious', label: 'Always',
+        description: 'Mei asks before it changes any file, setting, or app, even ones you named.' },
+    { id: 'balanced', label: 'Unless I named it',
+        description: 'Changes to the folders, files, apps, and settings you mention go ahead; anything else asks first.' },
+    { id: 'hands_off', label: 'Less often',
+        description: 'Changes inside your home folder go ahead too, unless a file or page suggested them.' },
+];
+
+/** Always true, whatever the preset: shown so nobody thinks a preset turns these off. */
+export const APPROVAL_FLOOR = 'Whatever you choose, Mei always asks before anything that can’t be undone, anything '
+    + 'involving passwords or keys, changes to whole top-level folders, and anything a file or web page suggested '
+    + 'sending off this computer. It never reads your SSH keys, keyrings, or browser profiles.';
+
+export const CLOUD_FILES: { id: CloudFiles; label: string; description: string }[] = [
+    { id: 'pointed', label: 'Files I point to',
+        description: 'Contents of files in folders you named go to cloud models; others stay on this computer.' },
+    { id: 'always', label: 'Any file', description: 'Everything Mei reads can go to your cloud model.' },
+    { id: 'never', label: 'Never', description: 'File contents only go to models running on this computer.' },
 ];
 
 const RETENTION_PRESETS: (number | null)[] = [null, 7, 30, 90, 365];

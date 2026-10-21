@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    APPROVAL_FLOOR,
+    APPROVAL_PRESETS,
+    CLOUD_FILES,
     doneText,
     formatBytes,
     homeRelative,
@@ -16,7 +19,7 @@ import {
 import type { ModelsStep, ServiceStep } from '../src/runtime/protocol.js';
 
 test('setup steps: the service step comes first and is the only one that cannot be skipped', () => {
-    assert.deepEqual(SETUP_STEPS.map(s => s.id), ['service', 'models', 'privacy', 'shortcuts']);
+    assert.deepEqual(SETUP_STEPS.map(s => s.id), ['service', 'models', 'approvals', 'privacy', 'shortcuts']);
     assert.deepEqual(SETUP_STEPS.filter(s => !s.skippable).map(s => s.id), ['service']);
 });
 
@@ -66,4 +69,14 @@ test('test results and the summary', () => {
         'Open Mei from the top bar or with Super+Alt+M. You can change any of this later in Settings.');
     assert.equal(doneText(['shortcuts', 'models'], ''),
         'Open Mei from the top bar. You skipped Models and Shortcuts; set them up any time in Settings.');
+});
+
+test('approval presets and cloud-file choices: every option explained, labels short enough for a combo row', () => {
+    assert.deepEqual(APPROVAL_PRESETS.map(p => p.id), ['cautious', 'balanced', 'hands_off']);
+    assert.deepEqual(CLOUD_FILES.map(c => c.id), ['pointed', 'always', 'never']);
+    for (const option of [...APPROVAL_PRESETS, ...CLOUD_FILES]) {
+        assert.ok(option.label.length <= 17, option.label);
+        assert.ok(option.description.endsWith('.'), option.description);
+    }
+    assert.match(APPROVAL_FLOOR, /always asks/);
 });

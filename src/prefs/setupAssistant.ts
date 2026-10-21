@@ -1,6 +1,6 @@
 /**
  * The setup assistant (§18.3): a page in the preferences window that walks the steps that exist
- * so far, Mei service, Models, Privacy, Shortcuts, then a summary. It can be run again from
+ * so far, Mei service, Models, Approvals, Privacy, Shortcuts, then a summary. It can be run again from
  * Settings. Each step shows what is already done and uses the same controls as Settings, so
  * re-running it without changes changes nothing.
  *
@@ -15,8 +15,8 @@ import Gtk from 'gi://Gtk';
 import type { CallOptions } from '../runtime/client.js';
 import type { ModelsStep, ServiceStep, SetupStatusReply, TestProviderReply } from '../runtime/protocol.js';
 import type { RuntimeSettings } from '../runtime/settings.js';
-import { buildRetentionRow, buildShortcutRow, type Row } from './rows.js';
-import { doneText, keyringText, modelsText, SETUP_STEPS, storageText, testText } from './setupText.js';
+import { buildApprovalRow, buildCloudFilesRow, buildRetentionRow, buildShortcutRow, type Row } from './rows.js';
+import { APPROVAL_FLOOR, doneText, keyringText, modelsText, SETUP_STEPS, storageText, testText } from './setupText.js';
 
 export type Call = <T>(method: string, args?: object, opts?: CallOptions) => Promise<T>;
 
@@ -120,14 +120,24 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
             });
     });
 
-    /* ── 3. Privacy ── */
-    const privacy = step('privacy', 'Privacy',
-        'Mei keeps everything until you delete it. You can have conversations you no longer use deleted automatically.');
-    const retention = buildRetentionRow(window, settings);
-    rows.push(retention);
-    privacy.add(retention.row);
+    /* ── 3. Approvals ── */
+    const approvals = step('approvals', 'Approvals',
+        'Mei can work with your files, apps, and settings. Choose when it asks you first. ' + APPROVAL_FLOOR);
+    const preset = buildApprovalRow(settings);
+    rows.push(preset);
+    approvals.add(preset.row);
 
-    /* ── 4. Shortcuts ── */
+    /* ── 4. Privacy ── */
+    const privacy = step('privacy', 'Privacy',
+        'Mei keeps everything until you delete it. You can have conversations you no longer use deleted automatically, '
+        + 'and choose which file contents may go to a cloud model.');
+    const retention = buildRetentionRow(window, settings);
+    const cloudFiles = buildCloudFilesRow(settings);
+    rows.push(retention, cloudFiles);
+    privacy.add(retention.row);
+    privacy.add(cloudFiles.row);
+
+    /* ── 5. Shortcuts ── */
     const shortcuts = step('shortcuts', 'Shortcuts', 'Open Mei from anywhere, with the message box ready for typing.');
     const shortcut = buildShortcutRow(window, gsettings, 'open-shortcut', 'Open Mei');
     rows.push(shortcut);

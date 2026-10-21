@@ -15,11 +15,11 @@
 import { getProviderProfile, resolveProviderId } from '../providers/profiles.js';
 import type { ProviderId } from '../providers/types.js';
 import { Logger, Tag } from '../utils/logger.js';
-import type { ConfigDoc, ConfigReply, LogEntry, ModelsReply, ProviderSettings } from './protocol.js';
+import type { ApprovalPreset, CloudFiles, ConfigDoc, ConfigReply, GrantView, LogEntry, ModelsReply, ProviderSettings } from './protocol.js';
 
 export type Call = <T>(method: string, args?: object) => Promise<T>;
 /** What changed, for `changed` and `changed::<key>`. */
-export type SettingsKey = 'active' | 'providers' | 'privacy';
+export type SettingsKey = 'active' | 'providers' | 'privacy' | 'approvals';
 /** `detail` is the changed key for `changed`/`changed::<key>`, the error message for `save-failed`. */
 type Listener = (settings: RuntimeSettings, detail: string) => void;
 type Mutation = (doc: ConfigDoc) => void;
@@ -32,7 +32,7 @@ export interface ModelListResult {
     requiresApiKey: boolean;
 }
 
-const KEYS: SettingsKey[] = ['active', 'providers', 'privacy'];
+const KEYS: SettingsKey[] = ['active', 'providers', 'privacy', 'approvals'];
 const MAX_CONFLICT_RETRIES = 3;
 
 export class RuntimeSettings {
@@ -96,6 +96,16 @@ export class RuntimeSettings {
         return this._doc.privacy.conversation_retention_days;
     }
 
+    /** Which file contents may go to a cloud model (§13.5). */
+    get cloudFiles(): CloudFiles {
+        return this._doc.privacy.cloud_files ?? 'pointed';
+    }
+
+    /** Which actions go ahead without asking (§13.2); the safety floor holds under every preset. */
+    get approvalPreset(): ApprovalPreset {
+        return this._doc.approvals?.preset ?? 'balanced';
+    }
+
     // ── Writing ──────────────────────────────────────────────────────────────
 
     /** Choose the provider for new conversations. Refuses unknown and retired providers. */
@@ -125,7 +135,30 @@ export class RuntimeSettings {
         }, 'privacy');
     }
 
+    setCloudFiles(value: CloudFiles): void {
+        if (!this._writable() || value === this.cloudFiles) return;
+        this._mutate(doc => {
+            doc.privacy = { ...doc.privacy, cloud_files: value };
+        }, 'privacy');
+    }
+
+    setApprovalPreset(preset: ApprovalPreset): void {
+        if (!this._writable() || preset === this.approvalPreset) return;
+        this._mutate(doc => {
+            doc.approvals = { ...doc.approvals, preset };
+        }, 'approvals');
+    }
+
     // ── Runtime calls that belong with settings ──────────────────────────────
+
+    /** Things the person told Mei it may always do (persistent grants, §13.3). */
+    async listGrants(): Promise<GrantView[]> {
+        return (await this._call<{ grants: GrantView[] }>('ListGrants')).grants;
+    }
+
+    async revokeGrant(id: string): Promise<void> {
+        await this._call('RevokeGrant', { command_id: uuid(), grant_id: id });
+    }
 
     async listModels(provider: ProviderId, url = ''): Promise<ModelListResult> {
         // The runtime only sends a stored key to the endpoint saved in settings, so save first.
@@ -145,7 +178,7 @@ export class RuntimeSettings {
 
     // ── Signals ──────────────────────────────────────────────────────────────
 
-    /** `changed`, `changed::active|providers|privacy`, or `save-failed`. */
+    /** `changed`, `changed::active|providers|privacy|approvals`, or `save-failed`. */
     connect(signal: string, fn: Listener): number {
         const id = this._nextId++;
         this._listeners.set(id, { signal, fn });
@@ -226,7 +259,7 @@ export class RuntimeSettings {
 
     private _snapshot(key: SettingsKey): string {
         if (key === 'active') return this._doc.active;
-        return JSON.stringify(key === 'providers' ? this._doc.providers : this._doc.privacy);
+        return JSON.stringify(this._doc[key]);
     }
 
     private _emit(key: SettingsKey): void {
@@ -256,5 +289,12 @@ function normalize(doc: Partial<ConfigDoc> | undefined): ConfigDoc {
         active: doc?.active ?? '',
         providers: { ...(doc?.providers ?? {}) },
         privacy: { ...doc?.privacy, conversation_retention_days: doc?.privacy?.conversation_retention_days ?? null },
+        approvals: { ...doc?.approvals, preset: doc?.approvals?.preset ?? 'balanced' },
     };
+}
+
+/** A command id; the runtime only needs it unique (crypto.randomUUID isn't in GJS). */
+function uuid(): string {
+    const hex = (n: number) => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    return `${hex(8)}-${hex(4)}-4${hex(3)}-${hex(4)}-${hex(12)}`;
 }

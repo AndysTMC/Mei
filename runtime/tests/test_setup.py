@@ -50,11 +50,13 @@ async def test_a_fresh_runtime_reports_setup_not_done(store, tmp_path):
     status = await Setup(store, FakeKeyring().probes(), tmp_path, "9.9").status()
     assert status["version"] == SETUP_VERSION and not status["completed"] and not status["offered"]
     s = steps(status)
-    assert list(s) == ["service", "models", "privacy"]
+    assert list(s) == ["service", "models", "approvals", "privacy"]
     assert s["service"]["state"] == "done" and s["service"]["runtime_version"] == "9.9"
     assert s["service"]["data_dir"] == str(tmp_path) and s["service"]["data_bytes"] > 0
     assert s["models"]["state"] == "todo" and s["models"]["provider"] == ""
-    assert s["privacy"] == {"id": "privacy", "state": "done", "conversation_retention_days": None}
+    assert s["privacy"] == {"id": "privacy", "state": "done", "conversation_retention_days": None,
+                            "cloud_files": "pointed"}
+    assert s["approvals"] == {"id": "approvals", "state": "done", "preset": "balanced"}
 
 
 async def test_a_locked_keyring_needs_attention_and_can_be_unlocked(store, tmp_path):

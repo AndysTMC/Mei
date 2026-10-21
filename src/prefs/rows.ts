@@ -11,7 +11,7 @@ import Gio from 'gi://Gio';
 import Gtk from 'gi://Gtk';
 
 import type { RuntimeSettings } from '../runtime/settings.js';
-import { periodText, retentionLabel, retentionOptions, retentionShrinks } from './setupText.js';
+import { APPROVAL_PRESETS, CLOUD_FILES, periodText, retentionLabel, retentionOptions, retentionShrinks } from './setupText.js';
 
 export interface Row<T extends Gtk.Widget = Gtk.Widget> {
     row: T;
@@ -67,6 +67,43 @@ export function buildRetentionRow(window: Gtk.Window, settings: RuntimeSettings)
     const signal = settings.connect('changed::privacy', render);
     render();
     return { row, destroy: () => settings.disconnect(signal) };
+}
+
+/** One choice out of a few, shown with the chosen option's description as the subtitle. Re-renders
+ * whenever `signal` fires on `settings`. */
+function choiceRow<T extends string>(settings: RuntimeSettings, signal: string, title: string,
+    options: { id: T; label: string; description: string }[], current: () => T,
+    choose: (id: T) => void): Row<Adw.ComboRow> {
+    const row = new Adw.ComboRow({ title, model: Gtk.StringList.new(options.map(o => o.label)) });
+    let updating = false;
+    const render = () => {
+        updating = true;
+        const index = Math.max(0, options.findIndex(o => o.id === current()));
+        row.set_selected(index);
+        row.set_subtitle(options[index].description);
+        updating = false;
+    };
+    row.connect('notify::selected', () => {
+        const option = options[row.get_selected()];
+        if (updating || !option) return;
+        row.set_subtitle(option.description);
+        choose(option.id);
+    });
+    const id = settings.connect(signal, render);
+    render();
+    return { row, destroy: () => settings.disconnect(id) };
+}
+
+/** Which actions Mei takes without asking (§13.2). */
+export function buildApprovalRow(settings: RuntimeSettings): Row<Adw.ComboRow> {
+    return choiceRow(settings, 'changed::approvals', 'When Mei asks first', APPROVAL_PRESETS,
+        () => settings.approvalPreset, id => settings.setApprovalPreset(id));
+}
+
+/** Which file contents may go to cloud models (§13.5). Local models are never limited by this. */
+export function buildCloudFilesRow(settings: RuntimeSettings): Row<Adw.ComboRow> {
+    return choiceRow(settings, 'changed::privacy', 'File contents sent to cloud models', CLOUD_FILES,
+        () => settings.cloudFiles, id => settings.setCloudFiles(id));
 }
 
 /** A global shortcut stored in the extension's GSettings (keybindings have to live there). */
