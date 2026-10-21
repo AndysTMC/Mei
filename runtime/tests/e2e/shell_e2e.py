@@ -393,6 +393,24 @@ async def main() -> int:
         clicked = await h.press("Undo")
         st = await h.until(lambda s: "memory" not in s["controller"]["timeline"], 10, "Undo to forget it")
         h.check("memory_undone_from_the_popup", clicked and (await h.runtime("Memories", {}))["memories"] == [])
+
+        # 11. The Shell itself restarts mid-task (as after a crash): the task keeps running in the runtime,
+        #     and the new Shell's extension notifies when it finishes.
+        slow = "Still working through a Shell restart, one slow piece at a time. " * 4  # 34 chunks, one a second
+        await h.use_fake([{"text": slow}], delay_ms=1000)
+        await h.hook("Popup", "new")
+        await h.hook("Send", "keep going while the Shell restarts")
+        conv = (await h.until(lambda s: s["controller"]["current"], 10, "the task to start"))["controller"]["current"]
+        h.stop_shell()
+        h.start_shell()
+        await h.until(lambda s: s["controller"]["status"] == "connected" and s["controller"]["busy"], 60,
+                      "the restarted Shell to see the task still working")
+        st = await h.until(lambda s: (s["controller"]["notice"] or {}).get("conversationId") == conv, 90,
+                           "the notice after the Shell restart")
+        task = (await h.runtime("GetConversation", {"conversation_id": conv}))["tasks"][-1]
+        h.check("task_survives_a_shell_restart_and_notifies", task["state"] == "COMPLETED"
+                and st["controller"]["notice"]["title"] == "Mei finished"
+                and any(n["title"] == "Mei finished" for n in st["notifications"]), st["controller"]["notice"])
     except AssertionError as e:
         h.results["error"] = str(e)
     finally:

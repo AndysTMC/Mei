@@ -12,6 +12,7 @@ from mei.desktop.apps import Launcher
 from mei.desktop.gsettings import GSETTINGS, GSettingsCli
 from mei.desktop.pdf import PdfToText
 from mei.desktop.sandbox import Sandbox
+from mei.store.db import Store
 
 from .pdf import write_pdf
 
@@ -68,6 +69,7 @@ class World:
             folder.mkdir(parents=True)
         self.shell = FakeShell()
         self.volume = FakeVolume()
+        self.store: Store | None = None  # the runtime's store, once a run starts (checks read memories from it)
         self.notifier = FakeNotifier()
         self.gsettings = GSettingsCli(env={"GSETTINGS_BACKEND": "keyfile", "XDG_CONFIG_HOME": str(root / "config")}) \
             if os.access(GSETTINGS, os.X_OK) else None

@@ -30,7 +30,7 @@ from mei.providers.fake import FakeProvider
 from mei.store import agent, repo
 
 from .driver import Driver
-from .tasks import TASKS, Task
+from .tasks import ALL_TASKS, Task
 from .world import World
 
 S = TaskState
@@ -72,37 +72,30 @@ class Result:
     error: str = ""
 
 
+@dataclass
+class Tally:
+    prompts: int = 0
+    denied: int = 0
+    questions: int = 0
+
+
 async def run_task(task: Task, root: Path, provider: ProviderConfig, make) -> Result:
     world = World(root)
     await task.setup(world)
     if task.kind == "file" and world.env.extractor is None and "pdf" in task.prompt.lower():
         return Result(task.name, task.kind, False, "pdftotext isn't installed", "SKIPPED", None, 0, 0, 0, 0, 0.0)
+    if task.kind == "shell" and not (world.env.runner and world.env.runner.available(sandboxed=True)):
+        return Result(task.name, task.kind, False, "bubblewrap isn't installed", "SKIPPED", None, 0, 0, 0, 0, 0.0)
     driver = Driver(root / "mei", world.env, make, provider)
+    world.store = driver.store
     started = time.monotonic()
-    prompts = denied = questions = 0
-    submitted = driver.submit(task.prompt)
+    tally = Tally()
+    for earlier in task.before:  # each in a conversation of its own, as on another day
+        await _drive(driver, driver.submit(earlier)["task_id"], tally)
+    submitted = driver.submit(task.prompt, attachment=task.attachment)
     task_id = submitted["task_id"]
-    state = ""
-    try:
-        for _round in range(MAX_ROUNDS):
-            state = await driver.until(task_id, timeout=TASK_TIMEOUT_S)
-            if state == S.WAITING_APPROVAL:
-                card = agent.approval_view(driver.approval(task_id))["card"]
-                prompts += 1
-                careful_no = any(r.get("provenance") == "untrusted" for r in card.get("resources", []))
-                denied += careful_no
-                scope = "task" if "task" in card.get("scopes", []) else "once"  # one card per kind of change
-                driver.approve(task_id, decision="deny" if careful_no else "allow", scope=scope)
-            elif state == S.WAITING_INPUT:
-                questions += 1
-                spec = agent.input_view(agent.pending_input(driver.store, task_id))["spec"]
-                driver.answer(task_id, spec["choices"][0] if spec["choices"] else
-                              {f["name"]: (f.get("options") or ["yes"])[0] for f in spec["fields"]} if spec["fields"]
-                              else "Yes, go ahead.")
-            else:
-                break
-    except TimeoutError:
-        state = "TIMEOUT"
+    state = await _drive(driver, task_id, tally)
+    prompts, denied, questions = tally.prompts, tally.denied, tally.questions
     final = driver.task(task_id)
     reply = _last_reply(driver, submitted["conversation_id"])
     passed, detail = await task.check(world, reply)
@@ -114,6 +107,33 @@ async def run_task(task: Task, root: Path, provider: ProviderConfig, make) -> Re
     driver.store.close()
     return Result(task.name, task.kind, passed, detail, str(state), outcome, prompts, denied, questions, calls,
                   round(time.monotonic() - started, 1), error)
+
+
+async def _drive(driver: Driver, task_id: str, tally: Tally) -> str:
+    """Run a task to its end as a careful person would: allow cards, except for anything a file or page
+    suggested; answer questions with the first choice."""
+    state = ""
+    try:
+        for _round in range(MAX_ROUNDS):
+            state = await driver.until(task_id, timeout=TASK_TIMEOUT_S)
+            if state == S.WAITING_APPROVAL:
+                card = agent.approval_view(driver.approval(task_id))["card"]
+                tally.prompts += 1
+                careful_no = any(r.get("provenance") == "untrusted" for r in card.get("resources", []))
+                tally.denied += careful_no
+                scope = "task" if "task" in card.get("scopes", []) else "once"  # one card per kind of change
+                driver.approve(task_id, decision="deny" if careful_no else "allow", scope=scope)
+            elif state == S.WAITING_INPUT:
+                tally.questions += 1
+                spec = agent.input_view(agent.pending_input(driver.store, task_id))["spec"]
+                driver.answer(task_id, spec["choices"][0] if spec["choices"] else
+                              {f["name"]: (f.get("options") or ["yes"])[0] for f in spec["fields"]} if spec["fields"]
+                              else "Yes, go ahead.")
+            else:
+                break
+    except TimeoutError:
+        state = "TIMEOUT"
+    return str(state)
 
 
 def _unavailable(error: str) -> bool:
@@ -151,7 +171,8 @@ async def run_all(tasks: list[Task], provider: ProviderConfig, make, repeat: int
             if pause and (n or results):
                 await asyncio.sleep(pause)  # free tiers limit tokens per minute
             with tempfile.TemporaryDirectory(prefix=f"mei-eval-{task.name}-") as tmp:
-                options = {**provider.options, "script": task.script} if provider.id == "fake" else provider.options
+                scripted = {"scripts": task.script} if isinstance(task.script, dict) else {"script": task.script}
+                options = {**provider.options, **scripted} if provider.id == "fake" else provider.options
                 results.append(await run_task(task, Path(tmp), ProviderConfig(
                     id=provider.id, model=provider.model, url=provider.url, options=options), make))
     return results
@@ -174,7 +195,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
 
 async def main(argv: list[str]) -> int:
     args = _parse(argv)
-    tasks = [t for t in TASKS if not args.tasks or t.name in args.tasks.split(",")]
+    tasks = [t for t in ALL_TASKS if not args.tasks or t.name in args.tasks.split(",")]
     if args.provider == "fake":
         results = await run_all(tasks, ProviderConfig(id="fake", options={"delay_ms": 0, "chunk_chars": 200}),
                                 _scripted, args.repeat)
