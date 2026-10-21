@@ -361,3 +361,26 @@ async def test_dark_mode_slice_is_verified_without_a_prompt(tmp_path):
     assert "approval.requested" not in h.rec.types()
     assert await gs.get("org.gnome.desktop.interface", "color-scheme") == "'prefer-dark'"
     assert bridge.launched == [("org.gnome.Nautilus", [f"file://{env.home}/Downloads"])]
+
+
+async def test_a_message_sent_while_mei_checks_is_read_before_finishing(tmp_path, monkeypatch):
+    from mei.core import finish as finish_mod
+    h = Harness(tmp_path, script=[
+        turn(call("fs_write_text", path="~/Documents/a.txt", text="hi")),
+        turn(call("task_finish", summary="Wrote a.txt.")),
+        {"text": "Done, and noted."}])
+    real = finish_mod.run_checks
+    sent = {}
+
+    async def slow_checks(plan, env):  # the person writes while Mei is checking
+        if not sent:
+            sent["steer"] = h.submit("also, it's for Monday", conversation_id=sent_conv["id"])
+        return await real(plan, env)
+    monkeypatch.setattr(finish_mod, "run_checks", slow_checks)
+    r = h.submit("write a.txt in my Documents")
+    sent_conv = {"id": r["conversation_id"]}
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    assert sent["steer"]["steer"]
+    turns = h.requests()[-1]["turns"]
+    assert {"role": "user", "content": "also, it's for Monday"} in turns
+    assert any(t["role"] == "tool" and "Not finished yet" in t["content"] for t in turns)

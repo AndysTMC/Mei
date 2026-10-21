@@ -30,6 +30,7 @@ _REASONS = {
     "untrusted_disclosure": "this would send something a file or page suggested off this computer",
     "disclosure": "this sends data off this computer",
     "protected_folder": "this changes a whole top-level folder",
+    "runs_code": "a file written here runs later (at login or in a terminal)",
     "needs_approval": "this changes something you didn't name",
 }
 

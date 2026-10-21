@@ -93,6 +93,8 @@ def test_floor_holds_under_every_preset(preset):
     for f in (facts(subject("~/proj/.env", access="read"), effects=READ_ONLY),
               facts(subject("~/Downloads/a", provenance="user"), effects=Effects(mutates="local", loses_data=True)),
               facts(subject("~/Documents", provenance="user"), capability="fs.trash"),
+              facts(subject("~/.config/autostart/x.desktop", provenance="user"), capability="fs.write_text"),
+              facts(subject("~/.bashrc", provenance="model"), capability="fs.edit"),
               facts(subject("~/Downloads/a", provenance="model"), effects=Effects(mutates="no", disclosure="off_machine"),
                     tainted=True),
               facts(subject("~/Downloads/a", provenance="untrusted"), effects=Effects(mutates="no", disclosure="off_machine"))):
@@ -161,3 +163,13 @@ def test_grants_cover_the_same_folders_only():
     the_folder = facts(subject("~/Downloads/x"), subject("~/Documents/Invoices/2026"))
     other_kind = facts(subject("~/Downloads/b.pdf"), capability="fs.trash")
     assert not any(covers(grant, f) for f in (elsewhere, deeper, other_kind)) and not covers(grant, the_folder)
+
+
+def test_reading_start_up_files_is_fine_writing_them_asks():
+    assert RULES.runs_code(ENV.path("~/.local/share/applications/evil.desktop"))
+    assert not RULES.runs_code(ENV.path("~/Documents/.bashrc-notes"))
+    read = facts(subject("~/.bashrc", access="read", provenance="model"), effects=READ_ONLY, capability="fs.read_text")
+    assert decide(read, "cautious").decision == "allow"
+    write = facts(subject("~/.config/autostart/x.desktop", provenance="user"), capability="fs.write_text")
+    grant = Grant("g", "fs.write_text", rules_for(write.subjects), task_id=None)
+    assert decide(write, "hands_off", [grant]).reason == "runs_code"

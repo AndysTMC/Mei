@@ -104,8 +104,11 @@ def evaluate(facts: Facts, preset: Preset, grants: list[Grant], rules: PathRules
         if untrusted:
             return _ask("untrusted_disclosure", preset, floor=True)
         return _granted(grant) or _ask("disclosure", preset, scopes=("once", "task"))
-    if any(s.access == "write" and rules.protected(Path(s.value)) for s in facts.subjects if s.kind == "path"):
+    writes = [Path(s.value) for s in facts.subjects if s.kind == "path" and s.access == "write"]
+    if any(rules.protected(p) for p in writes):
         return _ask("protected_folder", preset, floor=True)
+    if any(rules.runs_code(p) for p in writes):
+        return _ask("runs_code", preset, floor=True)
     if grant is not None:
         return _granted(grant)
     if e.mutates == "local":

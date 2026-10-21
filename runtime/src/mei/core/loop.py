@@ -294,8 +294,13 @@ class TaskLoop:
         task = repo.get_task(store, task["id"])
         checked = await finish.run_checks(json.loads(task["plan"]), self.d.env)
         failed = [c for c in checked if c.result is not None and c.result.status == "failed"]
+        seen = store.read_one("SELECT seen_ordinal FROM batches WHERE id = ?", (action["batch_id"],))["seen_ordinal"]
         with store.tx() as tx:
-            if failed and task["finish_attempts"] == 0 and not params.blocked:
+            if ledger.steer_pending(tx, task["id"], seen):  # they wrote while Mei checked: read it first
+                ledger.finish_action(tx, taskd, action, E.SUCCEEDED, finish.STEERED, is_error=False,
+                                     result={"ok": True, "summary": "Paused finishing to read your message"})
+                repo.set_task_state(tx, task["id"], S.RUNNING)
+            elif failed and task["finish_attempts"] == 0 and not params.blocked:
                 ledger.finish_action(tx, taskd, action, E.SUCCEEDED, finish.failures_text(failed), is_error=False,
                                      result={"ok": True, "summary": "Checked the result: something isn't right yet"})
                 tx.execute("UPDATE tasks SET finish_attempts = finish_attempts + 1 WHERE id = ?", (task["id"],))

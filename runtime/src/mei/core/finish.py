@@ -23,6 +23,7 @@ from .ledger import finish_action, skip_rest
 
 E = Execution
 S = TaskState
+STEERED = "Not finished yet: the person sent a new message while Mei checked. Read it, then finish."
 NUDGE = ("You changed things in this task but didn't call task_finish. Call it now: summarize, report each "
          "criterion by index, and list open issues.")
 
