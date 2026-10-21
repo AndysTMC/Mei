@@ -380,7 +380,7 @@ async def test_loosening_approvals_or_cloud_sharing_is_announced(tmp_path):
     await asyncio.sleep(0.01)
     assert len(notes.shown) == 1
     title, body = notes.shown[0]
-    assert title == "Mei now asks less" and "without asking" in body and "cloud models" in body
+    assert title == "Mei's settings changed" and "without asking" in body and "cloud models" in body
 
 
 def test_only_a_real_no_tools_answer_drops_the_tools():
@@ -392,3 +392,25 @@ def test_only_a_real_no_tools_answer_drops_the_tools():
           "Groq: HTTP 400: Tool call validation failed"]
     assert all(_refuses_tools(ProviderError(m, status=400)) for m in yes)
     assert not any(_refuses_tools(ProviderError(m, status=400)) for m in no)
+
+
+async def test_letting_programs_in_and_moving_an_endpoint_are_announced(tmp_path):
+    from mei.capabilities.base import Env
+    from mei.protocol import Clients
+
+    class Notes:
+        shown: list = []
+
+        async def notify(self, title, body):
+            self.shown.append(body)
+            return 1
+
+    eng = Engine(Store(tmp_path / "db"), Recorder(), fake_factory,
+                 env=Env(home=tmp_path, data_dir=tmp_path / "db", notifier=Notes()))
+    revision, config = repo.get_config(eng.store)
+    eng.update_config(UpdateConfigArgs(revision, msgspec.structs.replace(
+        config, clients=Clients(external_input=True),
+        providers={"custom": ProviderSettings(url="https://llm.example.net/v1/chat/completions")})))
+    await asyncio.sleep(0.01)
+    [body] = Notes.shown
+    assert "other programs may now give it requests" in body and "custom conversations now go to llm.example.net" in body

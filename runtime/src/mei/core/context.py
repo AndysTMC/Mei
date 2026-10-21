@@ -7,10 +7,12 @@ as data. File contents a cloud model may not see, by the person's Privacy settin
 """
 
 import datetime
+import ipaddress
 import json
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from mei.capabilities.base import Env
 from mei.capabilities.registry import Registry
@@ -26,18 +28,35 @@ MAX_OBSERVATION_CHARS = 50_000
 MAX_PRIOR_ACTIONS_NOTED = 12
 WITHHELD = ("[Withheld: the person's Privacy settings don't send this file's contents to cloud models. "
             "Tell them what you couldn't read; they can change it in Mei's Settings → Privacy.]")
-_LOCAL_HOSTS = ("http://127.0.0.1", "http://localhost", "http://[::1]", "https://127.0.0.1", "https://localhost")
 
 
 def is_cloud(cfg: ProviderConfig) -> bool:
-    """Does this provider take data off the machine? Custom endpoints count unless they're local."""
+    """Does this provider take data off the machine? Local and custom endpoints count as local only
+    when their URL really points at this machine."""
     if cfg.id == "fake":
         return bool(cfg.options.get("cloud"))
     profile = PROFILES.get(cfg.id)
     if profile is None or profile.type == "cloud":
         return True
-    url = cfg.url.strip() or profile.chat_url
-    return not url.startswith(_LOCAL_HOSTS)
+    return not is_loopback_url(cfg.url.strip() or profile.chat_url)
+
+
+def is_loopback_url(url: str) -> bool:
+    """http(s) to localhost or a loopback address, with no user part. Anything unclear is remote:
+    `https://localhost.example.com` and `https://localhost@example.com` both go elsewhere."""
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https") or "@" in parts.netloc:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -150,7 +169,7 @@ def _may_send(inputs: Inputs, action, result: dict) -> bool:
         return True
     if choice == "never":
         return False
-    if action["approval_id"]:
-        return True  # the person approved this read on a card that said where its contents go
+    if action["approval_id"] or (json.loads(action["effects"] or "{}")).get("disclosure") == "off_machine":
+        return True  # the person allowed this read on a card (or by a grant) that said where its contents go
     anchored = {Path(r["value"]) for r in json.loads(action["resources"]) if r.get("provenance") == "user"}
     return all(Path(s) in anchored or any(a in Path(s).parents for a in anchored) for s in result.get("sources", []))

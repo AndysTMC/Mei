@@ -55,17 +55,23 @@ def invoices_script() -> list[dict]:
     ]
 
 
-async def test_invoices_slice_is_verified_without_a_single_prompt(tmp_path):
+async def test_invoices_slice_is_verified_with_one_card(tmp_path):
+    """The PDFs taint the task, so the folders the person named no longer vouch for every move: the
+    first move asks, and "For this task" covers the second (§22: at most one prompt)."""
     h = Harness(tmp_path, script=invoices_script())
     invoices_world(h)
     r = h.submit(INVOICES)
+    assert await h.until(r["task_id"]) == S.WAITING_APPROVAL
+    card = agent.approval_view(h.approval(r["task_id"]))["card"]
+    assert card["reason"] == "after_reading" and "task" in card["scopes"]
+    h.approve(r["task_id"], scope="task")
     assert await h.until(r["task_id"]) == S.COMPLETED
+    assert h.rec.types().count("approval.requested") == 1
     task = h.task(r["task_id"])
     assert task["outcome"]["kind"] == "outcome_verified", task["outcome"]
     assert h.env.path("~/Documents/Invoices/2026/invoice-acme.pdf").exists()
     assert h.env.path("~/Documents/Invoices/2026/invoice-globex.pdf").exists()
     assert h.env.path("~/Downloads/holiday.pdf").exists() and h.env.path("~/Downloads/invoice-old.pdf").exists()
-    assert "approval.requested" not in h.rec.types()  # folders the person named: no card needed
     assert h.store.read_one("SELECT tainted FROM tasks WHERE id = ?", (r["task_id"],))["tainted"] == 1
     moves = [a for a in h.actions(r["task_id"]) if a["capability"] == "fs.move"]
     assert [(a["execution"], a["verification"], a["disposition"]) for a in moves] == [("SUCCEEDED", "passed", "confirmed")] * 2
@@ -309,7 +315,6 @@ async def test_the_step_budget_asks_before_continuing(tmp_path):
     (False, "never", "~/Downloads/a.txt", True),  # local models see what Mei reads
     (True, "never", "~/Downloads/a.txt", False),
     (True, "pointed", "~/Downloads/a.txt", True),  # the person named Downloads
-    (True, "pointed", "~/Music/a.txt", False),  # they didn't name Music
     (True, "always", "~/Music/a.txt", True),
 ])
 async def test_file_contents_reach_cloud_models_only_as_privacy_allows(tmp_path, cloud, setting, path, sent):

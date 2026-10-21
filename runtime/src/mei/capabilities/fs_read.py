@@ -149,6 +149,9 @@ class FsSearch(Capability):
     def resources(self, p: SearchParams, env: Env) -> list[Resource]:
         return _read_resource(env, p.path)
 
+    def reads_content(self, p: SearchParams, env: Env) -> list[Path]:
+        return [env.path(p.path)] if p.text else []
+
     def describe(self, p: SearchParams, env: Env) -> str:
         return f"Search {p.path} for {p.name}" + (f" containing “{p.text}”" if p.text else "")
 
@@ -192,8 +195,13 @@ class FsSearch(Capability):
         head = f"{len(found)} match{'es' if len(found) != 1 else ''} under {env.show(root)}"
         if stopped:
             head += f" (stopped after {min(scanned, MAX_SCAN)} files or {p.limit} matches; narrow the search for more)"
+        # Which files contain the text says something about what's in them: with `text`, the result
+        # is file content for disclosure purposes (§13.5), sourced from the folder searched.
+        content = bool(p.text)
         return ActionResult(ok=True, observation=f"{head}\n{lines}" if lines else head,
-                            summary=f"Searched {env.show(root)}: {len(found)} found", trust="untrusted")
+                            summary=f"Searched {env.show(root)}: {len(found)} found", trust="untrusted",
+                            data_class="file_content" if content else "metadata",
+                            sources=[str(root)] if content else [])
 
 
 def _contains(path: Path, st: os.stat_result, needle: str) -> bool:
@@ -225,6 +233,9 @@ class FsReadText(Capability):
 
     def resources(self, p: ReadParams, env: Env) -> list[Resource]:
         return _read_resource(env, p.path)
+
+    def reads_content(self, p: ReadParams, env: Env) -> list[Path]:
+        return [env.path(p.path)]
 
     def describe(self, p: ReadParams, env: Env) -> str:
         return f"Read {p.path}"

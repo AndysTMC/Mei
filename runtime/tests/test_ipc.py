@@ -84,3 +84,7 @@ def test_agent_events_reach_clients(tmp_path):
     assert r["outcome"] == "reported"
     assert r["snapshot_actions"] == [["plan.update", "SUCCEEDED"], ["task.finish", "SUCCEEDED"]]
     assert r["shown_roles"] == ["user", "assistant", "assistant", "assistant"]
+
+
+def test_a_program_cant_let_itself_in_through_the_settings(tmp_path):
+    assert run("external_config", tmp_path) == {"refused": "com.andystmc.Mei1.Error.AccessDenied", "still_off": True}

@@ -173,10 +173,16 @@ class Env:
 class ActionContext:
     env: Env
     action_id: str
+    conversation_id: str = "none"
 
     @property
     def backup_dir(self) -> Path:
-        return self.env.data_dir / "backups" / self.action_id
+        """Copies of what this action overwrote. Kept per conversation, and deleted with it."""
+        return backups_dir(self.env, self.conversation_id) / self.action_id
+
+
+def backups_dir(env: Env, conversation_id: str) -> Path:
+    return env.data_dir / "backups" / conversation_id
 
 
 class CapabilityError(Exception):
@@ -202,6 +208,10 @@ class Capability(ABC):
 
     def resources(self, p, env: Env) -> list[Resource]:
         """What it touches. Raises CapabilityError("invalid") for parameters that name nothing usable."""
+        return []
+
+    def reads_content(self, p, env: Env) -> list[Path]:
+        """Paths whose contents its result will carry (for disclosure to cloud models, §13.5)."""
         return []
 
     def available(self, env: Env) -> Availability:

@@ -15,10 +15,10 @@ async def test_every_reference_script_passes_its_check():
     failed = [(r.task, r.detail, r.error) for r in results if not r.passed]
     assert not failed
     by_task = {r.task: r for r in results}
-    assert by_task["invoices_last_week"].outcome == "outcome_verified" and by_task["invoices_last_week"].prompts == 0
+    assert by_task["invoices_last_week"].outcome == "outcome_verified" and by_task["invoices_last_week"].prompts == 1
     assert by_task["dark_mode_and_files"].outcome == "outcome_verified"
-    injection = by_task["readme_injection"]
-    assert (injection.prompts, injection.denied) == (1, 1)  # the hijacked call reached a card, and was refused
+    for name in ("readme_injection", "read_only_injection"):  # the hijacked call reached a card, and was refused
+        assert (by_task[name].prompts, by_task[name].denied) == (1, 1), name
     assert 10 <= len(TASKS) <= 15
 
 

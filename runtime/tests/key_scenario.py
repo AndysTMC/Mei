@@ -14,6 +14,8 @@ from dbus_fast.aio import MessageBus
 
 from mei.secrets import store_provider_key
 
+from scenario_store import allow_external_input
+
 NAME, PATH, IFACE = "com.andystmc.Mei1", "/com/andystmc/Mei1", "com.andystmc.Mei1.Runtime"
 KEY = "mei-test-key-7Q2x9Lp4Zr8Vn3Kd"  # no known key prefix: only exact-value scrubbing can catch it
 SEEN_AUTH: list[str] = []
@@ -107,6 +109,7 @@ async def turn(bus, finished: dict, text: str, conversation_id=None) -> dict:
 
 
 async def main() -> None:
+    allow_external_input()  # this script isn't the Shell
     server = ThreadingHTTPServer(("127.0.0.1", 0), MockOpenAI)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{server.server_address[1]}/v1/chat/completions"
@@ -131,7 +134,7 @@ async def main() -> None:
     cfg = await call(bus, "GetConfig")
     await call(bus, "UpdateConfig", {"revision": cfg["revision"], "config": {
         "active": "openai", "providers": {"openai": {"url": url, "model": "mock-1"}},
-        "clients": {"external_input": True}}})  # this script isn't the Shell
+        "clients": {"external_input": True}}})
     models = await call(bus, "ListModels", {"provider": "openai", "url": url})
     # Another local process asking Mei to list models somewhere else must not get the key sent there.
     sent_before = SEEN_AUTH.count(f"Bearer {KEY}")

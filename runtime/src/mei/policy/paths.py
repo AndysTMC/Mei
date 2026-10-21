@@ -39,10 +39,11 @@ _PROTECTED_UNDER_HOME = ("", ".config", ".local", ".local/share", ".cache", ".va
 class PathRules:
     def __init__(self, home: Path, user_dirs: dict[str, Path], mei_dirs: list[Path]) -> None:
         self.home = home
-        self._denied = [home / p for p in _DENIED_UNDER_HOME] + list(mei_dirs)
-        self._sensitive = [home / p for p in _SENSITIVE_UNDER_HOME] + [Path(p) for p in _SENSITIVE_SYSTEM]
-        self._protected = {home / p for p in _PROTECTED_UNDER_HOME} | set(user_dirs.values()) | {Path("/")}
-        self._runs_code = [home / p for p in _RUNS_CODE_UNDER_HOME]
+        # Each root as written and as it resolves: ~/Downloads may be a link to another drive.
+        self._denied = _both([home / p for p in _DENIED_UNDER_HOME] + list(mei_dirs))
+        self._sensitive = _both([home / p for p in _SENSITIVE_UNDER_HOME] + [Path(p) for p in _SENSITIVE_SYSTEM])
+        self._protected = set(_both([home / p for p in _PROTECTED_UNDER_HOME] + list(user_dirs.values()) + [Path("/")]))
+        self._runs_code = _both([home / p for p in _RUNS_CODE_UNDER_HOME])
 
     def denied(self, path: Path) -> bool:
         return any(inside(p, root) for p in _views(path) for root in self._denied)
@@ -65,6 +66,10 @@ class PathRules:
 
 def inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
+
+
+def _both(roots: list[Path]) -> list[Path]:
+    return list(dict.fromkeys(v for r in roots for v in _views(r)))
 
 
 def _views(path: Path) -> list[Path]:

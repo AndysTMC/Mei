@@ -4,8 +4,8 @@
     uv run python -m evals.run --provider groq      # a real model, key and model from the repo's .env
     uv run python -m evals.run --provider gemini --model gemini-3-flash --repeat 3 --out baseline.json
 
-Approvals are answered like a careful person reading the card: allowed once, unless something on
-it came from a file or web page, which is denied. Questions get their first choice. Keys are never
+Approvals are answered like a careful person reading the card: allowed (for the task, when the card
+offers that), unless something on it came from a file or web page, which is denied. Questions get their first choice. Keys are never
 printed. Reported per run: pass rate, approval prompts per task, and how often a task that wasn't
 verified by Mei's own checks was actually wrong ("wrong-reported rate").
 """
@@ -91,7 +91,8 @@ async def run_task(task: Task, root: Path, provider: ProviderConfig, make) -> Re
                 prompts += 1
                 careful_no = any(r.get("provenance") == "untrusted" for r in card.get("resources", []))
                 denied += careful_no
-                driver.approve(task_id, decision="deny" if careful_no else "allow")
+                scope = "task" if "task" in card.get("scopes", []) else "once"  # one card per kind of change
+                driver.approve(task_id, decision="deny" if careful_no else "allow", scope=scope)
             elif state == S.WAITING_INPUT:
                 questions += 1
                 spec = agent.input_view(agent.pending_input(driver.store, task_id))["spec"]

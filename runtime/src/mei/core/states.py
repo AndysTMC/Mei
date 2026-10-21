@@ -94,8 +94,9 @@ ACTION_TERMINAL = frozenset({E.REJECTED, E.POLICY_DENIED, E.DENIED, E.EXPIRED, E
 _ACTION_ALLOWED: dict[Execution, frozenset[Execution]] = {
     E.PROPOSED: frozenset({E.REJECTED, E.POLICY_DENIED, E.AWAITING_APPROVAL, E.AUTHORIZED, E.SKIPPED}),
     E.AWAITING_APPROVAL: frozenset({E.AUTHORIZED, E.DENIED, E.EXPIRED, E.SUPERSEDED}),
-    # Back to AWAITING_APPROVAL: a one-shot approval doesn't survive a restart before the action started (§15).
-    E.AUTHORIZED: frozenset({E.STARTED, E.SKIPPED, E.AWAITING_APPROVAL}),
+    # Back to AWAITING_APPROVAL when a one-time approval doesn't survive a restart (§15), or (also
+    # POLICY_DENIED) when the re-check just before it runs finds its target changed.
+    E.AUTHORIZED: frozenset({E.STARTED, E.SKIPPED, E.AWAITING_APPROVAL, E.POLICY_DENIED}),
     E.STARTED: frozenset({E.SUCCEEDED, E.FAILED, E.CANCELLED, E.IN_DOUBT}),
     E.IN_DOUBT: frozenset({E.SUCCEEDED, E.FAILED, E.ABANDONED, E.STARTED}),  # STARTED: an idempotent re-run
 }

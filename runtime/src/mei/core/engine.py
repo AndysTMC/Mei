@@ -9,12 +9,14 @@ always pick up from the database.
 import asyncio
 import json
 import logging
+import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import msgspec
 
-from mei.capabilities.base import Env
+from mei.capabilities.base import Env, backups_dir
 from mei.capabilities.registry import Registry
 from mei.core.states import TERMINAL, Disposition, Execution, TaskState
 from mei.protocol import (MAX_INPUT_CHARS, AnswerInputArgs, Config, ConversationCommandArgs, ProtocolError,
@@ -270,7 +272,19 @@ class Engine:
             repo.delete_conversation(tx, args.conversation_id)
             return {"conversation_id": args.conversation_id, "deleted": True}, []
 
-        return self._command("DeleteConversation", args, apply)
+        result = self._command("DeleteConversation", args, apply)
+        self._delete_files(args.conversation_id)
+        return result
+
+    def _delete_files(self, conversation_id: str) -> None:
+        """What a conversation left on disk: backups of files its tasks overwrote."""
+        folder = backups_dir(self.env, conversation_id)
+        try:
+            shutil.rmtree(folder)
+        except FileNotFoundError:
+            pass
+        except OSError as e:  # the conversation is gone either way; say what's left behind
+            log.warning("couldn't delete %s: %s", folder, e)
 
     def update_config(self, args: UpdateConfigArgs) -> dict:
         revision, current = repo.get_config(self.store)
@@ -285,7 +299,7 @@ class Engine:
             self.apply_retention()
         loosened = _loosened(current, args.config)
         if loosened:
-            self._notify("Mei now asks less", loosened)
+            self._notify("Mei's settings changed", loosened)
         return {"revision": revision, "changed": True}
 
     def _notify(self, title: str, body: str) -> None:
@@ -321,6 +335,7 @@ class Engine:
                     continue
                 repo.delete_conversation(tx, row["id"])
             self._publish(tx.events)
+            self._delete_files(row["id"])
             deleted += 1
         if deleted:
             log.info("retention: deleted %d conversation%s older than %d days", deleted, "s" if deleted != 1 else "", days)
@@ -381,9 +396,22 @@ def _loosened(before: Config, after: Config) -> str:
         changes.append("more actions now go ahead without asking")
     if _CLOUD_ORDER.index(after.privacy.cloud_files) > _CLOUD_ORDER.index(before.privacy.cloud_files):
         changes.append("more file contents may now go to cloud models")
+    if after.clients.external_input and not before.clients.external_input:
+        changes.append("other programs may now give it requests")
+    for provider_id, settings in after.providers.items():
+        old_url = before.providers[provider_id].url if provider_id in before.providers else ""
+        if settings.url.strip() and settings.url.strip() != old_url.strip():
+            changes.append(f"{provider_id} conversations now go to {_host(settings.url)}")
     if not changes:
         return ""
-    return "Its settings changed: " + " and ".join(changes) + ". If you didn't do this, check Mei's Settings."
+    return "Its settings changed: " + "; ".join(changes) + ". If you didn't do this, check Mei's Settings."
+
+
+def _host(url: str) -> str:
+    try:
+        return urlsplit(url.strip()).hostname or url.strip()
+    except ValueError:
+        return url.strip()
 
 
 def _valid_answer(spec: dict, value):

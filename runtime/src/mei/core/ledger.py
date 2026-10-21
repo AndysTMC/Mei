@@ -91,14 +91,16 @@ def request_approval(tx: Tx, task: dict, action_id: str, params_hash: str, card:
     return approval
 
 
-def reask(tx: Tx, task: dict, action) -> None:
-    """The approval no longer holds (its params changed, or it was for one go and Mei restarted)."""
+def reask(tx: Tx, task: dict, action, *, card: dict | None = None, **fields) -> None:
+    """The approval no longer holds: its params or its target changed, or it was for one go and Mei
+    restarted. `card`: a fresh one for what it would touch now; otherwise the old card is shown again."""
     old = agent.get_approval(tx, action["approval_id"]) if action["approval_id"] else None
-    card = json.loads(old["card"]) if old else {"title": action["description"], "capability": action["capability"],
-                                                "resources": json.loads(action["resources"]), "effects": [],
-                                                "scopes": ["once"], "default_scope": "once",
-                                                "scope_text": {"once": "Allow once"}}
-    agent.update_action(tx, action["id"], E.AWAITING_APPROVAL)
+    if card is None:
+        card = json.loads(old["card"]) if old else {"title": action["description"], "capability": action["capability"],
+                                                    "resources": json.loads(action["resources"]), "effects": [],
+                                                    "scopes": ["once"], "default_scope": "once",
+                                                    "scope_text": {"once": "Allow once"}}
+    agent.update_action(tx, action["id"], E.AWAITING_APPROVAL, **fields)
     request_approval(tx, task, action["id"], action["params_hash"], card)
 
 

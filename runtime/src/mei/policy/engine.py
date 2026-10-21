@@ -43,12 +43,13 @@ class Subject(msgspec.Struct, frozen=True, kw_only=True):
     access: Literal["read", "write"]
     role: str = ""
     provenance: Provenance = "model"
+    named: bool = False  # the person named this item itself, not only a folder holding it
 
 
 class GrantRule(msgspec.Struct, frozen=True, kw_only=True):
     kind: Literal["path", "app", "setting"]
     access: Literal["read", "write"]
-    value: str  # a folder for paths (anything inside it matches); the exact value otherwise
+    value: str  # a folder for paths (things directly in it match, not deeper); the exact value otherwise
 
 
 @dataclass(frozen=True)
@@ -112,13 +113,18 @@ def evaluate(facts: Facts, preset: Preset, grants: list[Grant], rules: PathRules
     if grant is not None:
         return _granted(grant)
     if e.mutates == "local":
-        if preset.allow_user_anchored and all(s.provenance == "user" for s in facts.subjects):
+        # Once the task has read a document (tainted), a folder the person named no longer vouches for
+        # everything in it: content can steer the model toward "everything else in this folder". Only
+        # what they named exactly goes ahead; the rest asks, and a task grant covers the batch.
+        if preset.allow_user_anchored and all(s.provenance == "user" and (s.named or not facts.tainted)
+                                              for s in facts.subjects):
             return Decision("allow", "user_anchored")
-        if preset.allow_model_in_home and all(_found_in_home(s, home) for s in facts.subjects):
+        if not facts.tainted and preset.allow_model_in_home and all(_found_in_home(s, home) for s in facts.subjects):
             return Decision("allow", "hands_off")
     scopes: tuple[Scope, ...] = ("once", "task", "always") if e.mutates == "local" and e.undo == "recorded" \
         else ("once", "task")
-    return _ask("needs_approval", preset, scopes=scopes)
+    after_reading = facts.tainted and all(s.provenance == "user" for s in facts.subjects)
+    return _ask("after_reading" if after_reading else "needs_approval", preset, scopes=scopes)
 
 
 def covers(grant: Grant, facts: Facts) -> bool:

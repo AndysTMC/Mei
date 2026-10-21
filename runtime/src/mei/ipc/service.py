@@ -205,14 +205,22 @@ class RuntimeService:
             raise ProtocolError("AccessDenied", "only Mei in the top bar can give Mei requests; other programs "
                                                 "can be allowed in Mei's settings (clients.external_input)")
 
-    def _delete_conversation(self, _sender: str, data: str) -> dict:
-        return self._engine.delete_conversation(decode_args(data, ConversationCommandArgs))
+    async def _delete_conversation(self, sender: str, data: str) -> dict:
+        args = decode_args(data, ConversationCommandArgs)
+        await self._shell_only(sender, "delete conversations")
+        return self._engine.delete_conversation(args)
 
     def _get_config(self, _sender: str, _data: str) -> dict:
         return self._engine.get_config()
 
-    def _update_config(self, _sender: str, data: str) -> dict:
-        return self._engine.update_config(decode_args(data, UpdateConfigArgs))
+    async def _update_config(self, sender: str, data: str) -> dict:
+        """Settings may change any setting, except who may give Mei requests: a program allowed to
+        change that could let itself in (§13.7). Only the Shell turns it on."""
+        args = decode_args(data, UpdateConfigArgs)
+        _revision, current = repo.get_config(self._store)
+        if args.config.clients.external_input and not current.clients.external_input:
+            await self._shell_only(sender, "let other programs give Mei requests")
+        return self._engine.update_config(args)
 
     def _ping(self, _sender: str, _data: str) -> dict:
         return {"seq": self._store.last_seq()}

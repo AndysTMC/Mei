@@ -16,6 +16,8 @@ import uuid
 from dbus_fast import BusType, Message, MessageType
 from dbus_fast.aio import MessageBus
 
+from scenario_store import allow_external_input
+
 NAME, PATH, IFACE = "com.andystmc.Mei1", "/com/andystmc/Mei1", "com.andystmc.Mei1.Runtime"
 REPLY = "Durable streaming survives restarts and reconnects. " * 8
 
@@ -54,9 +56,8 @@ class Client:
 async def configure(c: Client, workdir: str, **options) -> None:
     cfg = await c.call("GetConfig")
     opts = {"reply": REPLY, "chunk_chars": 4, "delay_ms": 10, "call_log": f"{workdir}/calls.jsonl", **options}
-    await c.call("UpdateConfig", {"revision": cfg["revision"],
-                                  "config": {"active": "fake", "providers": {"fake": {"options": opts}},
-                                             "clients": {"external_input": True}}})  # this script isn't the Shell
+    await c.call("UpdateConfig", {"revision": cfg["revision"], "config": {
+        "active": "fake", "providers": {"fake": {"options": opts}}, "clients": {"external_input": True}}})
 
 
 def calls(workdir: str) -> int:
@@ -200,6 +201,19 @@ async def approver(c: Client, workdir: str) -> dict:
     return {"errors": errors, "grants": grants}
 
 
+async def external_config(c: Client, workdir: str) -> dict:
+    """A program that isn't the Shell can't let itself in through the settings."""
+    await c.hello()
+    cfg = await c.call("GetConfig")
+    try:
+        await c.call("UpdateConfig", {"revision": cfg["revision"], "config": {**cfg["config"],
+                                                                            "clients": {"external_input": True}}})
+        refused = None
+    except RuntimeError as e:
+        refused = str(e).split(":")[0]
+    return {"refused": refused, "still_off": not (await c.call("GetConfig"))["config"]["clients"]["external_input"]}
+
+
 async def agent_events(c: Client, workdir: str) -> dict:
     """A task that plans and finishes (meta tools only): its actions reach clients as events."""
     await c.hello()
@@ -220,6 +234,8 @@ async def agent_events(c: Client, workdir: str) -> dict:
 
 async def main() -> None:
     scenario, workdir = sys.argv[1], sys.argv[2]
+    if scenario not in ("approver", "external_config"):
+        allow_external_input()  # this script isn't the Shell
     from mei.ipc import dbus_patch
     dbus_patch.apply()
     bus = await MessageBus(bus_type=BusType.SESSION).connect()

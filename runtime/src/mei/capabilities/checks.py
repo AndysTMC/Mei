@@ -1,7 +1,8 @@
 """Typed criterion checks the runtime runs itself at finish time (§8.5).
 
 Each looks at the world as it is now; none trusts what an action reported. A check that can't run
-(no Shell attached for windows, no GSettings) is `unverifiable`, never `passed`.
+(no Shell attached for windows, no GSettings) is `unverifiable`, never `passed`. Checks follow the
+tools' rules: no denied or sensitive paths, and only the settings `settings_get` may read.
 """
 
 import fnmatch
@@ -9,6 +10,7 @@ import os
 
 from .base import CheckResult, Env
 from .meta import CheckSpec
+from .settings import ALLOWED
 from .settings_values import same_value
 
 
@@ -29,6 +31,9 @@ def _path_check(spec: CheckSpec, env: Env) -> CheckResult:
     if not spec.path:
         raise ValueError(f"{spec.type} needs a path")
     path = env.path(spec.path)
+    if env.rules.denied(path) or env.rules.sensitive(path):
+        # A check is a tool too: it may not look where the file tools can't (keys, credentials).
+        return CheckResult(status="unverifiable", detail="Mei doesn't check there")
     shown = env.show(path)
     if spec.type == "file_absent":
         gone = not path.exists() and not path.is_symlink()
@@ -55,6 +60,8 @@ async def _setting(spec: CheckSpec, env: Env) -> CheckResult:
         return CheckResult(status="unverifiable", detail="settings can't be read here")
     if not (spec.schema and spec.key and spec.value):
         raise ValueError("setting_equals needs schema, key, and value")
+    if (spec.schema, spec.key) not in ALLOWED:  # the same keys settings_get may read, no others
+        return CheckResult(status="unverifiable", detail="Mei can't read that setting")
     current = await env.gsettings.get(spec.schema, spec.key)
     ok = same_value(current, spec.value)
     return CheckResult(status="passed" if ok else "failed", detail=f"{spec.schema} {spec.key} is {current}")

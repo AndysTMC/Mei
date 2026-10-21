@@ -191,23 +191,40 @@ class TaskLoop:
                 return False
         return True
 
+    def _seen(self, task) -> decide.Seen:
+        """The person's words in this task (not earlier ones), and what Mei has read in it."""
+        texts = [r["content"] for r in self.d.store.read(
+            "SELECT content FROM messages WHERE role = 'user' AND (id = ? OR task_id = ?) ORDER BY ordinal",
+            (task["input_message_id"], task["id"]))]
+        rows = self.d.store.read("SELECT a.result, m.content FROM actions a JOIN messages m ON m.action_id = a.id "
+                                 "WHERE a.task_id = ? AND a.result IS NOT NULL", (task["id"],))
+        content, other = [], []
+        for r in rows:
+            result = json.loads(r["result"])
+            if result.get("trust") == "untrusted":
+                (content if result.get("data_class") == "file_content" else other).append(r["content"])
+        return decide.Seen(texts, content, other)
+
+    def _proposal(self, task, action) -> decide.Proposal:
+        cfg = msgspec.convert(json.loads(task["provider"]), ProviderConfig)
+        _revision, config = repo.get_config(self.d.store)
+        proposal = decide.prepare(self.d.registry, self.d.env, action, self._seen(task))
+        return decide.for_provider(proposal, cloud=context.is_cloud(cfg), cloud_files=config.privacy.cloud_files)
+
     def _decide(self, task, batch, action) -> Execution:
         store, env = self.d.store, self.d.env
         taskd = repo.task_dict(task)
-        user_texts = [r["content"] for r in store.read(
-            "SELECT content FROM messages WHERE conversation_id = ? AND role = 'user'", (task["conversation_id"],))]
         why = store.read_one("SELECT content FROM messages WHERE id = ?", (batch["message_id"],))["content"]
         try:
-            proposal = decide.prepare(self.d.registry, env, action, user_texts, self._untrusted(task["id"]))
+            proposal = self._proposal(task, action)
         except decide.Refused as e:
             with store.tx() as tx:
                 ledger.finish_action(tx, taskd, action, E.REJECTED, str(e), is_error=True, error=str(e)[:500])
             self.d.publish(tx.events)
             return E.REJECTED
         fields = {"capability": proposal.cap.name, "version": proposal.cap.version, "params": proposal.canonical,
-                  "params_hash": proposal.params_hash, "effects": msgspec.to_builtins(proposal.effects),
-                  "resources": [msgspec.to_builtins(s) for s in proposal.subjects],
-                  "description": proposal.description, "reason": why[:decide.MAX_REASON_CHARS]}
+                  "params_hash": proposal.params_hash, **_judged_fields(proposal),
+                  "reason": why[:decide.MAX_REASON_CHARS]}
         if not proposal.cap.meta and decide.repeated(store, task["id"], action["id"], proposal.cap.name,
                                                      proposal.params_hash):
             return self._refuse_repeat(task, batch, action, fields)
@@ -222,11 +239,8 @@ class TaskLoop:
                 ledger.finish_action(tx, taskd, action, E.POLICY_DENIED, decide.refusal_text(d), is_error=True,
                                      error=d.reason, **fields)
             else:
-                cfg = msgspec.convert(json.loads(task["provider"]), ProviderConfig)
                 agent.update_action(tx, action["id"], E.AWAITING_APPROVAL, **fields)
-                card = decide.card(env, proposal, d, why=why, read_from=self._read_from(task["id"]),
-                                   provider_label=label_of(cfg), cloud=context.is_cloud(cfg))
-                ledger.request_approval(tx, taskd, action["id"], proposal.params_hash, card)
+                ledger.request_approval(tx, taskd, action["id"], proposal.params_hash, self._card(task, proposal, d, why))
         self.d.publish(tx.events)
         self.d.boundary("decided")
         return {"allow": E.AUTHORIZED, "deny": E.POLICY_DENIED}.get(d.decision, E.AWAITING_APPROVAL)
@@ -244,10 +258,36 @@ class TaskLoop:
         self.d.publish(tx.events)
         return E.REJECTED
 
-    def _untrusted(self, task_id: str) -> list[str]:
-        rows = self.d.store.read("SELECT a.result, m.content FROM actions a JOIN messages m ON m.action_id = a.id "
-                                 "WHERE a.task_id = ? AND a.result IS NOT NULL", (task_id,))
-        return [r["content"] for r in rows if json.loads(r["result"]).get("trust") == "untrusted"]
+    def _card(self, task, proposal: decide.Proposal, d, why: str) -> dict:
+        cfg = msgspec.convert(json.loads(task["provider"]), ProviderConfig)
+        return decide.card(self.d.env, proposal, d, why=why, read_from=self._read_from(task["id"]),
+                           provider_label=label_of(cfg), cloud=context.is_cloud(cfg))
+
+    async def _recheck(self, task, action) -> bool:
+        """Just before it runs, look again at what it would touch: a symlink swapped while the card was
+        up must not carry the approval somewhere else (invariant 10). False: it no longer runs now."""
+        try:
+            proposal = self._proposal(task, action)
+        except decide.Refused:
+            return True  # what it names is gone; the capability itself reports that
+        if [msgspec.to_builtins(s) for s in proposal.subjects] == json.loads(action["resources"]):
+            return True
+        _revision, config = repo.get_config(self.d.store)
+        d = decide.judge(self.d.store, self.d.env, task, proposal, config.approvals.preset)
+        taskd = repo.task_dict(task)
+        with self.d.store.tx() as tx:
+            fields = {**_judged_fields(proposal), "decision": d.decision, "decision_reason": d.reason}
+            if d.decision == "deny":
+                ledger.finish_action(tx, taskd, action, E.POLICY_DENIED, decide.refusal_text(d), is_error=True,
+                                     error=d.reason, **fields)
+            elif d.decision == "ask" or action["approval_id"]:  # what was approved isn't what it would touch now
+                ledger.reask(tx, taskd, action, card=self._card(task, proposal, d, action["reason"]), **fields)
+            else:
+                tx.execute("UPDATE actions SET resources = ?, effects = ?, description = ? WHERE id = ?",
+                           (json.dumps(fields["resources"]), json.dumps(fields["effects"]), fields["description"],
+                            action["id"]))
+        self.d.publish(tx.events)
+        return d.decision == "allow" and not action["approval_id"]
 
     def _read_from(self, task_id: str) -> list[str]:
         rows = self.d.store.read("SELECT result FROM actions WHERE task_id = ? AND execution = 'SUCCEEDED'", (task_id,))
@@ -272,7 +312,9 @@ class TaskLoop:
                 return False
         elif action["decision"] != "allow":
             raise RuntimeError(f"action {action['id']} is authorized without a decision")
-        await self._execute(task, action, cap, params, flight)
+        if not await self._recheck(task, action):
+            return S(repo.get_task(self.d.store, task["id"])["state"]) == S.RUNNING  # denied: go on; asked: wait
+        await self._execute(task, agent.get_action(self.d.store, action["id"]), cap, params, flight)
         return True
 
     async def _meta(self, task, action, cap: Capability, params) -> bool:
@@ -317,7 +359,7 @@ class TaskLoop:
         self.d.publish(tx.events)
         flight.action_id = action["id"]
         self.d.boundary("action_started")
-        ctx = ActionContext(self.d.env, action["id"])
+        ctx = ActionContext(self.d.env, action["id"], task["conversation_id"])
         timeout = min(cap.timeout_s, MAX_ACTION_S)
         started = time.monotonic()
         try:
@@ -360,8 +402,10 @@ class TaskLoop:
                                  verification=check.status if check else V.NOT_APPLICABLE,
                                  disposition=Disposition.CONFIRMED if result.ok and mutating else Disposition.NONE,
                                  error=None if result.ok else result.observation[:500])
+            # Content others wrote (a document, later a web page) taints the task; a folder listing doesn't.
+            taints = result.trust == "untrusted" and result.data_class == "file_content"
             tx.execute("UPDATE tasks SET active_ms = active_ms + ?, tainted = MAX(tainted, ?) WHERE id = ?",
-                       (elapsed_ms, int(result.trust == "untrusted"), task["id"]))
+                       (elapsed_ms, int(taints), task["id"]))
         self.d.publish(tx.events)
 
     async def _settle_in_doubt(self, task, action, flight: InFlight) -> bool:
@@ -375,7 +419,7 @@ class TaskLoop:
             await self._execute(task, action, cap, params, flight)
             return True
         try:
-            disposition = await cap.probe(params, ActionContext(self.d.env, action["id"]))
+            disposition = await cap.probe(params, ActionContext(self.d.env, action["id"], task["conversation_id"]))
         except Exception as e:
             log.warning("probing %s failed: %s", cap.name, e, extra={"task_id": task["id"]})
             disposition = Disposition.UNKNOWN
@@ -392,3 +436,8 @@ class TaskLoop:
                 ledger.ask_in_doubt(tx, taskd, action)
         self.d.publish(tx.events)
         return disposition != Disposition.UNKNOWN
+
+
+def _judged_fields(proposal: decide.Proposal) -> dict:
+    return {"effects": msgspec.to_builtins(proposal.effects),
+            "resources": [msgspec.to_builtins(sub) for sub in proposal.subjects], "description": proposal.description}

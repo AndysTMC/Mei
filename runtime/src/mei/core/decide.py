@@ -6,8 +6,11 @@ Pure apart from the reads it needs; the loop writes the outcome.
 """
 
 import json
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+import msgspec
 from pathlib import Path
 
 from mei.capabilities.base import Capability, CapabilityError, Effects, Env, Resource
@@ -32,6 +35,7 @@ _REASONS = {
     "protected_folder": "this changes a whole top-level folder",
     "runs_code": "a file written here runs later (at login or in a terminal)",
     "needs_approval": "this changes something you didn't name",
+    "after_reading": "Mei read a document in this task, and you didn't name this exactly",
 }
 
 
@@ -42,15 +46,25 @@ class Proposal:
     canonical: str
     params_hash: str
     effects: Effects
-    subjects: tuple[Subject, ...]
+    subjects: tuple[Subject, ...]  # paths as they really resolve
     description: str
+    content: tuple[str, ...] = ()  # paths whose contents the result will carry
+
+
+@dataclass(frozen=True)
+class Seen:
+    """What a decision may go by: the person's words in this task, and what Mei has read in it."""
+
+    user_texts: list[str]
+    untrusted_content: list[str]  # file contents and the like: where instructions hide
+    untrusted_other: list[str]  # listings and search results
 
 
 class Refused(Exception):
     """The call can't even be judged: unknown tool, bad arguments, or nothing it names exists."""
 
 
-def prepare(registry: Registry, env: Env, action, user_texts: list[str], untrusted: list[str]) -> Proposal:
+def prepare(registry: Registry, env: Env, action, seen: Seen) -> Proposal:
     cap = registry.by_wire(action["tool"])
     if cap is None:
         raise Refused(f"There is no tool called {action['tool']}.")
@@ -65,23 +79,45 @@ def prepare(registry: Registry, env: Env, action, user_texts: list[str], untrust
         resources = cap.resources(params, env)
         effects = cap.effects(params, env)
         description = cap.describe(params, env)
+        content = tuple(str(_real(p)) for p in cap.reads_content(params, env))
     except CapabilityError as e:
         raise Refused(e.message) from None
-    anchored = provenance.anchors(user_texts, env)
-    subjects = tuple(Subject(kind=r.kind, value=r.value, access=r.access, role=r.role,
-                             provenance=_provenance(r, anchored, user_texts, untrusted, env))
-                     for r in resources)
+    anchored = provenance.resolved_anchors(provenance.anchors(seen.user_texts, env))
+    subjects = tuple(_subject(r, anchored, seen, env) for r in resources)
     canonical, digest = registry.canonical(cap, params)
-    return Proposal(cap, params, canonical, digest, effects, subjects, description)
+    return Proposal(cap, params, canonical, digest, effects, subjects, description, content)
 
 
-def _provenance(r: Resource, anchored: list[Path], user_texts: list[str], untrusted: list[str], env: Env):
-    if r.kind == "path":
-        return provenance.classify(Path(r.value), anchored, untrusted, env)
-    names = (r.value, *r.aliases)
-    if any(_says(t, name) for t in user_texts for name in names):
-        return "user"
-    return "untrusted" if any(_says(t, r.value) for t in untrusted) else "model"
+def for_provider(proposal: Proposal, *, cloud: bool, cloud_files: str) -> Proposal:
+    """Reading a file the person didn't point at, for a cloud model under "Files I point to", is a
+    disclosure: it asks, and once they allow it the contents may go (§13.5). Under "Never" nothing
+    is sent anyway, and under "Any file" nothing needs asking."""
+    if not (cloud and cloud_files == "pointed" and proposal.content):
+        return proposal
+    pointed = all(any(s.value == c and s.provenance == "user" for s in proposal.subjects) for c in proposal.content)
+    effects = msgspec.structs.replace(proposal.effects, disclosure="off_machine")
+    return proposal if pointed else replace(proposal, effects=effects)
+
+
+def _subject(r: Resource, anchored: list[Path], seen: Seen, env: Env) -> Subject:
+    if r.kind != "path":
+        names = (r.value, *r.aliases)
+        if any(_says(t, name) for t in seen.user_texts for name in names):
+            where = "user"
+        else:
+            where = "untrusted" if any(_says(t, r.value) for t in seen.untrusted_content) else "model"
+        return Subject(kind=r.kind, value=r.value, access=r.access, role=r.role, provenance=where,
+                       named=where == "user")
+    path = Path(r.value)
+    is_named = provenance.named(path, anchored, seen.user_texts)
+    where = provenance.classify(path, anchored, seen.untrusted_content, seen.untrusted_other, env, is_named=is_named)
+    # Judged, recorded, and granted by where it really leads, not by how the model spelled it.
+    return Subject(kind="path", value=str(_real(path)), access=r.access, role=r.role, provenance=where,
+                   named=is_named)
+
+
+def _real(path: Path) -> Path:
+    return Path(os.path.realpath(path))
 
 
 def _says(text: str, name: str) -> bool:
@@ -129,8 +165,7 @@ def card(env: Env, proposal: Proposal, decision: Decision, *, why: str, read_fro
         effects.append("Other people will see the result")
     if e.disclosure == "off_machine":
         effects.append("Sends data off this computer")
-    reads_content = any(s.access == "read" for s in proposal.subjects) and proposal.cap.name == "fs.read_text"
-    if reads_content and cloud:
+    if proposal.content and cloud:
         effects.append(f"What it reads is sent to {provider_label}")
     resources = [{"role": s.role, "kind": s.kind, "value": env.show(s.value) if s.kind == "path" else s.value,
                   "provenance": s.provenance} for s in proposal.subjects]
