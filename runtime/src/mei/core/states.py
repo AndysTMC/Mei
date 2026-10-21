@@ -26,9 +26,9 @@ _ALLOWED: dict[TaskState, frozenset[TaskState]] = {
     S.ACCEPTED: frozenset({S.RUNNING, S.CANCELLED}),
     S.RUNNING: frozenset({*WAITING, S.VERIFYING, S.COMPLETED, S.BLOCKED, S.INTERRUPTED}),
     S.WAITING_APPROVAL: frozenset({S.RUNNING, S.INTERRUPTED}),
-    S.WAITING_INPUT: frozenset({S.RUNNING, S.INTERRUPTED}),
+    S.WAITING_INPUT: frozenset({S.RUNNING, S.INTERRUPTED, S.BLOCKED}),  # BLOCKED: "stop" at the step limit
     S.WAITING_RESOURCE: frozenset({S.RUNNING, S.INTERRUPTED}),
-    S.VERIFYING: frozenset({S.RUNNING, S.COMPLETED, S.INTERRUPTED}),
+    S.VERIFYING: frozenset({S.RUNNING, S.COMPLETED, S.BLOCKED, S.INTERRUPTED}),
     S.CANCEL_REQUESTED: frozenset({S.CANCELLED}),
     S.INTERRUPTED: frozenset({S.RUNNING, S.CANCELLED}),
 }
@@ -50,3 +50,57 @@ def can_transition(frm: TaskState, to: TaskState) -> bool:
 def check_transition(frm: TaskState, to: TaskState) -> None:
     if not can_transition(frm, to):
         raise InvalidTransition(f"task cannot go from {frm} to {to}")
+
+
+class Execution(StrEnum):
+    """Whether an action ran (§7.3). Verification and effect disposition are separate fields."""
+
+    PROPOSED = "PROPOSED"
+    REJECTED = "REJECTED"  # its arguments didn't match the capability's schema
+    POLICY_DENIED = "POLICY_DENIED"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    DENIED = "DENIED"
+    EXPIRED = "EXPIRED"
+    SUPERSEDED = "SUPERSEDED"  # its approval was overtaken by a steer or a cancel
+    AUTHORIZED = "AUTHORIZED"
+    SKIPPED = "SKIPPED"  # a steer or a cancel came before it started
+    STARTED = "STARTED"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+    IN_DOUBT = "IN_DOUBT"  # the runtime was lost after it started; the world may or may not have changed
+    ABANDONED = "ABANDONED"
+
+
+class Verification(StrEnum):
+    NOT_APPLICABLE = "not_applicable"
+    PENDING = "pending"
+    PASSED = "passed"
+    FAILED = "failed"
+    UNVERIFIABLE = "unverifiable"
+
+
+class Disposition(StrEnum):
+    NONE = "none"  # nothing changed
+    CONFIRMED = "confirmed"
+    REVERTED = "reverted"
+    UNKNOWN = "unknown"
+
+
+E = Execution
+ACTION_TERMINAL = frozenset({E.REJECTED, E.POLICY_DENIED, E.DENIED, E.EXPIRED, E.SUPERSEDED, E.SKIPPED,
+                             E.SUCCEEDED, E.FAILED, E.CANCELLED, E.ABANDONED})
+
+_ACTION_ALLOWED: dict[Execution, frozenset[Execution]] = {
+    E.PROPOSED: frozenset({E.REJECTED, E.POLICY_DENIED, E.AWAITING_APPROVAL, E.AUTHORIZED, E.SKIPPED}),
+    E.AWAITING_APPROVAL: frozenset({E.AUTHORIZED, E.DENIED, E.EXPIRED, E.SUPERSEDED}),
+    # Back to AWAITING_APPROVAL: a one-shot approval doesn't survive a restart before the action started (§15).
+    E.AUTHORIZED: frozenset({E.STARTED, E.SKIPPED, E.AWAITING_APPROVAL}),
+    E.STARTED: frozenset({E.SUCCEEDED, E.FAILED, E.CANCELLED, E.IN_DOUBT}),
+    E.IN_DOUBT: frozenset({E.SUCCEEDED, E.FAILED, E.ABANDONED, E.STARTED}),  # STARTED: an idempotent re-run
+}
+
+
+def check_action_transition(frm: Execution, to: Execution) -> None:
+    if to not in _ACTION_ALLOWED.get(frm, frozenset()):
+        raise InvalidTransition(f"action cannot go from {frm} to {to}")

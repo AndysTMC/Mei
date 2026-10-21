@@ -3,8 +3,9 @@ import json
 
 import pytest
 
-from mei.core import engine as engine_mod
+from mei.core import streaming as engine_mod
 from mei.core.engine import Engine
+from mei.core.loop import TaskLoop
 from mei.core.states import TERMINAL, TaskState
 import msgspec
 
@@ -95,15 +96,18 @@ async def test_duplicate_command_returns_the_first_result(tmp_path):
     await wait_state(eng, first["task_id"])
 
 
-async def test_new_input_while_answering_is_refused(tmp_path):
-    eng, rec = make_engine(tmp_path, delay_ms=20)
+async def test_new_input_while_answering_joins_the_task(tmp_path):
+    log = tmp_path / "calls.jsonl"
+    eng, rec = make_engine(tmp_path / "db", delay_ms=20, call_log=str(log))
     r = submit(eng)
-    with pytest.raises(ProtocolError) as err:
-        submit(eng, text="again", command_id="c2", conversation_id=r["conversation_id"])
-    assert err.value.name == "Busy"
-    await wait_state(eng, r["task_id"])
-    second = submit(eng, text="again", command_id="c3", conversation_id=r["conversation_id"])
-    assert await wait_state(eng, second["task_id"]) == S.COMPLETED
+    await wait_deltas(rec, 2)  # mid-reply
+    steer = submit(eng, text="actually, in French", command_id="c2", conversation_id=r["conversation_id"])
+    assert steer["steer"] and steer["task_id"] == r["task_id"]
+    assert await wait_state(eng, r["task_id"]) == S.COMPLETED
+    calls = [json.loads(line)["last_user"] for line in log.read_text().splitlines()]
+    assert calls == ["hello", "actually, in French"]  # the model answered again, with the new message
+    roles = [m["role"] for m in repo.history(eng.store, r["conversation_id"])]
+    assert roles == ["user", "user", "assistant", "assistant"]
 
 
 async def test_cancel_mid_stream_persists_request_first_and_keeps_a_draft(tmp_path):
@@ -195,7 +199,7 @@ async def test_crash_recovery_interrupts_with_draft_and_never_resends(tmp_path, 
     queued = submit(eng, text="queued", command_id="c2")
     await wait_deltas(rec, 3)
     # Simulate a crash: the process dies mid-turn, nothing gets to finish its bookkeeping.
-    monkeypatch.setattr(Engine, "_finish", lambda *a, **k: None)
+    monkeypatch.setattr(TaskLoop, "_stopped", lambda *a, **k: None)
     for runner in list(eng._runners.values()):
         runner.cancel()
     await asyncio.sleep(0.05)

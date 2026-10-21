@@ -12,8 +12,9 @@ Options (from `ProviderConfig.options`):
   call_log     path of a JSON-lines file; every call appends the request it got (for crash and
                disclosure tests)
   script       a list of turns, each {"text", "thinking", "tool_calls": [{"name", "arguments"}]};
-               the turn used is the number of assistant turns since the last user message, so
-               each tool round trip moves one step. Past the end, the reply above is used.
+               the turn used is the number of assistant turns since the person's last message, so
+               each tool round trip (or runtime note) moves one step. Past the end, the reply
+               above is used.
   scripts      {substring: script}: the script for a last user message containing the substring
                (checked before `script`; lets a test steer a task onto another script)
   cloud        report itself as a cloud provider (disclosure tests)
@@ -38,7 +39,8 @@ class FakeProvider:
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
         opts = self._options
-        last_user = next((t.content for t in reversed(request.messages) if t.role == "user"), "")
+        last_user = next((t.content for t in reversed(request.messages)
+                      if t.role == "user" and not t.content.startswith("<runtime_note>")), "")
         if opts.get("call_log"):
             with open(opts["call_log"], "a") as f:
                 f.write(json.dumps({"t": time.time(), "messages": len(request.messages), "last_user": last_user,
@@ -76,7 +78,7 @@ def _scripted_turn(opts: dict, request: ModelRequest, last_user: str) -> dict | 
         return None
     since_user = 0
     for turn in reversed(request.messages):
-        if turn.role == "user":
+        if turn.role == "user" and not turn.content.startswith("<runtime_note>"):  # Mei's notes don't restart it
             break
         since_user += turn.role == "assistant"
     return script[since_user] if since_user < len(script) else None

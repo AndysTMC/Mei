@@ -1,106 +1,68 @@
-"""Task engine for Stage 1: durable chat turns (architecture §7–§8, §15).
+"""Task engine: commands, scheduling, and recovery (architecture §7–§8, §15).
 
-Commands are synchronous: they validate, change the store in one transaction, publish the
-committed events, and only then schedule work. Model calls run as asyncio tasks. Waiting is a
-stored state, so a restart can always pick up from the database.
+Commands are synchronous: they validate, change the store in one transaction, publish the committed
+events, and only then schedule work. Each runnable task gets one asyncio runner, which drives the
+agent loop (core/loop.py) until the task waits or ends. Waiting is a stored state, so a restart can
+always pick up from the database.
 """
 
 import asyncio
+import json
 import logging
-import random
-import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
-from typing import Protocol
+from pathlib import Path
 
 import msgspec
 
-from mei.obs import redact
-from mei.protocol import (MAX_INPUT_CHARS, ConversationCommandArgs, active_provider, Envelope, ProtocolError,
-                          ProviderConfig, SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs)
-from mei.providers.base import (ChatTurn, Done, IncompleteResponse, ModelRequest, Provider, ProviderError,
-                                TextDelta, ThinkingDelta, Usage)
-from mei.providers.factory import label_of
-from mei.store import repo
-from mei.store.db import Store, Tx, iso_now, new_id, now_ms
+from mei.capabilities.base import Env
+from mei.capabilities.registry import Registry
+from mei.core.states import TERMINAL, Disposition, Execution, TaskState
+from mei.protocol import (MAX_INPUT_CHARS, AnswerInputArgs, ConversationCommandArgs, ProtocolError,
+                          ProviderConfig, ResolveApprovalArgs, RevokeGrantArgs, SubmitInputArgs, TaskCommandArgs,
+                          UpdateConfigArgs, active_provider)
+from mei.policy.engine import Subject, rules_for
+from mei.providers.base import Provider
+from mei.store import agent, repo
+from mei.store.db import Store, Tx, now_ms
 
-from .states import TERMINAL, TaskState
+from . import finish, ledger, recovery
+from .loop import MORE_CALLS, MORE_TIME_MS, Deps, TaskLoop
+from .streaming import Publisher, Streamer
 
 log = logging.getLogger("mei.engine")
-
-DELTA_COALESCE_S = 0.033
-DRAFT_EVERY_S = 2.0
-DRAFT_EVERY_CHARS = 2048
-TURN_TIMEOUT_S = 600.0
-MAX_ATTEMPTS = 3
-RETRY_BASE_S = 1.0
-S = TaskState
-
-
-class Publisher(Protocol):
-    def publish(self, events: list[Envelope]) -> None: ...
-    def publish_ephemeral(self, event: Envelope) -> None: ...
-
-
+S, E = TaskState, Execution
 ProviderFactory = Callable[[ProviderConfig], Awaitable[Provider]]
 
 
-@dataclass
-class Stream:
-    """An assistant message being streamed. `text`/`thinking` hold what was already published."""
-
-    conversation_id: str
-    task_id: str
-    turn_id: str
-    message_id: str
-    text: str = ""
-    thinking: str = ""
-    chunk: int = 0
-    pending_text: str = ""
-    pending_thinking: str = ""
-    flush_handle: asyncio.TimerHandle | None = None
-    draft_at: float = field(default_factory=time.monotonic)
-    draft_len: int = 0
-
-    def view(self) -> dict:
-        return {"conversation_id": self.conversation_id, "task_id": self.task_id,
-                "message_id": self.message_id, "text": self.text, "thinking": self.thinking,
-                "chunk": self.chunk}
-
-
 class Engine:
-    def __init__(self, store: Store, publisher: Publisher | None, provider_factory: ProviderFactory,
-                 *, max_concurrent: int = 2) -> None:
+    def __init__(self, store: Store, publisher: Publisher | None, provider_factory: ProviderFactory, *,
+                 registry: Registry | None = None, env: Env | None = None, max_concurrent: int = 2,
+                 boundary: Callable[[str], None] = lambda _name: None) -> None:
         self.store = store
         self.publisher = publisher
-        self._make_provider = provider_factory
         self._slots = asyncio.Semaphore(max_concurrent)
         self._runners: dict[str, asyncio.Task] = {}
         self._shutting_down = False
-        self.streams: dict[str, Stream] = {}
+        self.env = env or Env(home=Path.home(), data_dir=store.path.parent)
+        self.streamer = Streamer(store, lambda: self.publisher)
+        self.loop = TaskLoop(Deps(store=store, publish=self._publish, streamer=self.streamer,
+                                  make_provider=provider_factory, registry=registry or Registry([]), env=self.env,
+                                  boundary=boundary))
+
+    @property
+    def streams(self) -> dict:
+        return self.streamer.streams
+
+    def _publish(self, events) -> None:
+        self.publisher.publish(events)
 
     # ── Lifecycle ───────────────────────────────────────────────────────────
 
     def recover(self) -> None:
         """Startup reconciliation (§15). Call once, before accepting commands."""
-        to_start: list[str] = []
         with self.store.tx() as tx:
-            tx.execute("UPDATE turns SET state = 'lost' WHERE state = 'running' AND epoch != ?", (self.store.epoch,))
-            placeholders = ",".join("?" for _ in TERMINAL)
-            for row in tx.execute(f"SELECT * FROM tasks WHERE state NOT IN ({placeholders})", tuple(TERMINAL)).fetchall():
-                state = S(row["state"])
-                if state == S.ACCEPTED:
-                    to_start.append(row["id"])
-                elif state == S.CANCEL_REQUESTED:
-                    task = repo.set_task_state(tx, row["id"], S.CANCELLED)
-                    repo.finished_event(tx, task, draft=_draft(tx, row["id"]))
-                elif state != S.INTERRUPTED:
-                    # The model call or action was in flight when the runtime died. Don't re-send it
-                    # automatically: the upstream call may already have been billed (§15).
-                    task = repo.set_task_state(tx, row["id"], S.INTERRUPTED,
-                                               error="Mei stopped while this reply was being written")
-                    repo.finished_event(tx, task, draft=_draft(tx, row["id"]))
-        self.publisher.publish(tx.events)
+            to_start = recovery.reconcile(tx, self.store.epoch)
+        self._publish(tx.events)
         for task_id in to_start:
             self._schedule(task_id)
         if tx.events or to_start:
@@ -133,17 +95,41 @@ class Engine:
                 if repo.get_conversation(tx, args.conversation_id) is None:
                     raise ProtocolError("NotFound", "no such conversation")
                 conversation_id = args.conversation_id
-                if repo.blocking_task(tx, conversation_id) is not None:
-                    raise ProtocolError("Busy", "Mei is still answering in this conversation")
+                active = repo.blocking_task(tx, conversation_id)
+                if active is not None:
+                    return self._steer(tx, active, text)
                 for old in repo.interrupted_tasks(tx, conversation_id):  # superseded by the new message
-                    repo.finished_event(tx, repo.set_task_state(tx, old["id"], S.CANCELLED,
-                                                                error="replaced by a new message"))
+                    ledger.cancel_now(tx, old["id"], error="replaced by a new message")
             message = repo.add_message(tx, conversation_id, "user", text)
             task = repo.create_task(tx, conversation_id, message["id"], msgspec.to_builtins(provider))
-            result = {"conversation_id": conversation_id, "task_id": task["id"], "message_id": message["id"]}
+            result = {"conversation_id": conversation_id, "task_id": task["id"], "message_id": message["id"],
+                      "steer": False}
             return result, [task["id"]]
 
         return self._command("SubmitInput", args, apply)
+
+    def _steer(self, tx: Tx, active, text: str) -> tuple[dict, list[str]]:
+        """New input while a task runs joins that task (§8.1). Unstarted actions are skipped and a
+        pending approval or question is superseded; the model then reads the new message."""
+        state = S(active["state"])
+        if state == S.CANCEL_REQUESTED:
+            raise ProtocolError("Busy", "Mei is stopping the current task")
+        message = repo.add_message(tx, active["conversation_id"], "user", text, task_id=active["id"])
+        result = {"conversation_id": active["conversation_id"], "task_id": active["id"], "message_id": message["id"],
+                  "steer": True}
+        if state not in (S.WAITING_APPROVAL, S.WAITING_INPUT):
+            return result, []  # running or queued: the loop sees the message at its next step
+        task = repo.task_dict(active)
+        batch = agent.open_batch(tx, active["id"])
+        if batch is not None:
+            ledger.skip_rest(tx, task, batch["id"], "the person sent a new message instead")
+        request = agent.pending_input(tx, active["id"])
+        if request is not None:
+            agent.close_input_request(tx, request["id"], "superseded")
+        tx.execute("UPDATE tasks SET call_budget = MAX(call_budget, model_calls + ?) WHERE id = ?",
+                   (MORE_CALLS, active["id"]))  # they're here and engaged: a fresh step allowance
+        repo.set_task_state(tx, active["id"], S.RUNNING)
+        return result, [active["id"]]
 
     def cancel(self, args: TaskCommandArgs) -> dict:
         def apply(tx: Tx) -> tuple[dict, list[str]]:
@@ -153,11 +139,10 @@ class Engine:
             state = S(row["state"])
             if state in TERMINAL or state == S.CANCEL_REQUESTED:
                 return {"task_id": args.task_id, "state": state}, []
-            if state in (S.ACCEPTED, S.INTERRUPTED):
-                # Not running (at most waiting for a slot): stop it outright. A waiting runner finds
-                # the terminal state when it gets its slot and returns.
-                task = repo.set_task_state(tx, args.task_id, S.CANCELLED)
-                repo.finished_event(tx, task, draft=_draft(tx, args.task_id) if state == S.INTERRUPTED else None)
+            if state in (S.ACCEPTED, S.INTERRUPTED, S.WAITING_APPROVAL, S.WAITING_INPUT, S.WAITING_RESOURCE):
+                # Nothing is running (at most a runner waits for a slot; it finds the terminal state).
+                draft = recovery.draft(tx, args.task_id) if state == S.INTERRUPTED else None
+                ledger.cancel_now(tx, args.task_id, draft=draft)
                 return {"task_id": args.task_id, "state": S.CANCELLED}, []
             # Persist the request before signalling the runner (invariant 7).
             repo.set_task_state(tx, args.task_id, S.CANCEL_REQUESTED)
@@ -165,9 +150,18 @@ class Engine:
 
         result = self._command("Cancel", args, apply)
         runner = self._runners.get(args.task_id)
-        if runner is not None and result["state"] == S.CANCEL_REQUESTED:
-            runner.cancel()
+        if result["state"] == S.CANCEL_REQUESTED:
+            if runner is not None:
+                runner.cancel()
+            else:
+                self._settle_cancel(args.task_id)
         return result
+
+    def _settle_cancel(self, task_id: str) -> None:
+        with self.store.tx() as tx:
+            if S(repo.get_task(tx, task_id)["state"]) == S.CANCEL_REQUESTED:
+                ledger.cancel_now(tx, task_id)
+        self._publish(tx.events)
 
     def resume(self, args: TaskCommandArgs) -> dict:
         def apply(tx: Tx) -> tuple[dict, list[str]]:
@@ -181,6 +175,93 @@ class Engine:
             return {"task_id": args.task_id, "state": S.INTERRUPTED}, [args.task_id]
 
         return self._command("Resume", args, apply)
+
+    def resolve_approval(self, args: ResolveApprovalArgs, decided_by: str) -> dict:
+        """The person's answer on an approval card. Bound to the exact params it was asked for."""
+        def apply(tx: Tx) -> tuple[dict, list[str]]:
+            approval = agent.get_approval(tx, args.approval_id)
+            if approval is None:
+                raise ProtocolError("NotFound", "no such approval")
+            if approval["state"] != "pending":
+                raise ProtocolError("Conflict", f"this approval was already {approval['state']}")
+            action = agent.get_action(tx, approval["action_id"])
+            if E(action["execution"]) != E.AWAITING_APPROVAL or action["params_hash"] != approval["params_hash"]:
+                raise ProtocolError("Conflict", "the action changed since it was shown")
+            task = repo.task_dict(repo.get_task(tx, approval["task_id"]))
+            card = json.loads(approval["card"])
+            if args.decision == "deny":
+                agent.resolve_approval(tx, approval["id"], "denied", decided_by=decided_by)
+                ledger.finish_action(tx, task, action, E.DENIED, "The person declined this. Don't try another way "
+                                     "around it; tell them what you couldn't do.", is_error=True)
+            else:
+                if args.scope not in card.get("scopes", ["once"]):
+                    raise ProtocolError("InvalidArgument", f"this card doesn't offer “{args.scope}”")
+                agent.resolve_approval(tx, approval["id"], "allowed", scope=args.scope, decided_by=decided_by)
+                agent.update_action(tx, action["id"], E.AUTHORIZED)
+                if args.scope in ("task", "always"):
+                    subjects = tuple(msgspec.convert(r, Subject) for r in json.loads(action["resources"]))
+                    agent.create_grant(tx, task_id=task["id"] if args.scope == "task" else None,
+                                       capability=action["capability"],
+                                       rules=[msgspec.to_builtins(r) for r in rules_for(subjects)],
+                                       description=card.get("scope_text", {}).get(args.scope, card.get("title", "")),
+                                       approval_id=approval["id"])
+            repo.set_task_state(tx, task["id"], S.RUNNING)
+            return {"approval_id": approval["id"], "state": "denied" if args.decision == "deny" else "allowed"}, \
+                [task["id"]]
+
+        return self._command("ResolveApproval", args, apply)
+
+    def answer_input(self, args: AnswerInputArgs) -> dict:
+        def apply(tx: Tx) -> tuple[dict, list[str]]:
+            request = agent.get_input_request(tx, args.request_id)
+            if request is None:
+                raise ProtocolError("NotFound", "no such question")
+            if request["state"] != "pending":
+                raise ProtocolError("Conflict", f"this question was already {request['state']}")
+            spec = json.loads(request["spec"])
+            value = _valid_answer(spec, args.value)
+            task = repo.task_dict(repo.get_task(tx, request["task_id"]))
+            agent.close_input_request(tx, request["id"], "answered", answer=value)
+            if request["kind"] == "continue" and value == "Stop":
+                final = repo.set_task_state(tx, task["id"], S.BLOCKED, error="Stopped at the step limit")
+                repo.finished_event(tx, final)
+                return {"request_id": request["id"], "state": "answered"}, []
+            if request["kind"] == "continue":
+                tx.execute("UPDATE tasks SET call_budget = model_calls + ?, time_budget_ms = active_ms + ? "
+                           "WHERE id = ?", (MORE_CALLS, MORE_TIME_MS, task["id"]))
+            else:
+                self._answer_action(tx, task, request, value)
+            repo.set_task_state(tx, task["id"], S.RUNNING)
+            return {"request_id": request["id"], "state": "answered"}, [task["id"]]
+
+        return self._command("AnswerInput", args, apply)
+
+    def _answer_action(self, tx: Tx, task: dict, request, value) -> None:
+        action = agent.get_action(tx, request["action_id"])
+        if request["kind"] == "question":
+            agent.update_action(tx, action["id"], E.STARTED, epoch=self.store.epoch)
+            ledger.finish_action(tx, task, action, E.SUCCEEDED, finish.answer_text(json.loads(request["spec"]), value),
+                                 is_error=False, result={"ok": True, "summary": "Asked you a question"})
+            return
+        yes, no, _unsure = ledger.IN_DOUBT_CHOICES  # an action in doubt after a restart (§15)
+        if value == yes:
+            ledger.finish_action(tx, task, action, E.SUCCEEDED, "The person confirmed this was done.", is_error=False,
+                                 disposition=Disposition.CONFIRMED, result={"ok": True, "summary": action["description"]})
+        elif value == no:
+            ledger.finish_action(tx, task, action, E.FAILED, "The person says this didn't happen. You can try again.",
+                                 is_error=True, disposition=Disposition.NONE, error="interrupted")
+        else:
+            ledger.finish_action(tx, task, action, E.ABANDONED, "Nobody knows whether this happened; don't assume "
+                                 "it did. Check before relying on it.", is_error=True, disposition=Disposition.UNKNOWN)
+
+    def list_grants(self) -> dict:
+        return {"grants": [agent.grant_view(g) for g in agent.persistent_grants(self.store)]}
+
+    def revoke_grant(self, args: RevokeGrantArgs) -> dict:
+        def apply(tx: Tx) -> tuple[dict, list[str]]:
+            return {"grant_id": args.grant_id, "revoked": agent.revoke_grant(tx, args.grant_id)}, []
+
+        return self._command("RevokeGrant", args, apply)
 
     def delete_conversation(self, args: ConversationCommandArgs) -> dict:
         def apply(tx: Tx) -> tuple[dict, list[str]]:
@@ -199,7 +280,7 @@ class Engine:
             return {"revision": revision, "changed": False}
         with self.store.tx() as tx:
             revision = repo.put_config(tx, args.revision, args.config)
-        self.publisher.publish(tx.events)
+        self._publish(tx.events)
         if args.config.privacy != current.privacy:
             self.apply_retention()
         return {"revision": revision, "changed": True}
@@ -207,7 +288,7 @@ class Engine:
     def apply_retention(self, now: int | None = None) -> int:
         """Delete conversations untouched for longer than the user's retention setting (§14.4).
 
-        Conversations with a reply still in progress are left for the next pass.
+        Conversations with a task still in progress are left for the next pass.
         """
         _revision, config = repo.get_config(self.store)
         days = config.privacy.conversation_retention_days
@@ -221,7 +302,7 @@ class Engine:
                 if repo.blocking_task(tx, row["id"]) is not None:
                     continue
                 repo.delete_conversation(tx, row["id"])
-            self.publisher.publish(tx.events)
+            self._publish(tx.events)
             deleted += 1
         if deleted:
             log.info("retention: deleted %d conversation%s older than %d days", deleted, "s" if deleted != 1 else "", days)
@@ -239,12 +320,12 @@ class Engine:
                 return {**prior, "duplicate": True}
             result, to_start = apply(tx)
             repo.record_command(tx, args.command_id, method, digest, result)
-        self.publisher.publish(tx.events)
+        self._publish(tx.events)
         for task_id in to_start:
             self._schedule(task_id)
         return {**result, "duplicate": False}
 
-    # ── Running a turn ──────────────────────────────────────────────────────
+    # ── Running ─────────────────────────────────────────────────────────────
 
     def _schedule(self, task_id: str) -> None:
         if task_id in self._runners or self._shutting_down:
@@ -254,133 +335,39 @@ class Engine:
         runner.add_done_callback(lambda _t: self._runners.pop(task_id, None))
 
     async def _run(self, task_id: str) -> None:
-        async with self._slots:
-            row = repo.get_task(self.store, task_id)
-            if row is None or S(row["state"]) not in (S.ACCEPTED, S.INTERRUPTED):
-                return
-            provider_cfg = msgspec.convert(_loads(row["provider"]), ProviderConfig)
-            label = {"id": provider_cfg.id, "label": label_of(provider_cfg), "model": provider_cfg.model}
-            with self.store.tx() as tx:
-                repo.set_task_state(tx, task_id, S.RUNNING)
-                turn = repo.begin_turn(tx, task_id, self.store.epoch, label)
-            self.publisher.publish(tx.events)
-            stream = Stream(row["conversation_id"], task_id, turn["id"], turn["message_id"])
-            self.streams[stream.message_id] = stream
-            started = time.monotonic()
-            usage: Usage | None = None
-            try:
-                provider = await self._make_provider(provider_cfg)
-                messages = repo.history(self.store, row["conversation_id"],
-                                        up_to_ordinal=repo.message_ordinal(self.store, row["input_message_id"]))
-                request = ModelRequest([ChatTurn(m["role"], m["content"]) for m in messages])
-                async with asyncio.timeout(TURN_TIMEOUT_S):
-                    for attempt in range(1, MAX_ATTEMPTS + 1):
-                        try:
-                            async for event in provider.stream(request):
-                                if isinstance(event, TextDelta):
-                                    stream.pending_text += event.text
-                                    self._queue_flush(stream)
-                                elif isinstance(event, ThinkingDelta):
-                                    stream.pending_thinking += event.text
-                                    self._queue_flush(stream)
-                                elif isinstance(event, Usage):
-                                    usage = event
-                                elif isinstance(event, Done):
-                                    break
-                            break
-                        except ProviderError as e:
-                            # Retry only transient refusals that arrived before any output: the
-                            # provider didn't produce anything, so asking again can't duplicate it.
-                            started_output = stream.chunk > 0 or stream.pending_text or stream.pending_thinking
-                            if not e.retryable or started_output or attempt == MAX_ATTEMPTS:
-                                raise
-                            delay = RETRY_BASE_S * (3 ** (attempt - 1)) * random.uniform(0.8, 1.2)
-                            log.warning("%s; retrying in %.1f s (attempt %d of %d)", e, delay, attempt + 1,
-                                        MAX_ATTEMPTS, extra={"task_id": task_id})
-                            await asyncio.sleep(delay)
-                self._flush(stream)
-                metadata = {**label, "duration_ms": int((time.monotonic() - started) * 1000)}
-                if usage is not None:
-                    metadata["tokens"] = {"input": usage.input_tokens, "output": usage.output_tokens}
-                self._finish(task_id, stream, S.COMPLETED, message_metadata=metadata)
-            except asyncio.CancelledError:
-                self._flush(stream)
-                if self._shutting_down:
-                    self._finish(task_id, stream, S.INTERRUPTED, error="Mei was restarting", turn_state="lost")
-                else:
-                    self._finish(task_id, stream, S.CANCELLED)
-            except IncompleteResponse as e:
-                # The provider stopped mid-reply. Keep what arrived and let the user resume it,
-                # rather than presenting a cut-off answer as complete.
-                self._flush(stream)
-                self._finish(task_id, stream, S.INTERRUPTED, error=redact(str(e)))
-            except ProviderError as e:
-                self._flush(stream)
-                self._finish(task_id, stream, S.FAILED, error=redact(str(e)))
-            except TimeoutError:
-                self._flush(stream)
-                self._finish(task_id, stream, S.FAILED, error=f"no complete reply within {int(TURN_TIMEOUT_S)} s")
-            except Exception:
-                log.exception("turn failed", extra={"task_id": task_id})
-                self._flush(stream)
-                self._finish(task_id, stream, S.FAILED, error="internal error (see the Mei runtime log)")
-            finally:
-                self.streams.pop(stream.message_id, None)
-
-    def _finish(self, task_id: str, stream: Stream, to: TaskState, *, error: str | None = None,
-                message_metadata: dict | None = None, turn_state: str = "done") -> None:
-        with self.store.tx() as tx:
-            current = S(repo.get_task(tx, task_id)["state"])
-            if current in TERMINAL:
-                return
-            if current == S.CANCEL_REQUESTED and to != S.FAILED:
-                to = S.CANCELLED  # the user's stop wins, even over a reply that just completed
-            elif to == S.CANCELLED:
-                to = S.INTERRUPTED  # cancelled without a user request: treat as an interruption
-            draft = {"text": stream.text, "thinking": stream.thinking}
-            if to == S.COMPLETED:
-                repo.add_message(tx, stream.conversation_id, "assistant", stream.text, task_id=task_id,
-                                 thinking=stream.thinking or None, metadata=message_metadata,
-                                 message_id=stream.message_id)
-            else:
-                tx.execute("UPDATE turns SET draft_text = ?, draft_thinking = ?, draft_chunk = ? WHERE id = ?",
-                           (stream.text, stream.thinking, stream.chunk, stream.turn_id))
-            repo.finish_turn(tx, stream.turn_id, turn_state)
-            task = repo.set_task_state(tx, task_id, to, error=error)
-            repo.finished_event(tx, task, draft=None if to == S.COMPLETED else draft)
-        self.publisher.publish(tx.events)
-
-    def _queue_flush(self, stream: Stream) -> None:
-        if stream.flush_handle is None:
-            stream.flush_handle = asyncio.get_running_loop().call_later(DELTA_COALESCE_S, self._flush, stream)
-
-    def _flush(self, stream: Stream) -> None:
-        if stream.flush_handle is not None:
-            stream.flush_handle.cancel()
-            stream.flush_handle = None
-        if not stream.pending_text and not stream.pending_thinking:
-            return
-        text, thinking = stream.pending_text, stream.pending_thinking
-        stream.pending_text = stream.pending_thinking = ""
-        stream.text += text
-        stream.thinking += thinking
-        stream.chunk += 1
-        self.publisher.publish_ephemeral(Envelope(
-            type="message.delta", event_id=new_id(), epoch=self.store.epoch, at=iso_now(), required=False,
-            conversation_id=stream.conversation_id, task_id=stream.task_id,
-            payload={"message_id": stream.message_id, "chunk": stream.chunk, "text": text, "thinking": thinking}))
-        size = len(stream.text) + len(stream.thinking)
-        if size - stream.draft_len >= DRAFT_EVERY_CHARS or time.monotonic() - stream.draft_at >= DRAFT_EVERY_S:
-            repo.save_draft(self.store, stream.turn_id, stream.text, stream.thinking, stream.chunk)
-            stream.draft_at = time.monotonic()
-            stream.draft_len = size
+        try:
+            async with self._slots:
+                row = repo.get_task(self.store, task_id)
+                if row is None or S(row["state"]) not in (S.ACCEPTED, S.INTERRUPTED, S.RUNNING):
+                    return
+                if S(row["state"]) != S.RUNNING:
+                    with self.store.tx() as tx:
+                        repo.set_task_state(tx, task_id, S.RUNNING)
+                    self._publish(tx.events)
+                await self.loop.run(task_id)
+        except asyncio.CancelledError:
+            # Stopped while waiting for a slot: the loop never ran, so settle a stop here.
+            if not self._shutting_down:
+                self._settle_cancel(task_id)
+            raise
 
 
-def _draft(tx: Tx, task_id: str) -> dict | None:
-    turn = repo.latest_turn(tx, task_id)
-    return None if turn is None else {"text": turn["draft_text"], "thinking": turn["draft_thinking"]}
-
-
-def _loads(text: str) -> dict:
-    return msgspec.json.decode(text)
-
+def _valid_answer(spec: dict, value):
+    choices, fields = spec.get("choices") or [], spec.get("fields") or []
+    if fields:
+        if not isinstance(value, dict):
+            raise ProtocolError("InvalidArgument", "this question takes a form")
+        names = {f["name"]: f for f in fields}
+        unknown = set(value) - set(names)
+        if unknown:
+            raise ProtocolError("InvalidArgument", f"unknown fields: {sorted(unknown)}")
+        for name, answer in value.items():
+            options = names[name].get("options") or []
+            if names[name].get("kind") == "select" and options and answer not in options:
+                raise ProtocolError("InvalidArgument", f"{name} must be one of {options}")
+        return value
+    if not isinstance(value, str) or not value.strip() or len(value) > MAX_INPUT_CHARS:
+        raise ProtocolError("InvalidArgument", "the answer must be text")
+    if choices and value not in choices:
+        raise ProtocolError("InvalidArgument", f"the answer must be one of {choices}")
+    return value.strip()

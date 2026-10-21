@@ -1,0 +1,438 @@
+"""The agent loop (§8.2): model → decide → act → record, until the task waits or ends.
+
+Waiting is a stored state, not a coroutine: an approval, a question, or a restart ends the run, and
+the next run finds the open batch and continues at its cursor. The model is called again only once
+every action of a batch has a terminal state and a durable result (invariant 3), and it never sees
+an observation before that observation is stored (invariant 5).
+"""
+
+import asyncio
+import datetime
+import json
+import logging
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+
+import msgspec
+
+from mei.capabilities.base import ActionContext, ActionResult, Capability, CapabilityError, CheckResult, Env
+from mei.capabilities.registry import Registry
+from mei.core.states import ACTION_TERMINAL, TERMINAL, Disposition, Execution, TaskState, Verification
+from mei.obs import redact
+from mei.protocol import Envelope, ProviderConfig
+from mei.providers.base import IncompleteResponse, Provider, ProviderError
+from mei.providers.factory import label_of
+from mei.store import agent, repo
+from mei.store.db import Store
+
+from . import context, decide, finish, ledger
+from .streaming import CALL_TIMEOUT_S, Reply, Stream, Streamer
+
+log = logging.getLogger("mei.loop")
+E, S, V = Execution, TaskState, Verification
+MAX_ACTION_S = 600.0
+MORE_CALLS = 25
+MORE_TIME_MS = 30 * 60 * 1000
+REPEAT_TEXT = ("Refused: you've already made this exact call twice. Don't repeat it; reconsider the approach, "
+               "or ask the person with ask_user.")
+
+
+class Crash(BaseException):
+    """Test hook: the runtime dies at a named boundary (not an Exception, so nothing catches it)."""
+
+
+@dataclass
+class Deps:
+    store: Store
+    publish: Callable[[list[Envelope]], None]
+    streamer: Streamer
+    make_provider: Callable[[ProviderConfig], Awaitable[Provider]]
+    registry: Registry
+    env: Env
+    boundary: Callable[[str], None] = field(default=lambda _name: None)
+    now: Callable[[], datetime.datetime] = field(default=lambda: datetime.datetime.now(datetime.UTC))
+
+
+@dataclass
+class _InFlight:
+    stream: Stream | None = None
+    action_id: str | None = None
+
+
+class TaskLoop:
+    def __init__(self, deps: Deps) -> None:
+        self.d = deps
+
+    async def run(self, task_id: str) -> None:
+        """Drive a RUNNING task until it waits or ends. Re-raises CancelledError after settling."""
+        flight = _InFlight()
+        try:
+            await self._drive(task_id, flight)
+        except asyncio.CancelledError:
+            self._stopped(task_id, flight)
+            raise
+        except IncompleteResponse as e:
+            self._end(task_id, flight, S.INTERRUPTED, redact(str(e)))  # cut off: keep it and let them resume
+        except ProviderError as e:
+            self._end(task_id, flight, S.FAILED, redact(str(e)))
+        except TimeoutError:
+            self._end(task_id, flight, S.FAILED, f"no complete reply within {int(CALL_TIMEOUT_S)} s")
+        except Exception:
+            log.exception("task failed", extra={"task_id": task_id})
+            self._end(task_id, flight, S.FAILED, "internal error (see the Mei runtime log)")
+
+    async def _drive(self, task_id: str, flight: _InFlight) -> None:
+        while True:
+            task = repo.get_task(self.d.store, task_id)
+            if S(task["state"]) != S.RUNNING:
+                return
+            batch = agent.open_batch(self.d.store, task_id)
+            if batch is not None:
+                if not await self._run_batch(task, batch, flight):
+                    return
+                continue
+            if self._ask_to_continue(task):
+                return
+            await self._model_step(task, flight)
+
+    # ── Model ───────────────────────────────────────────────────────────────
+
+    async def _model_step(self, task, flight: _InFlight) -> None:
+        store = self.d.store
+        cfg = msgspec.convert(json.loads(task["provider"]), ProviderConfig)
+        _revision, config = repo.get_config(store)
+        seen = ledger.last_ordinal(store, task["conversation_id"])
+        request = context.build(context.Inputs(store, self.d.env, self.d.registry, config.privacy, cfg, self.d.now()),
+                                task)
+        label = {"id": cfg.id, "label": label_of(cfg), "model": cfg.model}
+        with store.tx() as tx:
+            turn = repo.begin_turn(tx, task["id"], store.epoch, label)
+        self.d.publish(tx.events)
+        flight.stream = Stream(task["conversation_id"], task["id"], turn["id"], turn["message_id"])
+        provider = await self.d.make_provider(cfg)
+        self.d.boundary("model_call")
+        reply = await self.d.streamer.call(provider, request, flight.stream)
+        self._commit_reply(task, turn, reply, label, seen)
+        flight.stream = None
+        self.d.boundary("reply_committed")
+
+    def _commit_reply(self, task, turn: dict, reply: Reply, label: dict, seen: int) -> None:
+        store = self.d.store
+        metadata = {**label, "duration_ms": reply.duration_ms}
+        if reply.usage is not None:
+            metadata["tokens"] = {"input": reply.usage.input_tokens, "output": reply.usage.output_tokens}
+        if reply.tools_dropped:
+            metadata["tools_dropped"] = True
+        calls = [{"id": c.id, "name": c.name, "arguments": c.arguments, "signature": c.signature} for c in reply.calls]
+        replay = {"format": reply.replay.format, "data": reply.replay.data} if reply.replay else None
+        taskd = repo.task_dict(task)
+        with store.tx() as tx:
+            message = repo.add_message(tx, task["conversation_id"], "assistant", reply.text, task_id=task["id"],
+                                       thinking=reply.thinking or None, metadata=metadata,
+                                       message_id=turn["message_id"], tool_calls=calls or None, replay=replay)
+            repo.finish_turn(tx, turn["id"], "done")
+            tx.execute("UPDATE tasks SET model_calls = model_calls + 1, active_ms = active_ms + ? WHERE id = ?",
+                       (reply.duration_ms, task["id"]))
+            if calls:
+                agent.create_batch(tx, taskd, message["id"], calls, seen)
+            elif ledger.steer_pending(tx, task["id"], seen):
+                pass  # the person wrote while the model answered: go round again with their message
+            elif not ledger.mutated(tx, task["id"]):
+                final = repo.set_task_state(tx, task["id"], S.COMPLETED)  # an answer: no outcome to claim
+                repo.finished_event(tx, final)
+            elif task["nudges"] == 0:
+                repo.add_message(tx, task["conversation_id"], "system", finish.NUDGE, task_id=task["id"])
+                tx.execute("UPDATE tasks SET nudges = nudges + 1 WHERE id = ?", (task["id"],))
+            else:
+                checked = [finish.Checked(i, c.get("text", ""), c.get("check"), None)
+                           for i, c in enumerate(json.loads(task["plan"]).get("criteria") or [])]
+                finish.complete(tx, taskd, finish.outcome(checked, None, note="the model didn't report against "
+                                                                               "its criteria"), text="")
+        self.d.publish(tx.events)
+
+    def _ask_to_continue(self, task) -> bool:
+        over_calls = task["model_calls"] >= task["call_budget"]
+        if not over_calls and task["active_ms"] < task["time_budget_ms"]:
+            return False
+        question = (f"Mei has taken {task['model_calls']} steps on this task. Keep going?" if over_calls else
+                    f"Mei has worked on this for {task['active_ms'] // 60000} minutes. Keep going?")
+        with self.d.store.tx() as tx:
+            agent.create_input_request(tx, repo.task_dict(task), "continue",
+                                       {"question": question, "choices": ["Keep going", "Stop"], "fields": []})
+            repo.set_task_state(tx, task["id"], S.WAITING_INPUT)
+        self.d.publish(tx.events)
+        return True
+
+    # ── Batches ─────────────────────────────────────────────────────────────
+
+    async def _run_batch(self, task, batch, flight: _InFlight) -> bool:
+        """Work through the batch from its cursor. False: the task now waits or has ended."""
+        store = self.d.store
+        for position in range(batch["cursor"], batch["size"]):
+            task = repo.get_task(store, task["id"])
+            if S(task["state"]) != S.RUNNING:
+                return False
+            action = store.read_one("SELECT * FROM actions WHERE batch_id = ? AND position = ?", (batch["id"], position))
+            state = E(action["execution"])
+            if state in ACTION_TERMINAL:
+                continue
+            if state in (E.PROPOSED, E.AUTHORIZED) and ledger.steer_pending(store, task["id"], batch["seen_ordinal"]):
+                with store.tx() as tx:
+                    ledger.skip_rest(tx, repo.task_dict(task), batch["id"], "the person sent a new message first")
+                self.d.publish(tx.events)
+                return True
+            if state == E.PROPOSED:
+                state = self._decide(task, batch, action)
+            if state == E.AWAITING_APPROVAL:
+                return False
+            if state == E.IN_DOUBT:
+                if not await self._settle_in_doubt(task, agent.get_action(store, action["id"]), flight):
+                    return False
+                continue
+            if state == E.AUTHORIZED and not await self._authorized(task, agent.get_action(store, action["id"]), flight):
+                return False
+        return True
+
+    def _decide(self, task, batch, action) -> Execution:
+        store, env = self.d.store, self.d.env
+        taskd = repo.task_dict(task)
+        user_texts = [r["content"] for r in store.read(
+            "SELECT content FROM messages WHERE conversation_id = ? AND role = 'user'", (task["conversation_id"],))]
+        why = store.read_one("SELECT content FROM messages WHERE id = ?", (batch["message_id"],))["content"]
+        try:
+            proposal = decide.prepare(self.d.registry, env, action, user_texts, self._untrusted(task["id"]))
+        except decide.Refused as e:
+            with store.tx() as tx:
+                ledger.finish_action(tx, taskd, action, E.REJECTED, str(e), is_error=True, error=str(e)[:500])
+            self.d.publish(tx.events)
+            return E.REJECTED
+        fields = {"capability": proposal.cap.name, "version": proposal.cap.version, "params": proposal.canonical,
+                  "params_hash": proposal.params_hash, "effects": msgspec.to_builtins(proposal.effects),
+                  "resources": [msgspec.to_builtins(s) for s in proposal.subjects],
+                  "description": proposal.description, "reason": why[:decide.MAX_REASON_CHARS]}
+        if not proposal.cap.meta and decide.repeated(store, task["id"], action["id"], proposal.cap.name,
+                                                     proposal.params_hash):
+            return self._refuse_repeat(task, batch, action, fields)
+        _revision, config = repo.get_config(store)
+        d = decide.judge(store, env, task, proposal, config.approvals.preset)
+        fields |= {"decision": d.decision, "decision_reason": d.reason, "policy_version": d.version,
+                   "grant_id": d.grant_id}
+        with store.tx() as tx:
+            if d.decision == "allow":
+                agent.update_action(tx, action["id"], E.AUTHORIZED, **fields)
+            elif d.decision == "deny":
+                ledger.finish_action(tx, taskd, action, E.POLICY_DENIED, decide.refusal_text(d), is_error=True,
+                                     error=d.reason, **fields)
+            else:
+                cfg = msgspec.convert(json.loads(task["provider"]), ProviderConfig)
+                agent.update_action(tx, action["id"], E.AWAITING_APPROVAL, **fields)
+                card = decide.card(env, proposal, d, why=why, read_from=self._read_from(task["id"]),
+                                   provider_label=label_of(cfg), cloud=context.is_cloud(cfg))
+                ledger.request_approval(tx, taskd, action["id"], proposal.params_hash, card)
+        self.d.publish(tx.events)
+        self.d.boundary("decided")
+        return {"allow": E.AUTHORIZED, "deny": E.POLICY_DENIED}.get(d.decision, E.AWAITING_APPROVAL)
+
+    def _refuse_repeat(self, task, batch, action, fields: dict) -> Execution:
+        taskd = repo.task_dict(task)
+        with self.d.store.tx() as tx:
+            ledger.finish_action(tx, taskd, action, E.REJECTED, REPEAT_TEXT, is_error=True, error="repeated", **fields)
+            tx.execute("UPDATE tasks SET guard_trips = guard_trips + 1 WHERE id = ?", (task["id"],))
+            if task["guard_trips"] + 1 >= 2:  # the second trip ends the task (§8.2)
+                ledger.skip_rest(tx, taskd, batch["id"], "Mei stopped the task")
+                final = repo.set_task_state(tx, task["id"], S.BLOCKED,
+                                            error="Mei kept repeating the same step, so it stopped.")
+                repo.finished_event(tx, final)
+        self.d.publish(tx.events)
+        return E.REJECTED
+
+    def _untrusted(self, task_id: str) -> list[str]:
+        rows = self.d.store.read("SELECT a.result, m.content FROM actions a JOIN messages m ON m.action_id = a.id "
+                                 "WHERE a.task_id = ? AND a.result IS NOT NULL", (task_id,))
+        return [r["content"] for r in rows if json.loads(r["result"]).get("trust") == "untrusted"]
+
+    def _read_from(self, task_id: str) -> list[str]:
+        rows = self.d.store.read("SELECT result FROM actions WHERE task_id = ? AND execution = 'SUCCEEDED'", (task_id,))
+        sources: list[str] = []
+        for r in rows:
+            sources += json.loads(r["result"]).get("sources", []) if r["result"] else []
+        return list(dict.fromkeys(sources))
+
+    # ── Acting ──────────────────────────────────────────────────────────────
+
+    async def _authorized(self, task, action, flight: _InFlight) -> bool:
+        cap = self.d.registry.get(action["capability"])
+        params = self.d.registry.decode(cap, action["params"])
+        if cap.meta:
+            return await self._meta(task, action, cap, params)
+        if action["approval_id"]:  # invariants 2 and 10: the approval must still match these exact params
+            approval = agent.get_approval(self.d.store, action["approval_id"])
+            if approval is None or approval["state"] != "allowed" or approval["params_hash"] != action["params_hash"]:
+                with self.d.store.tx() as tx:
+                    ledger.reask(tx, repo.task_dict(task), action)
+                self.d.publish(tx.events)
+                return False
+        elif action["decision"] != "allow":
+            raise RuntimeError(f"action {action['id']} is authorized without a decision")
+        await self._execute(task, action, cap, params, flight)
+        return True
+
+    async def _meta(self, task, action, cap: Capability, params) -> bool:
+        store, taskd = self.d.store, repo.task_dict(task)
+        if cap.name == "plan.update":
+            with store.tx() as tx:
+                finish.save_plan(tx, taskd, action, params)
+            self.d.publish(tx.events)
+            return True
+        if cap.name == "ask_user":
+            with store.tx() as tx:
+                finish.ask(tx, taskd, action, params)
+            self.d.publish(tx.events)
+            return False
+        with store.tx() as tx:  # task.finish
+            repo.set_task_state(tx, task["id"], S.VERIFYING)
+            agent.update_action(tx, action["id"], E.STARTED, epoch=store.epoch)
+        self.d.publish(tx.events)
+        task = repo.get_task(store, task["id"])
+        checked = await finish.run_checks(json.loads(task["plan"]), self.d.env)
+        failed = [c for c in checked if c.result is not None and c.result.status == "failed"]
+        with store.tx() as tx:
+            if failed and task["finish_attempts"] == 0 and not params.blocked:
+                ledger.finish_action(tx, taskd, action, E.SUCCEEDED, finish.failures_text(failed), is_error=False,
+                                     result={"ok": True, "summary": "Checked the result: something isn't right yet"})
+                tx.execute("UPDATE tasks SET finish_attempts = finish_attempts + 1 WHERE id = ?", (task["id"],))
+                repo.set_task_state(tx, task["id"], S.RUNNING)
+            else:
+                finish.finished(tx, repo.task_dict(task), action, params, checked)
+        self.d.publish(tx.events)
+        return S(repo.get_task(store, task["id"])["state"]) not in TERMINAL
+
+    async def _execute(self, task, action, cap: Capability, params, flight: _InFlight) -> None:
+        store = self.d.store
+        with store.tx() as tx:
+            agent.update_action(tx, action["id"], E.STARTED, epoch=store.epoch)  # durable before any effect
+        self.d.publish(tx.events)
+        flight.action_id = action["id"]
+        self.d.boundary("action_started")
+        ctx = ActionContext(self.d.env, action["id"])
+        timeout = min(cap.timeout_s, MAX_ACTION_S)
+        started = time.monotonic()
+        try:
+            result = await asyncio.wait_for(cap.run(params, ctx), timeout)
+        except CapabilityError as e:
+            result = ActionResult(ok=False, observation=e.message, error_class=e.error_class, summary=e.message)
+        except TimeoutError:
+            result = ActionResult(ok=False, observation=f"It didn't finish within {int(timeout)} s.",
+                                  error_class="timeout", summary="Timed out")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("%s failed", cap.name, extra={"task_id": task["id"]})
+            result = ActionResult(ok=False, observation="It failed inside Mei (see the Mei runtime log).",
+                                  error_class="failed", summary="Failed")
+        self.d.boundary("action_ran")
+        check: CheckResult | None = None
+        if result.ok:
+            try:
+                check = await cap.verify(params, result, ctx)
+            except Exception as e:
+                log.warning("checking %s failed: %s", cap.name, e, extra={"task_id": task["id"]})
+                check = CheckResult(status="unverifiable", detail="the check itself failed")
+        self._record(task, action, result, check, int((time.monotonic() - started) * 1000))
+        flight.action_id = None
+        self.d.boundary("action_recorded")
+
+    def _record(self, task, action, result: ActionResult, check: CheckResult | None, elapsed_ms: int) -> None:
+        mutating = (json.loads(action["effects"]) or {}).get("mutates", "no") != "no"
+        observation = result.observation if result.ok else f"Error ({result.error_class or 'failed'}): {result.observation}"
+        if check is not None and check.status == "failed":
+            observation += f"\n(Mei checked afterwards: it didn't take effect. {check.detail})"
+        stored = msgspec.to_builtins(result)
+        stored.pop("observation")
+        if check is not None:
+            stored["check"] = check.detail
+        with self.d.store.tx() as tx:
+            ledger.finish_action(tx, repo.task_dict(task), action, E.SUCCEEDED if result.ok else E.FAILED, observation,
+                                 is_error=not result.ok, result=stored,
+                                 verification=check.status if check else V.NOT_APPLICABLE,
+                                 disposition=Disposition.CONFIRMED if result.ok and mutating else Disposition.NONE,
+                                 error=None if result.ok else result.observation[:500])
+            tx.execute("UPDATE tasks SET active_ms = active_ms + ?, tainted = MAX(tainted, ?) WHERE id = ?",
+                       (elapsed_ms, int(result.trust == "untrusted"), task["id"]))
+        self.d.publish(tx.events)
+
+    async def _settle_in_doubt(self, task, action, flight: _InFlight) -> bool:
+        """An action that was running when Mei died (§15): re-run it if that's safe, else probe the
+        world, else ask the person. False: now waiting for their answer."""
+        cap = self.d.registry.get(action["capability"])
+        params = self.d.registry.decode(cap, action["params"])
+        if cap.meta:
+            return await self._meta(task, action, cap, params)  # only task.finish can be mid-way; it reads, so redo it
+        if cap.idempotent:
+            await self._execute(task, action, cap, params, flight)
+            return True
+        try:
+            disposition = await cap.probe(params, ActionContext(self.d.env, action["id"]))
+        except Exception as e:
+            log.warning("probing %s failed: %s", cap.name, e, extra={"task_id": task["id"]})
+            disposition = Disposition.UNKNOWN
+        taskd = repo.task_dict(task)
+        with self.d.store.tx() as tx:
+            if disposition == Disposition.CONFIRMED:
+                ledger.finish_action(tx, taskd, action, E.SUCCEEDED, f"Done before Mei restarted: {action['description']}.",
+                                     is_error=False, disposition=Disposition.CONFIRMED,
+                                     result={"ok": True, "summary": action["description"]})
+            elif disposition == Disposition.NONE:
+                ledger.finish_action(tx, taskd, action, E.FAILED, "Not done: Mei restarted before it ran. You can try "
+                                     "it again.", is_error=True, disposition=Disposition.NONE, error="interrupted")
+            else:
+                ledger.ask_in_doubt(tx, taskd, action)
+        self.d.publish(tx.events)
+        return disposition != Disposition.UNKNOWN
+
+    # ── Ending ──────────────────────────────────────────────────────────────
+
+    def _draft(self, tx, flight: _InFlight) -> dict | None:
+        stream = flight.stream
+        if stream is None:
+            return None
+        tx.execute("UPDATE turns SET draft_text = ?, draft_thinking = ?, draft_chunk = ? WHERE id = ?",
+                   (stream.text, stream.thinking, stream.chunk, stream.turn_id))
+        repo.finish_turn(tx, stream.turn_id, "lost")
+        return {"text": stream.text, "thinking": stream.thinking}
+
+    def _stopped(self, task_id: str, flight: _InFlight) -> None:
+        """Cancelled: by the person (CANCEL_REQUESTED is stored first) or by a shutdown."""
+        with self.d.store.tx() as tx:
+            state = S(repo.get_task(tx, task_id)["state"])
+            if state in TERMINAL:
+                return
+            draft = self._draft(tx, flight)
+            if state == S.CANCEL_REQUESTED:
+                running = agent.get_action(tx, flight.action_id) if flight.action_id else None
+                if running is not None and E(running["execution"]) == E.STARTED:
+                    task = repo.task_dict(repo.get_task(tx, task_id))
+                    mutating = (json.loads(running["effects"] or "{}")).get("mutates", "no") != "no"
+                    ledger.finish_action(tx, task, running, E.CANCELLED, "Stopped by the person before it finished.",
+                                         is_error=True,
+                                         disposition=Disposition.UNKNOWN if mutating else Disposition.NONE)
+                ledger.cancel_now(tx, task_id, draft=draft)
+            else:
+                # A shutdown. An action in flight stays STARTED; recovery treats it as in doubt (§15).
+                final = repo.set_task_state(tx, task_id, S.INTERRUPTED, error="Mei was restarting")
+                repo.finished_event(tx, final, draft=draft)
+        self.d.publish(tx.events)
+
+    def _end(self, task_id: str, flight: _InFlight, to: TaskState, error: str) -> None:
+        with self.d.store.tx() as tx:
+            state = S(repo.get_task(tx, task_id)["state"])
+            if state in TERMINAL:
+                return
+            draft = self._draft(tx, flight)
+            if state == S.CANCEL_REQUESTED:
+                ledger.cancel_now(tx, task_id, draft=draft)  # the person's stop wins over a failure
+            else:
+                final = repo.set_task_state(tx, task_id, to, error=error)
+                repo.finished_event(tx, final, draft=draft)
+        self.d.publish(tx.events)

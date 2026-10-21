@@ -11,7 +11,7 @@ from typing import Literal
 import msgspec
 
 PROTOCOL_MAJOR = 2  # 2.0: the runtime owns all provider settings (Config.active + Config.providers)
-PROTOCOL_MINOR = 1  # 2.1: SetupStatus, SetupApply, TestProvider; retention is enforced
+PROTOCOL_MINOR = 2  # 2.2: the agent loop: actions, approvals, questions, grants
 BUS_NAME = "com.andystmc.Mei1"
 EXTENSION_UUID = "mei@andystmc.com"  # the Shell extension this runtime pairs with
 OBJECT_PATH = "/com/andystmc/Mei1"
@@ -31,6 +31,19 @@ DURABLE_EVENTS = frozenset({
     "model.started",
     "task.finished",
     "config.changed",
+    # 2.2: the agent loop
+    "plan.updated",
+    "action.proposed",
+    "policy.decided",
+    "action.started",
+    "action.updated",
+    "action.finished",
+    "approval.requested",
+    "approval.resolved",
+    "input.requested",
+    "input.answered",
+    "grant.created",
+    "grant.revoked",
 })
 EPHEMERAL_EVENTS = frozenset({"message.delta", "runtime.notice"})
 
@@ -92,6 +105,24 @@ class ConversationCommandArgs(msgspec.Struct):
     conversation_id: str
 
 
+class ResolveApprovalArgs(msgspec.Struct):
+    command_id: str
+    approval_id: str
+    decision: Literal["allow", "deny"]
+    scope: Literal["once", "task", "always"] = "once"
+
+
+class AnswerInputArgs(msgspec.Struct):
+    command_id: str
+    request_id: str
+    value: str | dict[str, str | bool]
+
+
+class RevokeGrantArgs(msgspec.Struct):
+    command_id: str
+    grant_id: str
+
+
 class ProviderConfig(msgspec.Struct, kw_only=True):
     """The user's provider preferences. No secrets: the key is looked up in the keyring by `id`.
 
@@ -121,12 +152,21 @@ class ProviderSettings(msgspec.Struct, kw_only=True):
 class Privacy(msgspec.Struct, kw_only=True):
     # None keeps conversations until the user deletes them (the default, owner decision §14.4).
     conversation_retention_days: int | None = None
+    # What file contents may go to a cloud model (§13.5): only from files the person pointed at
+    # (the default), any file Mei reads, or none. Local models always see what Mei reads.
+    cloud_files: Literal["pointed", "always", "never"] = "pointed"
+
+
+class Approvals(msgspec.Struct, kw_only=True):
+    # Which actions go ahead without a card (§13.2). The floor rules hold under every preset.
+    preset: Literal["cautious", "balanced", "hands_off"] = "balanced"
 
 
 class Config(msgspec.Struct, kw_only=True):
     active: str = ""  # provider id used for new tasks
     providers: dict[str, ProviderSettings] = msgspec.field(default_factory=dict)
     privacy: Privacy = msgspec.field(default_factory=Privacy)
+    approvals: Approvals = msgspec.field(default_factory=Approvals)
 
 
 def active_provider(config: Config) -> ProviderConfig:
@@ -168,7 +208,7 @@ def decode_args(data: str, kind: type):
         raise ProtocolError("InvalidArgument", str(e)) from None
     except msgspec.DecodeError as e:
         raise ProtocolError("InvalidArgument", f"invalid JSON: {e}") from None
-    for field in ("command_id", "task_id", "conversation_id"):
+    for field in ("command_id", "task_id", "conversation_id", "approval_id", "request_id", "grant_id"):
         value = getattr(args, field, None)
         if value is not None and (not value or len(value) > MAX_ID_CHARS):
             raise ProtocolError("InvalidArgument", f"{field} must be 1–{MAX_ID_CHARS} characters")
@@ -183,7 +223,7 @@ def json_schema() -> dict:
     """JSON Schema for the commands and the event envelope, for tooling and docs."""
     kinds = [Envelope, HelloArgs, AttachArgs, SubmitInputArgs, TaskCommandArgs,
              ConversationCommandArgs, UpdateConfigArgs, Config, ListModelsArgs, GetLogsArgs, SetupApplyArgs,
-             TestProviderArgs]
+             TestProviderArgs, ResolveApprovalArgs, AnswerInputArgs, RevokeGrantArgs]
     _schemas, components = msgspec.json.schema_components(kinds)
     return {"$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": f"Mei runtime protocol {PROTOCOL_MAJOR}.{PROTOCOL_MINOR}",

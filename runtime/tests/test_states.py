@@ -1,8 +1,10 @@
 import pytest
 
-from mei.core.states import TERMINAL, InvalidTransition, TaskState, can_transition, check_transition
+from mei.core.states import (ACTION_TERMINAL, TERMINAL, Execution, InvalidTransition, TaskState, can_transition,
+                             check_action_transition, check_transition)
 
 S = TaskState
+E = Execution
 
 
 @pytest.mark.parametrize("frm,to", [
@@ -36,3 +38,29 @@ def test_every_non_terminal_state_can_be_stopped_or_fail():
             continue
         assert can_transition(frm, S.FAILED)
         assert frm == S.CANCEL_REQUESTED or can_transition(frm, S.CANCEL_REQUESTED)
+
+
+@pytest.mark.parametrize("frm,to", [
+    (E.PROPOSED, E.AUTHORIZED), (E.PROPOSED, E.AWAITING_APPROVAL), (E.PROPOSED, E.REJECTED),
+    (E.PROPOSED, E.POLICY_DENIED), (E.AWAITING_APPROVAL, E.AUTHORIZED), (E.AWAITING_APPROVAL, E.SUPERSEDED),
+    (E.AUTHORIZED, E.STARTED), (E.AUTHORIZED, E.SKIPPED), (E.AUTHORIZED, E.AWAITING_APPROVAL),
+    (E.STARTED, E.SUCCEEDED), (E.STARTED, E.IN_DOUBT), (E.IN_DOUBT, E.ABANDONED), (E.IN_DOUBT, E.STARTED),
+])
+def test_action_allowed(frm, to):
+    check_action_transition(frm, to)
+
+
+@pytest.mark.parametrize("frm,to", [
+    (E.PROPOSED, E.STARTED),  # nothing starts without a recorded authorization (invariant 2)
+    (E.AWAITING_APPROVAL, E.STARTED), (E.STARTED, E.SKIPPED), (E.SUCCEEDED, E.FAILED), (E.IN_DOUBT, E.SKIPPED),
+])
+def test_action_forbidden(frm, to):
+    with pytest.raises(InvalidTransition):
+        check_action_transition(frm, to)
+
+
+def test_terminal_actions_are_final():
+    for frm in ACTION_TERMINAL:
+        for to in E:
+            with pytest.raises(InvalidTransition):
+                check_action_transition(frm, to)

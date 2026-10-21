@@ -8,6 +8,7 @@ import msgspec
 from mei.core.states import TERMINAL, TaskState, check_transition
 from mei.protocol import Config, Envelope, ProtocolError
 
+from . import agent
 from .db import Store, Tx, new_id, now_ms
 
 TITLE_CHARS = 60
@@ -32,7 +33,13 @@ def message_dict(row) -> dict:
 def task_dict(row) -> dict:
     return {"id": row["id"], "conversation_id": row["conversation_id"], "state": row["state"],
             "input_message_id": row["input_message_id"], "error": row["error"],
-            "created_at": row["created_at"], "updated_at": row["updated_at"]}
+            "created_at": row["created_at"], "updated_at": row["updated_at"], "mode": row["mode"],
+            "plan": json.loads(row["plan"]), "outcome": json.loads(row["outcome"]) if row["outcome"] else None}
+
+
+def shown(message: dict) -> bool:
+    """Messages people see: not tool results, not the runtime's notes to the model."""
+    return message["role"] in ("user", "assistant")
 
 
 # ── Conversations and messages ──────────────────────────────────────────────
@@ -55,18 +62,23 @@ def create_conversation(tx: Tx, title: str) -> dict:
 
 def add_message(tx: Tx, conversation_id: str, role: str, content: str, *, task_id: str | None = None,
                 thinking: str | None = None, metadata: dict | None = None,
-                message_id: str | None = None) -> dict:
+                message_id: str | None = None, tool_calls: list[dict] | None = None,
+                replay: dict | None = None, action_id: str | None = None) -> dict:
+    """Append a message. Only messages people see are announced; tool results and runtime notes
+    are the model's transcript, and the UI learns about actions from their own events."""
     ts = now_ms()
     ordinal = tx.one("SELECT COALESCE(MAX(ordinal), 0) + 1 AS n FROM messages WHERE conversation_id = ?",
                      (conversation_id,))["n"]
     msg_id = message_id or new_id()
     tx.execute("INSERT INTO messages (id, conversation_id, task_id, ordinal, role, content, thinking, "
-               "metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-               (msg_id, conversation_id, task_id, ordinal, role, content, thinking,
-                json.dumps(metadata or {}), ts))
-    tx.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (ts, conversation_id))
+               "metadata, tool_calls, replay, action_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+               (msg_id, conversation_id, task_id, ordinal, role, content, thinking, json.dumps(metadata or {}),
+                json.dumps(tool_calls) if tool_calls else None, json.dumps(replay) if replay else None,
+                action_id, ts))
     message = message_dict(tx.one("SELECT * FROM messages WHERE id = ?", (msg_id,)))
-    tx.event("message.completed", {"message": message}, conversation_id=conversation_id, task_id=task_id)
+    if shown(message):
+        tx.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (ts, conversation_id))
+        tx.event("message.completed", {"message": message}, conversation_id=conversation_id, task_id=task_id)
     return message
 
 
@@ -164,10 +176,12 @@ def latest_turn(tx_or_store, task_id: str):
     return tx_or_store.one(sql, (task_id,)) if isinstance(tx_or_store, Tx) else tx_or_store.read_one(sql, (task_id,))
 
 
-def finished_event(tx: Tx, task: dict, *, draft: dict | None = None) -> None:
+def finished_event(tx: Tx, task: dict, *, draft: dict | None = None, outcome: dict | None = None) -> None:
     payload = {"task_id": task["id"], "state": task["state"], "error": task["error"]}
     if draft is not None:
         payload["draft"] = draft
+    if outcome is not None:
+        payload["outcome"] = outcome
     tx.event("task.finished", payload, conversation_id=task["conversation_id"], task_id=task["id"])
 
 
@@ -225,14 +239,14 @@ def conversation_snapshot(store: Store, conversation_id: str) -> dict:
     tasks = store.read("SELECT * FROM tasks WHERE conversation_id = ? ORDER BY created_at", (conversation_id,))
     snapshot_tasks = []
     for t in tasks:
-        item = task_dict(t)
+        item = {**task_dict(t), **agent.task_extras(store, t["id"])}
         if t["state"] == TaskState.INTERRUPTED:
             turn = latest_turn(store, t["id"])
             if turn is not None:
                 item["draft"] = {"text": turn["draft_text"], "thinking": turn["draft_thinking"]}
         snapshot_tasks.append(item)
-    return {"conversation": conversation_dict(conv), "messages": history(store, conversation_id),
-            "tasks": snapshot_tasks}
+    return {"conversation": conversation_dict(conv),
+            "messages": [m for m in history(store, conversation_id) if shown(m)], "tasks": snapshot_tasks}
 
 
 def events_after(store: Store, after_seq: int, scope: str) -> list[Envelope]:
