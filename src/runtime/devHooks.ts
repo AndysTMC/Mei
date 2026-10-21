@@ -10,6 +10,7 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Shell from 'gi://Shell';
+import St from 'gi://St';
 
 import type { ChatPopup } from '../ui/chatPopup.js';
 import type { RuntimeChatController } from './controller.js';
@@ -24,6 +25,7 @@ const XML = `
     <method name="Screenshot"><arg type="s" direction="in" name="path"/></method>
     <method name="Click"><arg type="i" direction="in" name="x"/><arg type="i" direction="in" name="y"/></method>
     <method name="PressOpenShortcut"/>
+    <method name="ClickButton"><arg type="s" direction="in" name="label"/><arg type="b" direction="out" name="found"/></method>
   </interface>
 </node>`;
 
@@ -80,6 +82,16 @@ export class DevHooks {
         this._pointer.notify_button(t + 20_000, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.RELEASED);
     }
 
+    /** Clicks the popup's visible button with this label, where it is on screen, like a person would. */
+    ClickButton(label: string): boolean {
+        const button = findButton(this._popup.contentActor, label);
+        if (!button) return false;
+        const [x, y] = button.get_transformed_position();
+        const [w, h] = button.get_transformed_size();
+        this.Click(Math.round(x + w / 2), Math.round(y + h / 2));
+        return true;
+    }
+
     /** Presses Super+Alt+M (the default open-shortcut) the way a keyboard would. */
     PressOpenShortcut(): void {
         this._keyboard ??= Clutter.get_default_backend().get_default_seat()
@@ -97,6 +109,16 @@ export class DevHooks {
             controller: this._runtime.debugState(),
         });
     }
+}
+
+function findButton(actor: Clutter.Actor, label: string): St.Button | null {
+    if (!actor.visible) return null;
+    if (actor instanceof St.Button && actor.get_label() === label && actor.reactive) return actor;
+    for (const child of actor.get_children()) {
+        const found = findButton(child, label);
+        if (found) return found;
+    }
+    return null;
 }
 
 function visibleText(actor: Clutter.Actor): string[] {

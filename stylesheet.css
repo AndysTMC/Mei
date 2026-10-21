@@ -532,3 +532,104 @@
 .mei-streaming-answer {
     spacing: 8px;
 }
+
+/* ── Agent cards (activity, plan, approval, question, outcome) ── */
+.mei-activity {
+    spacing: 2px;
+    padding: 2px 2px 4px 2px;
+}
+
+.mei-activity-row {
+    spacing: 6px;
+    font-size: 12px;
+}
+
+.mei-activity-row.skipped,
+.mei-activity-row.refused {
+    opacity: 160;
+}
+
+.mei-activity-row.failed .mei-activity-mark,
+.mei-outcome-card.partial .mei-card-title {
+    color: #e5a50a;
+}
+
+.mei-activity-mark {
+    font-size: 12px;
+    min-width: 14px;
+    opacity: 200;
+}
+
+.mei-activity-text,
+.mei-card-text {
+    font-size: 12px;
+}
+
+.mei-card {
+    border-radius: 10px;
+    padding: 10px 12px;
+    spacing: 4px;
+    background-color: rgba(128, 128, 128, 0.10);
+}
+
+.mei-approval-card,
+.mei-question-card {
+    background-color: rgba(53, 132, 228, 0.14);
+    border: 1px solid rgba(53, 132, 228, 0.45);
+}
+
+.mei-outcome-card.verified {
+    background-color: rgba(46, 194, 126, 0.14);
+}
+
+.mei-outcome-card.verified .mei-card-title {
+    color: #2ec27e;
+}
+
+.mei-card-title {
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.mei-card-muted {
+    font-size: 11px;
+    opacity: 170;
+}
+
+.mei-card-line {
+    spacing: 6px;
+}
+
+.mei-card-buttons {
+    spacing: 6px;
+    margin-top: 4px;
+}
+
+.mei-card-btn {
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 11px;
+    border: none;
+    background-color: rgba(128, 128, 128, 0.20);
+}
+
+.mei-card-btn:hover,
+.mei-card-btn:focus {
+    background-color: rgba(128, 128, 128, 0.32);
+}
+
+.mei-card-btn.suggested,
+.mei-card-btn:checked {
+    background-color: rgba(53, 132, 228, 0.55);
+    color: white;
+}
+
+.mei-card-btn.deny:hover {
+    background-color: rgba(224, 27, 36, 0.45);
+}
+
+.mei-card-entry {
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 12px;
+}

@@ -1,6 +1,7 @@
 /**
- * The scrolling list of messages. Compact mode shows the latest message alone; expanded mode shows
- * the whole conversation with Copy, ↻ and an info panel under each reply. While Mei answers, a
+ * The scrolling list of messages. Compact mode shows the latest message (or a card waiting on the
+ * person) alone; expanded mode shows the whole conversation, with the agent's cards in place, and
+ * Copy, ↻ and an info panel under each reply. While Mei answers, a
  * loading bubble sits at the end: a spinner in compact mode; in expanded mode the streamed answer,
  * with any thinking shown above it and folded away once the answer starts.
  *
@@ -18,6 +19,7 @@ import { addClickScale, copyToClipboard, wrapLabel } from '../effects.js';
 import { createMessageInfoPanel, styleMessageInfoPanel } from '../messageInfoPanel.js';
 import { createMessageActor, formatThinkingPreview, type MessageRole, type RenderedMessageActor } from '../messageRenderer.js';
 import type { SourceSet } from '../sources.js';
+import type { ListedItem } from './timelineView.js';
 
 export interface ListedMessage {
     role: string;
@@ -99,14 +101,30 @@ export class MessageList {
         this._queueScroll('top');
     }
 
-    /** Expanded mode: the whole conversation, optionally fading in the last reply. */
-    showHistory(messages: ListedMessage[], fadeLastAssistant = false): void {
+    /** Compact mode: a card that waits on the person (an approval or a question), alone. */
+    showCard(build: () => St.Widget): void {
         if (this._loading) this._removeBubble();
         this._box.destroy_all_children();
         this._lastReply = '';
-        messages.forEach((message, index) => {
+        this._box.add_child(build());
+        this._hasMessages = true;
+        this.actor.visible = true;
+        this._queueScroll('top');
+    }
+
+    /** Expanded mode: the whole conversation with its cards, optionally fading in the last reply. */
+    showItems(items: ListedItem[], fadeLastAssistant = false): void {
+        if (this._loading) this._removeBubble();
+        this._box.destroy_all_children();
+        this._lastReply = '';
+        items.forEach((item, position) => {
+            if (item.kind === 'card') {
+                this._box.add_child(item.build());
+                return;
+            }
+            const { message, index } = item;
             if (!isRenderableRole(message.role)) return;
-            const fade = fadeLastAssistant && message.role === 'assistant' && index === messages.length - 1;
+            const fade = fadeLastAssistant && message.role === 'assistant' && position === items.length - 1;
             const container = this._listedMessage(message, index);
             if (fade) container.opacity = 0;
             this._box.add_child(container);
@@ -119,7 +137,7 @@ export class MessageList {
             }
         });
         if (this._loading) this._attachBubble();
-        this._hasMessages = messages.length > 0 || this._loading;
+        this._hasMessages = items.length > 0 || this._loading;
         this.actor.visible = this._hasMessages;
         this._queueScroll('bottom');
     }

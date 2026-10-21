@@ -36,6 +36,9 @@ const RECONNECT_SLOW_MS = 5_000;
 const KNOWN_EVENTS = new Set([
     'conversation.created', 'conversation.deleted', 'message.completed', 'task.accepted',
     'task.state_changed', 'model.started', 'task.finished', 'config.changed', 'message.delta', 'runtime.notice',
+    // 2.2
+    'plan.updated', 'action.proposed', 'policy.decided', 'action.started', 'action.updated', 'action.finished',
+    'approval.requested', 'approval.resolved', 'input.requested', 'input.answered', 'grant.created', 'grant.revoked',
 ]);
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'unavailable' | 'incompatible';
@@ -59,8 +62,15 @@ export class RuntimeClient {
     private _buffer: Envelope[] = [];
     private _generation = 0;
     private _destroyed = false;
+    private _owner: string | null = null;
 
-    constructor(private readonly _cursor: () => number) {}
+    /** `_bridge`: the Shell bridge's object path, offered in Hello; empty for clients without one. */
+    constructor(private readonly _cursor: () => number, private readonly _bridge = '') {}
+
+    /** The runtime's current unique bus name, while it is running. */
+    get owner(): string | null {
+        return this._owner;
+    }
 
     start(): void {
         this._subscription = Gio.DBus.session.signal_subscribe(
@@ -68,10 +78,14 @@ export class RuntimeClient {
             (_conn, _sender, _path, _iface, _signal, params) => this._onSignal(params));
         this._watch = Gio.bus_watch_name(
             Gio.BusType.SESSION, BUS_NAME, Gio.BusNameWatcherFlags.NONE,
-            () => {
+            (_conn, _name, owner) => {
                 this._seenOwner = true;
+                this._owner = owner;
             },
-            () => this._onVanished());
+            () => {
+                this._owner = null;
+                this._onVanished();
+            });
         void this._connect();
     }
 
@@ -120,6 +134,7 @@ export class RuntimeClient {
             const hello = await this.call<HelloReply>('Hello', {
                 client: { kind: 'shell', version: '1' },
                 protocol: PROTOCOL_VERSION,
+                ...(this._bridge ? { bridge: this._bridge } : {}),
             });
             if (generation !== this._generation) return;
             const reply = await this.call<AttachReply>('Attach', { scope: 'all', after_seq: this._cursor() });

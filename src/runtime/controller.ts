@@ -11,28 +11,27 @@
 import GLib from 'gi://GLib';
 
 import { getProviderProfile, resolveProviderId } from '../providers/profiles.js';
-import type { ChatMessageMetadata, ProviderId } from '../providers/types.js';
+import type { Answer } from '../ui/conversation/cards.js';
 import type { ChatPopup } from '../ui/chatPopup.js';
 import { Logger, Tag } from '../utils/logger.js';
 import { RuntimeClient, RuntimeError, type ConnectionStatus } from './client.js';
 import { Projection } from './projection.js';
-import type { ConversationReply, Envelope, MessageView, SetupStatusReply, SubmitReply } from './protocol.js';
+import type { ApprovalScope, ConversationReply, Envelope, SetupStatusReply, SubmitReply } from './protocol.js';
 import { RuntimeSettings } from './settings.js';
+import { buildTimeline, type TimelineItem } from './timeline.js';
 
 const LOAD_ATTEMPTS = 3;
-
-interface PopupMessage {
-    role: string;
-    content: string;
-    thinking?: string;
-    metadata?: ChatMessageMetadata;
-}
+/** Events that change what a conversation shows besides its messages. */
+const AGENT_EVENTS = new Set(['action.proposed', 'policy.decided', 'action.started', 'action.updated', 'action.finished',
+    'plan.updated', 'approval.requested', 'approval.resolved', 'input.requested', 'input.answered']);
+/** Events that put a card in front of the person. */
+const ASKS = new Set(['approval.requested', 'input.requested']);
 
 export class RuntimeChatController {
     onStateChanged: (() => void) | null = null;
 
     private readonly _projection = new Projection();
-    private readonly _client = new RuntimeClient(() => this._projection.seq);
+    private readonly _client: RuntimeClient;
     private _current: string | null = null;
     private _status: ConnectionStatus = 'connecting';
     private _statusDetail = '';
@@ -48,7 +47,9 @@ export class RuntimeChatController {
     /** Whether this controller asked for setup to open (read by the dev-build test hooks). */
     setupOffered = false;
 
-    constructor() {
+    /** `bridgePath`: where the Shell bridge is exported, offered to the runtime in Hello (§12.6). */
+    constructor(bridgePath = '') {
+        this._client = new RuntimeClient(() => this._projection.seq, bridgePath);
         this.settings = new RuntimeSettings((method, args) => this._client.call(method, args));
         this._client.onAttached = reply => {
             this._projection.applyAttach(reply);
@@ -74,6 +75,16 @@ export class RuntimeChatController {
         return this._draftIndex;
     }
 
+    /** Whether any conversation has a card waiting on the person (the indicator shows it). */
+    get needsAttention(): boolean {
+        return this._projection.needsAttention().length > 0;
+    }
+
+    /** The unique bus name the runtime has now, the only caller the Shell bridge serves. */
+    get runtimeOwner(): string | null {
+        return this._client.owner;
+    }
+
     /** Open the most recently updated conversation, as picking it from the history list would. */
     debugLoadLatest(): void {
         const latest = this._projection.summaries()[0];
@@ -91,6 +102,8 @@ export class RuntimeChatController {
             interrupted: this._current ? this._projection.interruptedTask(this._current)?.draft ?? null : null,
             provider: this.settings.active,
             setupOffered: this.setupOffered,
+            timeline: this._timeline().map(i => i.kind),
+            waiting: this.needsAttention,
         };
     }
 
@@ -129,6 +142,26 @@ export class RuntimeChatController {
             this._current = reply.conversation_id;
             this._render();
         }).catch((e: RuntimeError) => this._showFailure(e));
+    }
+
+    approve(approvalId: string, scope: ApprovalScope): void {
+        this._resolve({ approval_id: approvalId, decision: 'allow', scope });
+    }
+
+    deny(approvalId: string): void {
+        this._resolve({ approval_id: approvalId, decision: 'deny', scope: 'once' });
+    }
+
+    answer(requestId: string, value: Answer): void {
+        this._popup.hideError();
+        this._client.call('AnswerInput', { command_id: GLib.uuid_string_random(), request_id: requestId, value })
+            .catch((e: RuntimeError) => this._showFailure(e));
+    }
+
+    private _resolve(args: { approval_id: string; decision: 'allow' | 'deny'; scope: ApprovalScope }): void {
+        this._popup.hideError();
+        this._client.call('ResolveApproval', { command_id: GLib.uuid_string_random(), ...args })
+            .catch((e: RuntimeError) => this._showFailure(e));
     }
 
     cancel(): void {
@@ -178,7 +211,7 @@ export class RuntimeChatController {
     toggleExpand(isExpanded: boolean): void {
         if (isExpanded) {
             this._render();
-        } else {
+        } else if (!this._popup.showWaitingCard(this._timeline())) {
             this._popup.showMessage('assistant', this._lastAssistant());
         }
     }
@@ -204,9 +237,20 @@ export class RuntimeChatController {
             return;
         }
         if (event.type === 'task.finished') this._onTaskFinished(event);
-        else if (event.type === 'message.completed') this._render();
+        else if (ASKS.has(event.type)) this._onAsk();
+        else if (event.type === 'message.completed' || AGENT_EVENTS.has(event.type)) this._render();
         else this._syncLoading(); // status-only events (task accepted/running, model started)
         this.onStateChanged?.();
+    }
+
+    /** A card now waits on the person: show it, even if the popup is closed or compact. */
+    private _onAsk(): void {
+        this._render();
+        if (!this._popup.isExpanded) {
+            this._popup.setLoading(false);
+            this._popup.showWaitingCard(this._timeline());
+        }
+        this._popup.open();
     }
 
     private _onTaskFinished(event: Envelope): void {
@@ -234,30 +278,41 @@ export class RuntimeChatController {
             if (!active) this._popup.setLoading(false);
             return;
         }
-        const messages: PopupMessage[] = conv.messages.map(toPopupMessage);
-        const interrupted = this._projection.interruptedTask(this._current);
-        this._draftIndex = -1;
-        if (interrupted?.draft) {
-            this._draftIndex = messages.length;
-            messages.push({
-                role: 'assistant',
-                content: `${interrupted.draft.text}\n\n*(interrupted — ↻ to continue)*`,
-                thinking: interrupted.draft.thinking || undefined,
-            });
-        }
-        // showHistory() rebuilds the message list, which takes the loading bubble (and the streamed
+        const items = this._timeline();
+        // showTimeline() rebuilds the message list, which takes the loading bubble (and the streamed
         // text inside it) with it. Drop it first and attach a fresh one after, never the reverse.
         this._popup.setLoading(false);
-        this._popup.showHistory(messages, !active);
-        if (!active) return;
+        this._popup.showTimeline(items, !active);
+        if (!active || this._projection.waitingTask(this._current)) return; // waiting on a card: no spinner
         this._popup.setLoading(true);
         const stream = this._projection.streamFor(this._current);
         if (stream && (stream.text || stream.thinking)) this._popup.showStreamingResponse(stream.text, stream.thinking);
     }
 
+    /** The current conversation as the popup shows it, with an interrupted reply's draft at the end. */
+    private _timeline(): TimelineItem[] {
+        const conv = this._current ? this._projection.loaded.get(this._current) : undefined;
+        if (!conv || !this._current) return [];
+        const items = buildTimeline(conv);
+        const interrupted = this._projection.interruptedTask(this._current);
+        this._draftIndex = -1;
+        if (interrupted?.draft) {
+            this._draftIndex = items.length;
+            items.push({
+                kind: 'message', draft: true, message: {
+                    id: `draft-${interrupted.id}`, conversation_id: this._current, task_id: interrupted.id,
+                    role: 'assistant', content: `${interrupted.draft.text}\n\n*(interrupted — ↻ to continue)*`,
+                    thinking: interrupted.draft.thinking || null, metadata: {}, created_at: interrupted.updated_at,
+                },
+            });
+        }
+        return items;
+    }
+
     private _syncLoading(): void {
         if (!this._current) return;
-        this._popup.setLoading(this._projection.activeTask(this._current) !== null);
+        const active = this._projection.activeTask(this._current);
+        this._popup.setLoading(active !== null && this._projection.waitingTask(this._current) === null);
     }
 
     private async _loadConversation(id: string): Promise<void> {
@@ -315,27 +370,11 @@ export class RuntimeChatController {
     /** Why sending can't work with the current settings, if it can't. */
     private _providerProblem(): string | null {
         if (!this.settings.loaded) return null; // the runtime will answer for itself
+        if (this.settings.active === 'fake') return null; // the runtime's scripted provider (tests, offline work)
         const id = resolveProviderId(this.settings.active);
         if (!id) return 'Choose a model provider in Mei\'s settings first.';
         const profile = getProviderProfile(id);
         if (!profile.selectable) return `${profile.label} is no longer available. Choose another provider in Mei's settings.`;
         return this.settings.provider(id).model.trim() ? null : `Choose a ${profile.label} model in Mei's settings first.`;
     }
-}
-
-function toPopupMessage(m: MessageView): PopupMessage {
-    const meta = m.metadata as Record<string, unknown>;
-    const tokens = meta.tokens as { input?: number | null; output?: number | null } | undefined;
-    return {
-        role: m.role,
-        content: m.content,
-        thinking: m.thinking ?? undefined,
-        metadata: m.role !== 'assistant' ? undefined : {
-            providerId: (meta.id as ProviderId) || undefined,
-            providerLabel: (meta.label as string) || undefined,
-            model: (meta.model as string) || undefined,
-            durationMs: typeof meta.duration_ms === 'number' ? meta.duration_ms : undefined,
-            tokens: tokens ? { inputTokens: tokens.input ?? undefined, outputTokens: tokens.output ?? undefined } : undefined,
-        },
-    };
 }

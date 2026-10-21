@@ -1,7 +1,8 @@
 /**
  * The message box and the Ask button. The input grows with its text up to a maximum height, then
- * scrolls, keeping the cursor in view. Enter sends; Shift+Enter adds a line. While a reply is
- * streaming in compact mode the Ask button becomes Stop.
+ * scrolls, keeping the cursor in view. Enter sends; Shift+Enter adds a line. While Mei works, a
+ * message sent joins the task in progress (the runtime steers it, §8.1), and in compact mode the
+ * Ask button becomes Stop.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -34,6 +35,7 @@ export class Composer {
     readonly askButton: St.Button;
     private readonly _scroll: St.ScrollView;
     private _loading = false;
+    private _expanded = false;
     private _layoutId = 0;
     private _scrollId = 0;
     private _blinkId = 0;
@@ -69,7 +71,7 @@ export class Composer {
             accessible_name: 'Send message',
             accessible_role: Atk.Role.PUSH_BUTTON,
         });
-        this.askButton.connect('clicked', () => (this._loading ? this._actions.onStop() : this._send()));
+        this.askButton.connect('clicked', () => (this._loading && !this._expanded ? this._actions.onStop() : this._send()));
         addClickScale(this.askButton);
         this.actor.add_child(this.askButton);
         this.queueLayout();
@@ -80,9 +82,10 @@ export class Composer {
         this.queueLayout('cursor');
     }
 
-    /** Ask, Stop (streaming in compact mode, where there's no other way to stop), or disabled. */
+    /** Ask, or Stop while Mei works in compact mode (where there's no other way to stop). */
     setState(loading: boolean, expanded: boolean): void {
         this._loading = loading;
+        this._expanded = expanded;
         const button = this.askButton;
         if (loading && !expanded) {
             button.set_label('Stop');
@@ -93,13 +96,12 @@ export class Composer {
         }
         button.remove_style_class_name('loading');
         button.set_label('Ask');
-        button.accessible_name = loading ? 'Response in progress' : 'Send message';
-        button.reactive = !loading;
-        if (!loading) {
-            // Clutter can leave the click scale and hover stuck when the label changes mid-click.
-            button.scale_x = button.scale_y = 1.0;
-            button.sync_hover();
-        }
+        button.accessible_name = loading ? 'Send to the task in progress' : 'Send message';
+        button.reactive = true;
+        // Clutter can leave the click scale and hover stuck when the label changes mid-click.
+        button.scale_x = button.scale_y = 1.0;
+        button.sync_hover();
+        this.entry.hint_text = loading ? 'Add to what Mei is doing…' : 'Ask Mei anything…';
     }
 
     stopBlink(): void {
@@ -159,7 +161,6 @@ export class Composer {
     }
 
     private _send(): void {
-        if (this._loading) return;
         const text = this.entry.get_text().trim();
         if (!text) return;
         this.entry.set_text('');

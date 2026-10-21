@@ -19,6 +19,7 @@ import { MeiIndicator } from './panel/indicator.js';
 import { ChatPopup } from './ui/chatPopup.js';
 import { ThemeManager } from './utils/theme.js';
 import { Logger, Tag } from './utils/logger.js';
+import { BRIDGE_PATH, ShellBridge } from './runtime/bridge.js';
 import { RuntimeChatController } from './runtime/controller.js';
 
 export default class MeiExtension extends Extension {
@@ -26,14 +27,18 @@ export default class MeiExtension extends Extension {
     private _popup: ChatPopup | null = null;
     private _themeManager: ThemeManager | null = null;
     private _runtime: RuntimeChatController | null = null;
+    private _bridge: ShellBridge | null = null;
     private _devHooks: { destroy(): void } | null = null;
     private _settings: Gio.Settings | null = null;
 
     override enable(): void {
         Logger.info(Tag.Extension, 'Enabling Mei extension');
         this._themeManager = new ThemeManager();
-        const runtime = new RuntimeChatController();
+        const runtime = new RuntimeChatController(BRIDGE_PATH);
         this._runtime = runtime;
+        // What only the Shell can do (windows, launching apps) for the runtime, and no other caller.
+        this._bridge = new ShellBridge(() => runtime.runtimeOwner);
+        this._bridge.export();
 
         this._indicator = new MeiIndicator();
         const popup = new ChatPopup(this._indicator.actor, this._themeManager);
@@ -53,6 +58,9 @@ export default class MeiExtension extends Extension {
         popup.onHistoryRequested = () => runtime.showHistoryList();
         popup.onLoadChat = id => runtime.loadChat(id);
         popup.onDeleteChat = id => runtime.deleteChat(id);
+        popup.onApprove = (id, scope) => runtime.approve(id, scope);
+        popup.onDeny = id => runtime.deny(id);
+        popup.onAnswer = (id, value) => runtime.answer(id, value);
         popup.onOpenSettings = () => this.openPreferences();
         popup.onToggleExpand = isExpanded => {
             runtime.toggleExpand(isExpanded);
@@ -85,6 +93,8 @@ export default class MeiExtension extends Extension {
         this._devHooks = null;
         this._runtime?.destroy();
         this._runtime = null;
+        this._bridge?.destroy();
+        this._bridge = null;
         this._popup?.destroy();
         this._popup = null;
         this._indicator?.destroy();
@@ -97,9 +107,10 @@ export default class MeiExtension extends Extension {
     private _syncIndicatorState(): void {
         if (!this._indicator) return;
         const isStreaming = this._runtime?.isStreaming ?? false;
+        const waiting = this._runtime?.needsAttention ?? false;
         const popupOpen = Boolean(this._popup?.isOpen);
         const popupExpanded = Boolean(this._popup?.isExpanded);
-        this._indicator.setStopControlVisible(isStreaming && popupOpen && !popupExpanded);
-        this._indicator.setActivity(isStreaming && !popupOpen);
+        this._indicator.setStopControlVisible(isStreaming && !waiting && popupOpen && !popupExpanded);
+        this._indicator.setActivity((isStreaming || waiting) && !popupOpen);
     }
 }

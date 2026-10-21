@@ -14,12 +14,17 @@
 
 import {
     TERMINAL_STATES,
+    type ActionView,
+    type ApprovalView,
     type AttachReply,
     type ConversationReply,
     type ConversationSummary,
     type Draft,
     type Envelope,
+    type InputRequestView,
     type MessageView,
+    type Outcome,
+    type Plan,
     type StreamView,
     type TaskState,
     type TaskView,
@@ -39,8 +44,10 @@ export interface LiveStream extends StreamView {
 
 export type ApplyResult = 'applied' | 'duplicate' | 'gap' | 'ignored';
 
+const ACTION_EVENTS = new Set(['action.proposed', 'policy.decided', 'action.started', 'action.updated', 'action.finished']);
 /** Events that change a conversation's loaded messages or tasks (skipped while it isn't loaded). */
-const NEEDS_LOADED = new Set(['message.completed', 'task.accepted', 'task.state_changed', 'task.finished']);
+const NEEDS_LOADED = new Set(['message.completed', 'task.accepted', 'task.state_changed', 'task.finished',
+    'plan.updated', 'approval.requested', 'approval.resolved', 'input.requested', 'input.answered', ...ACTION_EVENTS]);
 
 export class Projection {
     epoch: string | null = null;
@@ -126,6 +133,17 @@ export class Projection {
         return null;
     }
 
+    /** The task in this conversation waiting on the person (an approval card or a question), if any. */
+    waitingTask(conversationId: string): TaskView | null {
+        const task = this.activeTask(conversationId);
+        return task && (task.approval || task.input_request) ? task : null;
+    }
+
+    /** Conversations with a card waiting on the person, for the indicator. */
+    needsAttention(): string[] {
+        return [...this.loaded.keys()].filter(id => this.waitingTask(id) !== null);
+    }
+
     streamFor(conversationId: string): LiveStream | null {
         for (const s of this.streams.values()) if (s.conversation_id === conversationId) return s;
         return null;
@@ -199,12 +217,50 @@ export class Projection {
                     task.state = p.state as TaskState;
                     task.error = (p.error as string | null) ?? null;
                     if (p.draft) task.draft = p.draft as Draft;
+                    if (p.outcome) task.outcome = p.outcome as Outcome;
+                    task.approval = null;
+                    task.input_request = null;
                 }
             }
             break;
         }
         default:
-            break; // unknown durable events are skippable unless `required` (checked by the client)
+            if (fresh) this._reduceAgent(event, conv);
+            break; // other unknown durable events are skippable unless `required` (checked by the client)
+        }
+    }
+
+    /** Actions, approvals, questions, and the plan (protocol 2.2). */
+    private _reduceAgent(event: Envelope, conv: LoadedConversation): void {
+        const task = event.task_id ? conv.tasks.get(event.task_id) : undefined;
+        if (!task) return;
+        const p = event.payload;
+        if (ACTION_EVENTS.has(event.type)) {
+            const action = p.action as ActionView;
+            const actions = (task.actions ??= []);
+            const at = actions.findIndex(a => a.id === action.id);
+            if (at >= 0) actions[at] = action;
+            else actions.push(action);
+            return;
+        }
+        switch (event.type) {
+        case 'plan.updated':
+            task.plan = p.plan as Plan;
+            break;
+        case 'approval.requested':
+            task.approval = p.approval as ApprovalView;
+            break;
+        case 'approval.resolved':
+            if (task.approval?.id === p.approval_id) task.approval = null;
+            break;
+        case 'input.requested':
+            task.input_request = p.request as InputRequestView;
+            break;
+        case 'input.answered':
+            if (task.input_request?.id === p.request_id) task.input_request = null;
+            break;
+        default:
+            break;
         }
     }
 

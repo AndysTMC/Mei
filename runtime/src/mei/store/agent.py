@@ -29,7 +29,8 @@ def _loads(text: str | None):
 def action_view(row) -> dict:
     """What the UI shows of an action: no observation content, which can be large and private."""
     result = _loads(row["result"]) or {}
-    return {"id": row["id"], "task_id": row["task_id"], "batch_id": row["batch_id"], "position": row["position"],
+    return {"id": row["id"], "task_id": row["task_id"], "batch_id": row["batch_id"], "message_id": row["message_id"],
+            "position": row["position"],
             "tool": row["tool"], "capability": row["capability"], "description": row["description"],
             "execution": row["execution"], "verification": row["verification"], "disposition": row["disposition"],
             "decision": row["decision"], "decision_reason": row["decision_reason"], "error": row["error"],
@@ -65,16 +66,19 @@ def open_batch(src, task_id: str):
                 (task_id,))
 
 
+_ACTIONS = "SELECT a.*, b.message_id FROM actions a JOIN batches b ON b.id = a.batch_id"
+
+
 def batch_actions(src, batch_id: str) -> list:
-    return _all(src, "SELECT * FROM actions WHERE batch_id = ? ORDER BY position", (batch_id,))
+    return _all(src, f"{_ACTIONS} WHERE a.batch_id = ? ORDER BY a.position", (batch_id,))
 
 
 def task_actions(src, task_id: str) -> list:
-    return _all(src, "SELECT * FROM actions WHERE task_id = ? ORDER BY created_at, position", (task_id,))
+    return _all(src, f"{_ACTIONS} WHERE a.task_id = ? ORDER BY a.created_at, a.position", (task_id,))
 
 
 def get_action(src, action_id: str):
-    return _one(src, "SELECT * FROM actions WHERE id = ?", (action_id,))
+    return _one(src, f"{_ACTIONS} WHERE a.id = ?", (action_id,))
 
 
 def update_action(tx: Tx, action_id: str, to: Execution, **fields) -> dict:

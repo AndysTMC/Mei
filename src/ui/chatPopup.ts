@@ -24,7 +24,11 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Logger, Tag } from '../utils/logger.js';
 import type { ThemeManager } from '../utils/theme.js';
 import { Composer } from './conversation/composer.js';
-import { MessageList, type ListedMessage } from './conversation/messageList.js';
+import type { ApprovalScope } from '../runtime/protocol.js';
+import type { TimelineItem } from '../runtime/timeline.js';
+import type { Answer, CardActions } from './conversation/cards.js';
+import { MessageList } from './conversation/messageList.js';
+import { listedItems, waitingCard } from './conversation/timelineView.js';
 import { ErrorPill } from './popup/errorPill.js';
 import { PopupHeader } from './popup/header.js';
 import { HistoryPanel, type ChatSummary } from './popup/historyPanel.js';
@@ -59,6 +63,12 @@ export class ChatPopup {
     onLoadChat: ((id: string) => void) | null = null;
     /** Called when a saved chat is deleted from the history list. */
     onDeleteChat: ((id: string) => void) | null = null;
+    /** Called when the person allows an action on an approval card. */
+    onApprove: ((approvalId: string, scope: ApprovalScope) => void) | null = null;
+    /** Called when the person denies an action on an approval card. */
+    onDeny: ((approvalId: string) => void) | null = null;
+    /** Called when the person answers one of Mei's questions. */
+    onAnswer: ((requestId: string, value: Answer) => void) | null = null;
 
     private readonly _sources = new SourceSet();
     private readonly _menu: PopupMenu.PopupMenu;
@@ -168,10 +178,27 @@ export class ChatPopup {
         this._header.setCopyText(this._expanded ? '' : this._messages.lastReply);
     }
 
-    /** Expanded mode: show the whole conversation. */
-    showHistory(messages: ListedMessage[], fadeLastAssistant = false): void {
-        this._messages.showHistory(messages, fadeLastAssistant);
+    /** Expanded mode: show the whole conversation, with the agent's cards in place. */
+    showTimeline(items: TimelineItem[], fadeLastAssistant = false): void {
+        this._messages.showItems(listedItems(items, this._cards()), fadeLastAssistant);
         this._header.setCopyText('');
+    }
+
+    /** Compact mode: show the card the task waits on. Returns false if there is none. */
+    showWaitingCard(items: TimelineItem[]): boolean {
+        const build = waitingCard(items, this._cards());
+        if (!build) return false;
+        this._messages.showCard(build);
+        this._header.setCopyText('');
+        return true;
+    }
+
+    private _cards(): CardActions {
+        return {
+            onApprove: (id, scope) => this.onApprove?.(id, scope),
+            onDeny: id => this.onDeny?.(id),
+            onAnswer: (id, value) => this.onAnswer?.(id, value),
+        };
     }
 
     clearMessages(): void {

@@ -1,8 +1,9 @@
-"""Stage 1 end-to-end: nested GNOME Shell + dev-built extension + D-Bus-activated runtime + a mock
-OpenAI-compatible provider. Run through scripts/e2e-stage1.sh, which prepares a private session.
+"""End-to-end: nested GNOME Shell + dev-built extension + D-Bus-activated runtime + a mock
+OpenAI-compatible provider (chat) and the scripted provider (agent). Run through
+scripts/e2e-stage1.sh, which prepares a private session and home.
 
-Checks the Stage 1 acceptance criteria against what the popup actually shows (read through the
-dev-build test hooks), not just against runtime state.
+Checks the Stage 1 acceptance criteria, and the Stage 3 approval card and dark-mode slice, against
+what the popup actually shows (read through the dev-build test hooks), not just runtime state.
 """
 
 import asyncio
@@ -85,6 +86,22 @@ class Harness:
 
     async def state(self) -> dict:
         return await self.hook("State")
+
+    async def press(self, label: str) -> bool:
+        """Click the popup's button with this label where it is on screen."""
+        body = await self._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "ClickButton", "s",
+                                [label])
+        await asyncio.sleep(0.5)
+        return bool(body[0])
+
+    async def use_fake(self, script: list[dict]) -> None:
+        """Switch to the scripted provider, keeping every other setting."""
+        cfg = await self.runtime("GetConfig", {})
+        config = cfg["config"]
+        providers = {**config["providers"], "fake": {"options": {"script": script, "delay_ms": 10}}}
+        await self.runtime("UpdateConfig", {"revision": cfg["revision"],
+                                            "config": {**config, "active": "fake", "providers": providers}})
+        await self.until(lambda s: s["controller"]["provider"] == "fake", 10, "the popup to see the scripted provider")
 
     async def until(self, pred, timeout: float, what: str) -> dict:
         deadline = time.monotonic() + timeout
@@ -237,12 +254,58 @@ async def main() -> int:
                            and s["controller"]["messages"][-1]["role"] == "assistant", 30, "the resumed reply")
         h.check("resume_completes", st["controller"]["messages"][-1]["content"] == REPLY
                 and len(requests()) == before + 1)
-        h.check("history_sent_to_provider", requests()[-1]["messages"] == 5)  # 3 user + 2 assistant
+        h.check("history_sent_to_provider", requests()[-1]["messages"] == 6)  # Mei's system prompt, 3 user, 2 assistant
         await h.hook("Popup", "collapse")
         await asyncio.sleep(1.0)
         st = await h.state()
         h.check("compact_shows_the_last_reply", not st["popup"]["expanded"] and any(t.strip() == REPLY for t in st["shown"]))
         await h.hook("Screenshot", os.path.join(OUT, "popup-compact.png"))
+
+        # 5. Stage 3: an agent task needs an approval card; the person allows it in the popup, and the
+        #    approval is accepted because it comes from the Shell process itself.
+        await h.use_fake([
+            {"text": "I'll tidy that.", "tool_calls": [{"name": "fs_trash", "arguments": {"path": "~/Music/old.txt"}}]},
+            {"tool_calls": [{"name": "task_finish", "arguments": {"summary": "Moved old.txt to the trash."}}]}])
+        await h.hook("Popup", "new")
+        await h.hook("Popup", "open")
+        await h.hook("Popup", "expand")
+        await h.hook("Send", "tidy up my files")
+        st = await h.until(lambda s: "approval" in s["controller"]["timeline"], 30, "the approval card")
+        h.check("approval_card_shown", st["controller"]["waiting"] and any(
+            t.startswith("Mei wants to: Move ~/Music/old.txt to the trash") for t in st["shown"]), st["shown"][-8:])
+        await asyncio.sleep(0.5)
+        await h.hook("Screenshot", os.path.join(OUT, "approval-card.png"))
+        clicked = await h.press("Allow once")
+        st = await h.until(lambda s: "outcome" in s["controller"]["timeline"], 30, "the approved task to finish")
+        trashed = os.path.join(OUT, "data", "Trash/files/old.txt")  # the trash lives in XDG_DATA_HOME
+        h.check("approved_from_the_popup", clicked and not os.path.exists(os.path.join(OUT, "home/Music/old.txt"))
+                and os.path.exists(trashed) and not st["controller"]["waiting"])
+
+        # 6. The dark-mode slice through the real Shell bridge: nothing it touches needs a card, and Mei
+        #    checks both criteria itself (the setting, and a Files window the Shell reports).
+        await h.use_fake([
+            {"tool_calls": [{"name": "plan_update", "arguments": {"criteria": [
+                {"text": "Dark mode is on", "check": {"type": "setting_equals", "schema": "org.gnome.desktop.interface",
+                                                      "key": "color-scheme", "value": "prefer-dark"}},
+                {"text": "Files is open", "check": {"type": "window_present", "app_id": "org.gnome.Nautilus"}}]}}]},
+            {"tool_calls": [
+                {"name": "settings_set", "arguments": {"schema": "org.gnome.desktop.interface", "key": "color-scheme",
+                                                       "value": "prefer-dark"}},
+                {"name": "apps_launch", "arguments": {"app_id": "org.gnome.Nautilus"}}]},
+            {"tool_calls": [{"name": "task_finish", "arguments": {"summary": "Dark mode is on and Files is open.",
+                                                                   "criteria": [{"index": 0, "status": "met"},
+                                                                                {"index": 1, "status": "met"}]}}]}])
+        subprocess.run(["/usr/bin/gsettings", "set", "org.gnome.desktop.interface", "color-scheme", "default"], check=True)
+        await h.hook("Popup", "new")
+        await h.hook("Send", "Switch to dark mode and open Files")
+        st = await h.until(lambda s: "outcome" in s["controller"]["timeline"], 60, "the dark-mode task to finish")
+        conv = await h.runtime("GetConversation", {"conversation_id": st["controller"]["current"]})
+        outcome = conv["tasks"][-1]["outcome"]
+        h.check("dark_mode_slice_verified", outcome["kind"] == "outcome_verified"
+                and "approval" not in st["controller"]["timeline"], outcome)
+        await asyncio.sleep(1.0)
+        await h.hook("Popup", "open")
+        await h.hook("Screenshot", os.path.join(OUT, "dark-mode-slice.png"))
     except AssertionError as e:
         h.results["error"] = str(e)
     finally:
