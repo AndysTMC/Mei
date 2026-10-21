@@ -19,7 +19,7 @@ import msgspec
 from mei.capabilities.base import Env, backups_dir
 from mei.capabilities.registry import Registry
 from mei.core.states import TERMINAL, Disposition, Execution, TaskState
-from mei.protocol import (MAX_INPUT_CHARS, AnswerInputArgs, Config, ConversationCommandArgs, ForgetMemoryArgs,
+from mei.protocol import (MAX_INPUT_CHARS, AnswerInputArgs, Attachment, Config, ConversationCommandArgs, ForgetMemoryArgs,
                           MemoriesArgs, ProtocolError, UpdateMemoryArgs,
                           ProviderConfig, ResolveApprovalArgs, RevokeGrantArgs, SubmitInputArgs, TaskCommandArgs,
                           UpdateConfigArgs, active_provider)
@@ -97,6 +97,8 @@ class Engine:
         if not provider.id:
             raise ProtocolError("Unsupported", "no model provider is configured")
 
+        attached = _attached(args.attachment)
+
         def apply(tx: Tx) -> tuple[dict, list[str]]:
             if args.conversation_id is None:
                 conversation_id = repo.create_conversation(tx, text)["id"]
@@ -106,24 +108,28 @@ class Engine:
                 conversation_id = args.conversation_id
                 active = repo.blocking_task(tx, conversation_id)
                 if active is not None:
-                    return self._steer(tx, active, text)
+                    return self._steer(tx, active, text, attached)
                 for old in repo.interrupted_tasks(tx, conversation_id):  # superseded by the new message
                     ledger.cancel_now(tx, old["id"], error="replaced by a new message")
-            message = repo.add_message(tx, conversation_id, "user", text)
+            message = repo.add_message(tx, conversation_id, "user", text, metadata=attached)
             task = repo.create_task(tx, conversation_id, message["id"], msgspec.to_builtins(provider))
+            if attached:
+                _taint(tx, task["id"])
             result = {"conversation_id": conversation_id, "task_id": task["id"], "message_id": message["id"],
                       "steer": False}
             return result, [task["id"]]
 
         return self._command("SubmitInput", args, apply)
 
-    def _steer(self, tx: Tx, active, text: str) -> tuple[dict, list[str]]:
+    def _steer(self, tx: Tx, active, text: str, attached: dict | None) -> tuple[dict, list[str]]:
         """New input while a task runs joins that task (§8.1). Unstarted actions are skipped and a
         pending approval or question is superseded; the model then reads the new message."""
         state = S(active["state"])
         if state == S.CANCEL_REQUESTED:
             raise ProtocolError("Busy", "Mei is stopping the current task")
-        message = repo.add_message(tx, active["conversation_id"], "user", text, task_id=active["id"])
+        message = repo.add_message(tx, active["conversation_id"], "user", text, task_id=active["id"], metadata=attached)
+        if attached:
+            _taint(tx, active["id"])
         result = {"conversation_id": active["conversation_id"], "task_id": active["id"], "message_id": message["id"],
                   "steer": True}
         if state not in (S.WAITING_APPROVAL, S.WAITING_INPUT):
@@ -486,3 +492,15 @@ def _valid_answer(spec: dict, value):
     if choices and value not in choices:
         raise ProtocolError("InvalidArgument", f"the answer must be one of {choices}")
     return value.strip()
+
+
+def _attached(attachment: Attachment | None) -> dict | None:
+    """The message's metadata for "Ask about this" (§18.4), or None when nothing was attached."""
+    if attachment is None or not (attachment.text.strip() or attachment.window_title.strip()):
+        return None
+    return {"attachment": msgspec.to_builtins(attachment)}
+
+
+def _taint(tx: Tx, task_id: str) -> None:
+    """Others wrote what was attached: the task has read untrusted content, as after reading a file."""
+    tx.execute("UPDATE tasks SET tainted = 1 WHERE id = ?", (task_id,))

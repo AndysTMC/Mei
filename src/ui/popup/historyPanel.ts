@@ -1,6 +1,7 @@
 /**
- * The history view (expanded mode): Back, a title, and one row per saved chat. Deleting asks for a
- * second click within a few seconds.
+ * The history view (expanded mode): Back, a title, and one row per saved chat, with chats whose
+ * task is still in progress listed first under their own heading. Deleting asks for a second click
+ * within a few seconds.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -15,6 +16,8 @@ import type { SourceSet } from '../sources.js';
 export interface ChatSummary {
     id: string;
     title: string;
+    /** What its task in progress is doing ("Working…", "Needs you"), if it has one. */
+    active?: string | null;
 }
 
 export interface HistoryActions {
@@ -65,7 +68,14 @@ export class HistoryPanel {
                 y_align: Clutter.ActorAlign.CENTER,
             }));
         }
-        for (const item of items) this._list.add_child(this._row(item));
+        const inProgress = items.filter(i => i.active);
+        const rest = items.filter(i => !i.active);
+        if (inProgress.length) {
+            this._list.add_child(this._heading('In progress'));
+            for (const item of inProgress) this._list.add_child(this._row(item));
+            if (rest.length) this._list.add_child(this._heading('Earlier'));
+        }
+        for (const item of rest) this._list.add_child(this._row(item));
         this.applyTheme(this._isDark);
     }
 
@@ -87,19 +97,28 @@ export class HistoryPanel {
         }
     }
 
+    private _heading(text: string): St.Label {
+        return new St.Label({ text, style_class: 'mei-history-heading' });
+    }
+
     private _row(item: ChatSummary): St.BoxLayout {
         const title = item.title || 'Untitled';
         const row = new St.BoxLayout({ x_expand: true, style_class: 'mei-history-item-row' });
 
+        const label = new St.BoxLayout({ x_expand: true });
+        label.add_child(new St.Label({ text: title, x_expand: true, y_align: Clutter.ActorAlign.CENTER }));
+        if (item.active) {
+            label.add_child(new St.Label({ text: item.active, style_class: 'mei-history-badge', y_align: Clutter.ActorAlign.CENTER }));
+        }
         const open = new St.Button({
-            label: title,
+            child: label,
             style_class: 'mei-history-title-btn',
             x_expand: true,
             x_align: Clutter.ActorAlign.FILL,
             can_focus: true,
             reactive: true,
             track_hover: true,
-            accessible_name: `Load chat: ${title}`,
+            accessible_name: `Load chat: ${title}${item.active ? ` (${item.active})` : ''}`,
             accessible_role: Atk.Role.PUSH_BUTTON,
         });
         open.connect('clicked', () => {

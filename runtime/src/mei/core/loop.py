@@ -199,19 +199,25 @@ class TaskLoop:
                 return False
         return True
 
-    def _own_words(self, task) -> list[str]:
+    def _own_messages(self, task) -> list:
         """The person's messages in this task: its request and any steers, not earlier tasks."""
-        return [r["content"] for r in self.d.store.read(
-            "SELECT content FROM messages WHERE role = 'user' AND (id = ? OR task_id = ?) ORDER BY ordinal",
-            (task["input_message_id"], task["id"]))]
+        return self.d.store.read(
+            "SELECT content, metadata FROM messages WHERE role = 'user' AND (id = ? OR task_id = ?) ORDER BY ordinal",
+            (task["input_message_id"], task["id"]))
+
+    def _own_words(self, task) -> list[str]:
+        return [r["content"] for r in self._own_messages(task)]
 
     def _seen(self, task) -> decide.Seen:
         """The person's words in this task, what they told Mei to remember that this task recalled
-        (§17.5), and what Mei has read in it."""
-        texts = self._own_words(task) + memories.stated(self.d.store, task)
+        (§17.5), and what Mei has read in it. What they attached is content others wrote (§18.4)."""
+        own = self._own_messages(task)
+        texts = [r["content"] for r in own] + memories.stated(self.d.store, task)
         rows = self.d.store.read("SELECT a.result, m.content FROM actions a JOIN messages m ON m.action_id = a.id "
                                  "WHERE a.task_id = ? AND a.result IS NOT NULL", (task["id"],))
-        content, other = [], []
+        attached = [a for a in map(context.attachment_of, own) if a]
+        content = [a.get("text", "") for a in attached]
+        other = [a.get("window_title", "") for a in attached]
         for r in rows:
             result = json.loads(r["result"])
             if result.get("trust") == "untrusted":

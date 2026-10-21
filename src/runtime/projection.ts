@@ -44,6 +44,7 @@ export interface LiveStream extends StreamView {
 
 export type ApplyResult = 'applied' | 'duplicate' | 'gap' | 'ignored';
 
+const WAITING: ReadonlySet<string> = new Set(['WAITING_APPROVAL', 'WAITING_INPUT']);
 const ACTION_EVENTS = new Set(['action.proposed', 'policy.decided', 'action.started', 'action.updated', 'action.finished']);
 /** Events that change a conversation's loaded messages or tasks (skipped while it isn't loaded). */
 const NEEDS_LOADED = new Set(['message.completed', 'task.accepted', 'task.state_changed', 'task.finished',
@@ -84,9 +85,11 @@ export class Projection {
     applyConversation(reply: ConversationReply): boolean {
         if ((this._skipped.get(reply.conversation.id) ?? 0) > reply.seq) return false;
         this._skipped.delete(reply.conversation.id);
-        this.conversations.set(reply.conversation.id, reply.conversation);
-        this.loaded.set(reply.conversation.id, {
-            summary: reply.conversation,
+        const latest = reply.tasks.filter(t => !TERMINAL_STATES.has(t.state)).sort((a, b) => a.created_at - b.created_at).at(-1);
+        const summary = { ...reply.conversation, active: latest?.state ?? null };
+        this.conversations.set(summary.id, summary);
+        this.loaded.set(summary.id, {
+            summary,
             messages: [...reply.messages],
             tasks: new Map(reply.tasks.map(t => [t.id, { ...t }])),
             loadedSeq: reply.seq,
@@ -141,7 +144,12 @@ export class Projection {
 
     /** Conversations with a card waiting on the person, for the indicator. */
     needsAttention(): string[] {
-        return [...this.loaded.keys()].filter(id => this.waitingTask(id) !== null);
+        return this.summaries().filter(s => WAITING.has(s.active ?? '') || this.waitingTask(s.id) !== null).map(s => s.id);
+    }
+
+    /** Whether a task is working in any conversation (not waiting on the person, not interrupted). */
+    anyWorking(): boolean {
+        return this.summaries().some(s => s.active && !WAITING.has(s.active) && s.active !== 'INTERRUPTED');
     }
 
     streamFor(conversationId: string): LiveStream | null {
@@ -159,6 +167,7 @@ export class Projection {
         const conv = convId ? this.loaded.get(convId) : undefined;
         const fresh = conv !== undefined && (event.seq ?? 0) > conv.loadedSeq;
         if (convId && !conv && event.seq !== null && NEEDS_LOADED.has(event.type)) this._skipped.set(convId, event.seq);
+        this._trackActive(event);
         switch (event.type) {
         case 'conversation.created': {
             const summary = p.conversation as ConversationSummary;
@@ -228,6 +237,18 @@ export class Projection {
             if (fresh) this._reduceAgent(event, conv);
             break; // other unknown durable events are skippable unless `required` (checked by the client)
         }
+    }
+
+    /** Keep each summary's `active` current, loaded or not: the history list and indicator read it. */
+    private _trackActive(event: Envelope): void {
+        const summary = event.conversation_id ? this.conversations.get(event.conversation_id) : undefined;
+        if (!summary) return;
+        const p = event.payload;
+        let state: TaskState | undefined;
+        if (event.type === 'task.accepted') state = (p.task as TaskView).state;
+        else if (event.type === 'task.state_changed') state = p.to as TaskState;
+        else if (event.type === 'task.finished') state = p.state as TaskState;
+        if (state !== undefined) summary.active = TERMINAL_STATES.has(state) ? null : state;
     }
 
     /** Actions, approvals, questions, and the plan (protocol 2.2). */

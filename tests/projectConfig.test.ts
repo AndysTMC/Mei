@@ -14,11 +14,11 @@ test('extension metadata and schema target the same extension identity', () => {
     assert.match(schema, /id="org\.gnome\.shell\.extensions\.mei"/);
 });
 
-test('the schema keeps no provider settings: the runtime owns them', () => {
+test('the schema keeps only keybindings: the runtime owns every other setting', () => {
     const schema = readFileSync('schemas/org.gnome.shell.extensions.mei.gschema.xml', 'utf8');
     for (const key of ['provider', 'provider-type', 'provider-configs', 'experimental-runtime'])
         assert.doesNotMatch(schema, new RegExp(`<key name="${key}"`));
-    assert.deepEqual([...schema.matchAll(/<key name="([^"]+)"/g)].map(m => m[1]), ['open-shortcut']);
+    assert.deepEqual([...schema.matchAll(/<key name="([^"]+)"/g)].map(m => m[1]), ['open-shortcut', 'ask-shortcut']);
 });
 
 test('sensitive local environment files are ignored while the template is committed', () => {

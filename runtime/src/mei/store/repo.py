@@ -231,7 +231,13 @@ def put_config(tx: Tx, expected_revision: int, config: Config) -> int:
 
 
 def list_conversations(store: Store) -> list[dict]:
-    return [conversation_dict(r) for r in store.read("SELECT * FROM conversations ORDER BY updated_at DESC")]
+    """Newest first, each with the state of its task in progress, if any (the popup's task list)."""
+    placeholders = ",".join("?" for _ in TERMINAL)
+    active = {r["conversation_id"]: r["state"] for r in store.read(
+        f"SELECT conversation_id, state FROM tasks WHERE state NOT IN ({placeholders}) ORDER BY created_at",
+        tuple(TERMINAL))}
+    return [{**conversation_dict(r), "active": active.get(r["id"])}
+            for r in store.read("SELECT * FROM conversations ORDER BY updated_at DESC")]
 
 
 def conversation_snapshot(store: Store, conversation_id: str) -> dict:

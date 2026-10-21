@@ -18,6 +18,7 @@ from dbus_fast.aio import MessageBus
 from dbus_fast.constants import NameFlag, RequestNameReply
 
 from mei import protocol
+from mei.capabilities.base import Notifier
 from mei.core.engine import Engine
 from mei.obs import RECENT
 from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, ForgetMemoryArgs,
@@ -29,6 +30,7 @@ from mei.setup import Setup
 from mei.store import repo
 
 from .bridge import ShellBridgeClient
+from .notices import Notices
 from .peers import shell_check
 
 log = logging.getLogger("mei.ipc")
@@ -51,11 +53,13 @@ class RuntimeService:
                  list_models: Callable[[str, str], Awaitable[dict]] | None = None,
                  setup: Setup | None = None,
                  test_provider: Callable[[str], Awaitable[dict]] | None = None,
-                 is_shell: Callable[[str], Awaitable[bool]] | None = None) -> None:
+                 is_shell: Callable[[str], Awaitable[bool]] | None = None,
+                 notifier: Notifier | None = None) -> None:
         self._bus = bus
         self._engine = engine
         self._is_shell = is_shell or shell_check(bus)
         self.bridge: ShellBridgeClient | None = None
+        self._notices = Notices(notifier, self._conversation_title)
         self._list_models = list_models
         self._setup = setup
         self._test_provider = test_provider
@@ -89,6 +93,13 @@ class RuntimeService:
     def publish(self, events: list[Envelope]) -> None:
         for event in events:
             self._send(event)
+        # The verified bridge, not a client's own claim to be the Shell: a program pretending to be
+        # it must not be able to silence these.
+        self._notices.on_events(events, shell_attached=self.bridge is not None and self.bridge.name in self.clients)
+
+    def _conversation_title(self, conversation_id: str) -> str:
+        row = repo.get_conversation(self._store, conversation_id)
+        return row["title"] if row is not None else ""
 
     def publish_ephemeral(self, event: Envelope) -> None:
         self._send(event)

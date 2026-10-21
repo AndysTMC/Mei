@@ -11,8 +11,10 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import type { ChatPopup } from '../ui/chatPopup.js';
+import type { TaskNotifier } from '../ui/notifier.js';
 import type { RuntimeChatController } from './controller.js';
 
 const OBJECT_PATH = '/com/andystmc/MeiDev';
@@ -25,6 +27,8 @@ const XML = `
     <method name="Screenshot"><arg type="s" direction="in" name="path"/></method>
     <method name="Click"><arg type="i" direction="in" name="x"/><arg type="i" direction="in" name="y"/></method>
     <method name="PressOpenShortcut"/>
+    <method name="PressAskShortcut"/>
+    <method name="SetPrimarySelection"><arg type="s" direction="in" name="text"/></method>
     <method name="ClickButton"><arg type="s" direction="in" name="label"/><arg type="b" direction="out" name="found"/></method>
   </interface>
 </node>`;
@@ -34,7 +38,8 @@ export class DevHooks {
     private _pointer: Clutter.VirtualInputDevice | null = null;
     private _keyboard: Clutter.VirtualInputDevice | null = null;
 
-    constructor(private readonly _popup: ChatPopup, private readonly _runtime: RuntimeChatController) {
+    constructor(private readonly _popup: ChatPopup, private readonly _runtime: RuntimeChatController,
+        private readonly _notifier: TaskNotifier) {
         this._exported = Gio.DBusExportedObject.wrapJSObject(XML, this);
         this._exported.export(Gio.DBus.session, OBJECT_PATH);
     }
@@ -55,6 +60,13 @@ export class DevHooks {
         else if (action === 'new') this._popup.onNewChat?.();
         else if (action === 'load-latest') this._runtime.debugLoadLatest();
         else if (action === 'reload-draft') this._popup.onReload?.(this._runtime.draftIndex);
+        else if (action === 'activate-notice') this._activateNotice();
+    }
+
+    /** Clicks Mei's notification for the last notice, as a person clicking the banner would. */
+    private _activateNotice(): void {
+        const notice = this._runtime.debugState().notice as { conversationId: string } | null;
+        if (notice) this._notifier.shownFor(notice.conversationId)?.activate();
     }
 
     /** Saves the whole screen as PNG (to see windows the hooks can't read, like Settings). */
@@ -94,9 +106,22 @@ export class DevHooks {
 
     /** Presses Super+Alt+M (the default open-shortcut) the way a keyboard would. */
     PressOpenShortcut(): void {
+        this._press([Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_m]);
+    }
+
+    /** Presses Super+Alt+A (the default ask-shortcut). */
+    PressAskShortcut(): void {
+        this._press([Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_a]);
+    }
+
+    /** Selects text as if the person had highlighted it in some app. */
+    SetPrimarySelection(text: string): void {
+        St.Clipboard.get_default().set_text(St.ClipboardType.PRIMARY, text);
+    }
+
+    private _press(keys: number[]): void {
         this._keyboard ??= Clutter.get_default_backend().get_default_seat()
             .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
-        const keys = [Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_m];
         let t = GLib.get_monotonic_time();
         for (const key of keys) this._keyboard.notify_keyval(t += 10_000, key, Clutter.KeyState.PRESSED);
         for (const key of keys.reverse()) this._keyboard.notify_keyval(t += 10_000, key, Clutter.KeyState.RELEASED);
@@ -107,6 +132,9 @@ export class DevHooks {
             popup: { open: this._popup.isOpen, expanded: this._popup.isExpanded },
             shown: visibleText(this._popup.contentActor),
             controller: this._runtime.debugState(),
+            // Every notification in the tray: Mei's own, and those the runtime sent while detached.
+            notifications: Main.messageTray.getSources().flatMap(s => s.notifications.map(n =>
+                ({ source: s.title, title: n.title, body: n.body }))),
         });
     }
 }

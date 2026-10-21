@@ -11,6 +11,7 @@ import type { MessageView } from '../../runtime/protocol.js';
 import type { TimelineItem } from '../../runtime/timeline.js';
 import type { ChatMessageMetadata, ProviderId } from '../../providers/types.js';
 import { activityBlock, approvalCard, outcomeCard, planCard, questionCard, type CardActions } from './cards.js';
+import { attachmentLabel, attachmentOf } from '../../runtime/attachment.js';
 import type { ListedMessage } from './messageList.js';
 
 export type ListedItem =
@@ -56,5 +57,7 @@ export function listedMessage(m: MessageView): ListedMessage {
         durationMs: typeof meta.duration_ms === 'number' ? meta.duration_ms : undefined,
         tokens: tokens ? { inputTokens: tokens.input ?? undefined, outputTokens: tokens.output ?? undefined } : undefined,
     };
-    return { role: m.role, content: m.content, thinking: m.thinking ?? undefined, metadata };
+    const attachment = m.role === 'user' ? attachmentOf(meta) : null;
+    return { role: m.role, content: m.content, thinking: m.thinking ?? undefined, metadata,
+        note: attachment ? attachmentLabel(attachment) : undefined };
 }

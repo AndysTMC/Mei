@@ -9,5 +9,10 @@
             <summary>Open Mei</summary>
             <description>Keyboard shortcut that opens Mei with the message box focused. An empty list turns it off.</description>
         </key>
+        <key name="ask-shortcut" type="as">
+            <default><![CDATA[['<Super><Alt>a']]]></default>
+            <summary>Ask Mei about this</summary>
+            <description>Keyboard shortcut that opens a new Mei chat with the focused window's title and the selected text attached. An empty list turns it off.</description>
+        </key>
     </schema>
 </schemalist>

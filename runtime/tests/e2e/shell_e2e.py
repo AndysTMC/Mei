@@ -94,11 +94,11 @@ class Harness:
         await asyncio.sleep(0.5)
         return bool(body[0])
 
-    async def use_fake(self, script: list[dict]) -> None:
+    async def use_fake(self, script: list[dict], delay_ms: int = 10) -> None:
         """Switch to the scripted provider, keeping every other setting."""
         cfg = await self.runtime("GetConfig", {})
         config = cfg["config"]
-        providers = {**config["providers"], "fake": {"options": {"script": script, "delay_ms": 10}}}
+        providers = {**config["providers"], "fake": {"options": {"script": script, "delay_ms": delay_ms}}}
         await self.runtime("UpdateConfig", {"revision": cfg["revision"],
                                             "config": {**config, "active": "fake", "providers": providers}})
         await self.until(lambda s: s["controller"]["provider"] == "fake", 10, "the popup to see the scripted provider")
@@ -306,6 +306,70 @@ async def main() -> int:
         await asyncio.sleep(1.0)
         await h.hook("Popup", "open")
         await h.hook("Screenshot", os.path.join(OUT, "dark-mode-slice.png"))
+
+        # 7. Stage 4: a task that outlasts an extension restart. The history list shows it working; when
+        #    it finishes, a notification says so (the popup stays closed), and clicking it opens the chat.
+        slow = "Still working on it, one slow piece at a time. " * 4  # 25 chunks, one a second
+        await h.use_fake([{"text": slow}], delay_ms=1000)
+        await h.hook("Popup", "new")
+        await h.hook("Send", "take your time with this one")
+        conv = (await h.until(lambda s: s["controller"]["current"], 10, "the long task to start"))["controller"]["current"]
+        await h.hook("Popup", "close")
+        st = await h.until(lambda s: any(i["id"] == conv and i["active"] == "Working…" for i in s["controller"]["history"]),
+                           10, "the task in the history list")
+        h.check("history_lists_the_task_in_progress", st["controller"]["busy"])
+        subprocess.run(["gnome-extensions", "disable", "mei@andystmc.com"], check=True)
+        await asyncio.sleep(1.5)
+        subprocess.run(["gnome-extensions", "enable", "mei@andystmc.com"], check=True)
+        await h.until(lambda s: s["controller"]["status"] == "connected" and s["controller"]["busy"], 30,
+                      "the re-enabled extension to see the task still working")
+        st = await h.until(lambda s: s["controller"]["notice"] is not None, 60, "the completion notice")
+        notice = st["controller"]["notice"]
+        h.check("long_task_notifies_after_restart", notice["conversationId"] == conv and notice["title"] == "Mei finished"
+                and not st["popup"]["open"] and any(n["title"] == "Mei finished" for n in st["notifications"]), notice)
+        await h.hook("Screenshot", os.path.join(OUT, "notification.png"))
+        await h.hook("Popup", "activate-notice")
+        st = await h.until(lambda s: s["popup"]["open"] and s["controller"]["current"] == conv
+                           and any(t.strip() == slow.strip() for t in s["shown"]), 10, "the notification to open the chat")
+        h.check("notification_opens_the_chat", not any(n["title"] == "Mei finished" and n["body"].startswith("take your")
+                                                       for n in st["notifications"]), st["notifications"])
+        await h.hook("Popup", "close")
+
+        # 8. A task that finishes while the extension is off: the runtime notifies through the desktop.
+        await h.use_fake([{"text": "Done while you were away. " * 3}], delay_ms=300)
+        await h.hook("Popup", "new")
+        await h.hook("Send", "finish this while I'm away")
+        conv = (await h.until(lambda s: s["controller"]["current"], 10, "the task to start"))["controller"]["current"]
+        subprocess.run(["gnome-extensions", "disable", "mei@andystmc.com"], check=True)
+        deadline = time.monotonic() + 30
+        while (state := (await h.runtime("GetConversation", {"conversation_id": conv}))["tasks"][-1]["state"]) \
+                != "COMPLETED" and time.monotonic() < deadline:
+            await asyncio.sleep(0.25)
+        subprocess.run(["gnome-extensions", "enable", "mei@andystmc.com"], check=True)
+        st = await h.until(lambda s: s["controller"]["status"] == "connected", 30, "reconnect after re-enable")
+        title = (await h.runtime("GetConversation", {"conversation_id": conv}))["conversation"]["title"]
+        h.check("runtime_notifies_while_detached", state == "COMPLETED" and any(
+            n["title"] == "Mei finished" and n["body"] == title for n in st["notifications"]), st["notifications"])
+
+        # 9. "Ask about this": the shortcut opens a new chat with the focused window and the selected
+        #    text attached; the chip shows it, and the message carries it to the runtime.
+        await h.use_fake([{"text": "That's a line of release notes."}])
+        selected = "Version 2 drops the legacy importer."
+        await h.hook("SetPrimarySelection", selected)
+        await h.hook("PressAskShortcut")
+        st = await h.until(lambda s: s["popup"]["open"] and s["controller"]["attachment"] is not None, 10,
+                           "the shortcut to attach the selection")
+        attached = st["controller"]["attachment"]
+        chip = next((t for t in st["shown"] if t.startswith("About: ")), "")
+        await h.hook("Screenshot", os.path.join(OUT, "ask-about-this.png"))
+        await h.hook("Send", "what does this mean?")
+        st = await h.until(lambda s: s["controller"]["current"] and s["controller"]["attachment"] is None
+                           and not s["controller"]["streaming"], 20, "the question about the selection")
+        conv = await h.runtime("GetConversation", {"conversation_id": st["controller"]["current"]})
+        sent = conv["messages"][0]
+        h.check("ask_about_this_attaches_the_selection", attached["text"] == selected and selected[:20] in chip
+                and sent["content"] == "what does this mean?" and sent["metadata"]["attachment"]["text"] == selected
+                and conv["tasks"][-1]["state"] == "COMPLETED", {"chip": chip, "attached": attached})
     except AssertionError as e:
         h.results["error"] = str(e)
     finally:

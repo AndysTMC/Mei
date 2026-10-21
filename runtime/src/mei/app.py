@@ -205,7 +205,7 @@ async def serve() -> int:
         make_provider = provider_factory(client, key_for)
         setup = Setup(store, setup_probes(bus), data_dir(), RUNTIME_VERSION)
         service = RuntimeService(bus, engine, list_models=model_lister(store, client, key_for), setup=setup,
-                                 test_provider=provider_tester(store, make_provider))
+                                 test_provider=provider_tester(store, make_provider), notifier=env.notifier)
         engine.publisher = service  # the service needs the engine and the engine publishes through it
         holder.append(service)
         engine.recover()

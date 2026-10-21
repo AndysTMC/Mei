@@ -12,11 +12,13 @@ import GLib from 'gi://GLib';
 
 import { getProviderProfile, resolveProviderId } from '../providers/profiles.js';
 import type { Answer } from '../ui/conversation/cards.js';
-import type { ChatPopup } from '../ui/chatPopup.js';
+import type { ChatPopup, ChatSummary } from '../ui/chatPopup.js';
 import { Logger, Tag } from '../utils/logger.js';
 import { RuntimeClient, RuntimeError, type ConnectionStatus } from './client.js';
+import { activeLabel, noticeFor, reaction, wantsPerson, type Notice, type Reaction } from './notices.js';
 import { Projection } from './projection.js';
-import type { ApprovalScope, ConversationReply, Envelope, SetupStatusReply, SubmitReply } from './protocol.js';
+import { attachmentLabel } from './attachment.js';
+import type { ApprovalScope, Attachment, ConversationReply, Envelope, SetupStatusReply, SubmitReply } from './protocol.js';
 import { RuntimeSettings } from './settings.js';
 import { buildTimeline, type TimelineItem } from './timeline.js';
 
@@ -26,9 +28,13 @@ const AGENT_EVENTS = new Set(['action.proposed', 'policy.decided', 'action.start
     'plan.updated', 'approval.requested', 'approval.resolved', 'input.requested', 'input.answered']);
 /** Events that put a card in front of the person. */
 const ASKS = new Set(['approval.requested', 'input.requested']);
+/** Events that change a conversation's task in progress (the history list and indicator show it). */
+const TASK_EVENTS = new Set(['task.accepted', 'task.state_changed', 'task.finished']);
 
 export class RuntimeChatController {
     onStateChanged: (() => void) | null = null;
+    /** A task finished or needs the person somewhere the popup isn't showing (§18.4). */
+    onNotice: ((notice: Notice) => void) | null = null;
 
     private readonly _projection = new Projection();
     private readonly _client: RuntimeClient;
@@ -42,6 +48,10 @@ export class RuntimeChatController {
 
     private _popup!: ChatPopup;
     private _setupChecked = false;
+    /** The last notice sent, for the dev-build test hooks. */
+    private _lastNotice: Notice | null = null;
+    /** What "Ask about this" attached to the next message, until it is sent or dropped. */
+    private _attachment: Attachment | null = null;
     /** Called once when setup was never offered (the extension opens Settings). */
     onSetupNeeded: (() => void) | null = null;
     /** Whether this controller asked for setup to open (read by the dev-build test hooks). */
@@ -80,6 +90,15 @@ export class RuntimeChatController {
         return this._projection.needsAttention().length > 0;
     }
 
+    /** Whether a task is working in any conversation, shown or not. */
+    get isBusy(): boolean {
+        return this._projection.anyWorking();
+    }
+
+    get currentConversation(): string | null {
+        return this._current;
+    }
+
     /** The unique bus name the runtime has now, the only caller the Shell bridge serves. */
     get runtimeOwner(): string | null {
         return this._client.owner;
@@ -101,9 +120,13 @@ export class RuntimeChatController {
             stream: stream ? { text: stream.text, chunk: stream.chunk, stale: stream.stale } : null,
             interrupted: this._current ? this._projection.interruptedTask(this._current)?.draft ?? null : null,
             provider: this.settings.active,
+            attachment: this._attachment,
             setupOffered: this.setupOffered,
             timeline: this._timeline().map(i => i.kind),
             waiting: this.needsAttention,
+            busy: this.isBusy,
+            notice: this._lastNotice,
+            history: this._historyItems(),
         };
     }
 
@@ -134,14 +157,34 @@ export class RuntimeChatController {
             return;
         }
         if (!this._popup.isExpanded) this._popup.close();
+        const attachment = this._attachment;
         this._client.call<SubmitReply>('SubmitInput', {
             command_id: GLib.uuid_string_random(),
             conversation_id: this._current,
             text,
+            ...(attachment ? { attachment } : {}),
         }).then(reply => {
             this._current = reply.conversation_id;
+            if (this._attachment === attachment) this._setAttachment(null);
             this._render();
         }).catch((e: RuntimeError) => this._showFailure(e));
+    }
+
+    /** "Ask about this" (§18.4): a new chat whose first message carries the window and selection. */
+    askAbout(attachment: Attachment | null): void {
+        if (this._popup.isShowingHistory) this._popup.hideHistoryList();
+        this.newChat();
+        this._setAttachment(attachment);
+        this._popup.open();
+    }
+
+    removeAttachment(): void {
+        this._setAttachment(null);
+    }
+
+    private _setAttachment(attachment: Attachment | null): void {
+        this._attachment = attachment;
+        this._popup.showAttachment(attachment ? attachmentLabel(attachment) : null);
     }
 
     approve(approvalId: string, scope: ApprovalScope): void {
@@ -174,6 +217,7 @@ export class RuntimeChatController {
     newChat(): void {
         this._current = null;
         this._draftIndex = -1;
+        if (this._attachment) this._setAttachment(null);
         this._popup.setLoading(false);
         this._popup.clearMessages();
         this._popup.hideError();
@@ -181,12 +225,28 @@ export class RuntimeChatController {
     }
 
     showHistoryList(): void {
-        this._popup.showHistoryList(this._projection.summaries().map(s => ({ id: s.id, title: s.title })));
+        this._popup.showHistoryList(this._historyItems());
     }
 
     loadChat(id: string): void {
         this._current = id;
         void this._loadConversation(id);
+    }
+
+    /** From a notification: show this conversation in the popup, in whichever mode it is in. */
+    openConversation(id: string): void {
+        this._popup.hideHistoryList();
+        if (this._current !== id) this.newChat();
+        this._current = id;
+        this._popup.open();
+        void this._loadConversation(id).then(() => {
+            if (this._current === id && !this._popup.isExpanded) this._showCompact();
+        });
+    }
+
+    /** Newest first, each with what its task in progress is doing, if it has one. */
+    private _historyItems(): ChatSummary[] {
+        return this._projection.summaries().map(s => ({ id: s.id, title: s.title, active: activeLabel(s.active) }));
     }
 
     deleteChat(id: string): void {
@@ -209,11 +269,14 @@ export class RuntimeChatController {
     }
 
     toggleExpand(isExpanded: boolean): void {
-        if (isExpanded) {
-            this._render();
-        } else if (!this._popup.showWaitingCard(this._timeline())) {
-            this._popup.showMessage('assistant', this._lastAssistant());
-        }
+        if (isExpanded) this._render();
+        else this._showCompact();
+    }
+
+    /** Compact mode shows the card the task waits on, or else the last reply. */
+    private _showCompact(): void {
+        if (!this._current || !this._projection.loaded.has(this._current)) return;
+        if (!this._popup.showWaitingCard(this._timeline())) this._popup.showMessage('assistant', this._lastAssistant());
     }
 
     // ── Events and rendering ────────────────────────────────────────────────
@@ -230,42 +293,70 @@ export class RuntimeChatController {
             this._reloadSettings();
             return;
         }
-        if (this._current === null || event.conversation_id !== this._current) return;
+        const react = this._react(event);
+        if (TASK_EVENTS.has(event.type) && this._popup.isShowingHistory) this._popup.refreshHistoryList(this._historyItems());
+        if (this._current === null || event.conversation_id !== this._current) {
+            if (TASK_EVENTS.has(event.type)) this.onStateChanged?.();
+            return;
+        }
         if (event.type === 'message.delta') {
             const stream = this._projection.streamFor(this._current);
             if (stream && this._popup.isExpanded) this._popup.showStreamingResponse(stream.text, stream.thinking);
             return;
         }
-        if (event.type === 'task.finished') this._onTaskFinished(event);
-        else if (ASKS.has(event.type)) this._onAsk();
+        if (event.type === 'task.finished') this._onTaskFinished(event, react === 'open');
+        else if (ASKS.has(event.type)) this._onAsk(react === 'open');
         else if (event.type === 'message.completed' || AGENT_EVENTS.has(event.type)) this._render();
         else this._syncLoading(); // status-only events (task accepted/running, model started)
         this.onStateChanged?.();
     }
 
-    /** A card now waits on the person: show it, even if the popup is closed or compact. */
-    private _onAsk(): void {
+    /**
+     * Whether a finished task or a new card reopens the popup, arrives as a notification, or needs
+     * nothing more because the person is looking at it (see notices.ts).
+     */
+    private _react(event: Envelope): Reaction {
+        if (!wantsPerson(event) || !event.conversation_id) return 'none';
+        const id = event.conversation_id;
+        const current = id === this._current;
+        const task = current && event.task_id ? this._projection.loaded.get(id)?.tasks.get(event.task_id) : undefined;
+        const react = reaction(event, {
+            current,
+            showing: current && this._popup.isOpen && !this._popup.isShowingHistory,
+            elapsedMs: task ? Date.now() - task.created_at : null,
+        });
+        if (react === 'notify') {
+            const notice = noticeFor(event, this._projection.conversations.get(id));
+            if (notice) {
+                this._lastNotice = notice;
+                this.onNotice?.(notice);
+            }
+        }
+        return react;
+    }
+
+    /** A card now waits on the person: show it in place, even in compact mode. */
+    private _onAsk(open: boolean): void {
         this._render();
         if (!this._popup.isExpanded) {
             this._popup.setLoading(false);
             this._popup.showWaitingCard(this._timeline());
         }
-        this._popup.open();
+        if (open) this._popup.open();
     }
 
-    private _onTaskFinished(event: Envelope): void {
+    private _onTaskFinished(event: Envelope, open: boolean): void {
         const state = event.payload.state as string;
         const error = event.payload.error as string | null;
         this._render();
         if (state === 'FAILED') {
             this._popup.showError(`⚠ ${error ?? 'Mei could not answer.'}`);
-            this._popup.open();
         } else if (state === 'INTERRUPTED') {
             this._popup.showError('⚠ Mei restarted while answering. Use ↻ on the partial reply to continue.');
         } else if (state === 'COMPLETED' && !this._popup.isExpanded) {
             this._popup.showMessage('assistant', this._lastAssistant());
-            this._popup.open();
         }
+        if (open) this._popup.open();
     }
 
     private _render(): void {

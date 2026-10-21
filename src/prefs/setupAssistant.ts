@@ -138,10 +138,13 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
     privacy.add(cloudFiles.row);
 
     /* ── 5. Shortcuts ── */
-    const shortcuts = step('shortcuts', 'Shortcuts', 'Open Mei from anywhere, with the message box ready for typing.');
+    const shortcuts = step('shortcuts', 'Shortcuts', 'Open Mei from anywhere, with the message box ready for typing, '
+        + 'or ask about what you are looking at: the window and the text you selected go with your question.');
     const shortcut = buildShortcutRow(window, gsettings, 'open-shortcut', 'Open Mei');
-    rows.push(shortcut);
+    const askShortcut = buildShortcutRow(window, gsettings, 'ask-shortcut', 'Ask about this');
+    rows.push(shortcut, askShortcut);
     shortcuts.add(shortcut.row);
+    shortcuts.add(askShortcut.row);
 
     /* ── Summary ── */
     const done = new Adw.StatusPage({ icon_name: 'emblem-ok-symbolic', title: 'Mei is ready' });

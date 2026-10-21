@@ -26,6 +26,8 @@ export interface ListedMessage {
     content: string;
     thinking?: string;
     metadata?: ChatMessageMetadata;
+    /** Plain text above the bubble, e.g. what "Ask about this" attached (never rendered as markdown). */
+    note?: string;
 }
 
 export interface MessageListHost {
@@ -209,6 +211,10 @@ export class MessageList {
         const container = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'mei-msg-container' });
         if (role === 'assistant' && this._expanded && message.thinking)
             container.add_child(thinkingBlock(message.thinking));
+        if (message.note) {
+            container.add_child(new St.Label({ text: message.note, style_class: 'mei-msg-note',
+                x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START }));
+        }
         container.add_child(this._messageActor(role, message.content).actor);
         const info = role === 'assistant' ? createMessageInfoPanel(message.metadata, this._host.isDark()) : null;
         container.add_child(this._actionBar(role, message.content, index, info));

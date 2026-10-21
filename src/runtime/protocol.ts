@@ -30,11 +30,21 @@ export interface Envelope {
     payload: Record<string, unknown>;
 }
 
+/** What "Ask about this" attaches to a message (2.3, §18.4). Others wrote it: the runtime treats it as untrusted. */
+export interface Attachment {
+    kind: 'selection';
+    app_id: string;
+    window_title: string;
+    text: string;
+}
+
 export interface ConversationSummary {
     id: string;
     title: string;
     created_at: number;
     updated_at: number;
+    /** The state of its task in progress, if any (2.3; in Attach snapshots, kept current by the projection). */
+    active?: TaskState | null;
 }
 
 export interface MessageView {

@@ -16,6 +16,8 @@ import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import { Logger, Tag } from '../utils/logger.js';
+import { makeAttachment } from './attachment.js';
+import type { Attachment } from './protocol.js';
 
 export const BRIDGE_PATH = '/com/andystmc/Mei1/ShellBridge';
 const INTERFACE = 'com.andystmc.Mei1.ShellBridge';
@@ -108,6 +110,15 @@ function focusWindow(id: number): Record<string, never> {
     if (!window) throw new Error(`No window ${id} is open.`);
     window.activate(global.get_current_time());
     return {};
+}
+
+/** For "Ask about this": the focused window, and the text selected anywhere (the primary selection). */
+export function focusedContext(): Promise<Attachment | null> {
+    const window = global.display.get_focus_window();
+    const appId = window ? Shell.WindowTracker.get_default().get_window_app(window)?.get_id() ?? '' : '';
+    const title = window?.get_title() ?? '';
+    return new Promise(resolve => St.Clipboard.get_default().get_text(St.ClipboardType.PRIMARY,
+        (_clipboard, text) => resolve(makeAttachment(appId, title, text ?? ''))));
 }
 
 function clipboardGet(): Promise<{ text: string }> {

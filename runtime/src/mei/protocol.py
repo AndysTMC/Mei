@@ -6,7 +6,7 @@ TypeScript side mirrors it in src/runtime/protocol.ts and both are checked again
 fixtures in protocol/fixtures/.
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
 import msgspec
 
@@ -19,6 +19,7 @@ INTERFACE = "com.andystmc.Mei1.Runtime"
 ERROR_PREFIX = "com.andystmc.Mei1.Error"
 
 MAX_INPUT_CHARS = 100_000
+MAX_ATTACHMENT_CHARS = 8_000
 MAX_ID_CHARS = 128
 
 # Durable events carry a global `seq`; ephemeral ones don't and may be lost on reconnect.
@@ -95,10 +96,21 @@ class AttachArgs(msgspec.Struct):
     after_seq: int = 0
 
 
+class Attachment(msgspec.Struct, kw_only=True, forbid_unknown_fields=True):
+    """What "Ask about this" attaches (§18.4): the focused window and the selected text. The person
+    chose to attach it, but others wrote it (a web page, a document), so it is untrusted content."""
+
+    kind: Literal["selection"] = "selection"
+    app_id: Annotated[str, msgspec.Meta(max_length=200)] = ""
+    window_title: Annotated[str, msgspec.Meta(max_length=500)] = ""
+    text: Annotated[str, msgspec.Meta(max_length=MAX_ATTACHMENT_CHARS)] = ""
+
+
 class SubmitInputArgs(msgspec.Struct):
     command_id: str
     text: str
     conversation_id: str | None = None
+    attachment: Attachment | None = None  # 2.3
 
 
 class TaskCommandArgs(msgspec.Struct):

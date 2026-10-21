@@ -23,6 +23,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { Logger, Tag } from '../utils/logger.js';
 import type { ThemeManager } from '../utils/theme.js';
+import { AttachmentChip } from './conversation/attachmentChip.js';
 import { Composer } from './conversation/composer.js';
 import type { ApprovalScope } from '../runtime/protocol.js';
 import type { TimelineItem } from '../runtime/timeline.js';
@@ -69,6 +70,8 @@ export class ChatPopup {
     onDeny: ((approvalId: string) => void) | null = null;
     /** Called when the person answers one of Mei's questions. */
     onAnswer: ((requestId: string, value: Answer) => void) | null = null;
+    /** Called when the person drops what "Ask about this" attached. */
+    onRemoveAttachment: (() => void) | null = null;
 
     private readonly _sources = new SourceSet();
     private readonly _menu: PopupMenu.PopupMenu;
@@ -80,6 +83,7 @@ export class ChatPopup {
     private readonly _messages: MessageList;
     private readonly _composer: Composer;
     private readonly _error: ErrorPill;
+    private readonly _attachment: AttachmentChip;
     private readonly _history: HistoryPanel;
     private readonly _themeSignal: number;
     private _expanded = false;
@@ -127,13 +131,15 @@ export class ChatPopup {
             onStop: () => this.onCancel?.(),
         });
         this._error = new ErrorPill(this._sources);
+        this._attachment = new AttachmentChip(() => this.onRemoveAttachment?.());
         this._history = new HistoryPanel(this._sources, contentMaxHeight, {
             onBack: () => this.hideHistoryList(),
             onLoadChat: id => this.onLoadChat?.(id),
             onDeleteChat: id => this.onDeleteChat?.(id),
         });
 
-        for (const part of [this._messages.actor, this._composer.actor, this._error.actor]) this._content.add_child(part);
+        for (const part of [this._messages.actor, this._attachment.actor, this._composer.actor, this._error.actor])
+            this._content.add_child(part);
         this._chatView.add_child(this._header.actor);
         this._chatView.add_child(this._content);
         this._container.add_child(this._chatView);
@@ -151,6 +157,10 @@ export class ChatPopup {
 
     get isOpen(): boolean {
         return this._menu.isOpen;
+    }
+
+    get isShowingHistory(): boolean {
+        return this._showingHistory;
     }
 
     /** Root of the popup's content. Read by the dev-build test hooks only (src/runtime/devHooks.ts). */
@@ -220,6 +230,11 @@ export class ChatPopup {
         this._messages.showStreaming(content, thinking);
     }
 
+    /** Show what the next message will carry ("About: …"), or nothing. */
+    showAttachment(label: string | null): void {
+        this._animateHeight(() => this._attachment.show(label));
+    }
+
     showError(message: string): void {
         this._error.show(message, this._theme.isDark);
     }
@@ -235,6 +250,11 @@ export class ChatPopup {
         this._transitionTo(this._history.actor, () => {
             this._showingHistory = true;
         });
+    }
+
+    /** Redraw the history list in place, if it is showing (a task started or finished). */
+    refreshHistoryList(items: ChatSummary[]): void {
+        if (this._showingHistory) this._history.show(items);
     }
 
     hideHistoryList(): void {

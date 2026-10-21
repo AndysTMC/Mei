@@ -17,9 +17,10 @@ import Shell from 'gi://Shell';
 
 import { MeiIndicator } from './panel/indicator.js';
 import { ChatPopup } from './ui/chatPopup.js';
+import { TaskNotifier } from './ui/notifier.js';
 import { ThemeManager } from './utils/theme.js';
 import { Logger, Tag } from './utils/logger.js';
-import { BRIDGE_PATH, ShellBridge } from './runtime/bridge.js';
+import { BRIDGE_PATH, ShellBridge, focusedContext } from './runtime/bridge.js';
 import { RuntimeChatController } from './runtime/controller.js';
 
 export default class MeiExtension extends Extension {
@@ -28,6 +29,7 @@ export default class MeiExtension extends Extension {
     private _themeManager: ThemeManager | null = null;
     private _runtime: RuntimeChatController | null = null;
     private _bridge: ShellBridge | null = null;
+    private _notifier: TaskNotifier | null = null;
     private _devHooks: { destroy(): void } | null = null;
     private _settings: Gio.Settings | null = null;
 
@@ -45,6 +47,10 @@ export default class MeiExtension extends Extension {
         this._popup = popup;
         runtime.bind(popup);
         runtime.onStateChanged = () => this._syncIndicatorState();
+        // Finished tasks and cards the popup isn't showing arrive as notifications; clicking one opens it.
+        const notifier = new TaskNotifier(id => runtime.openConversation(id));
+        this._notifier = notifier;
+        runtime.onNotice = notice => notifier.notify(notice);
 
         this._indicator.onClicked = () => popup.toggle();
         this._indicator.onStopRequested = () => {
@@ -56,29 +62,46 @@ export default class MeiExtension extends Extension {
         popup.onReload = index => runtime.reload(index);
         popup.onNewChat = () => runtime.newChat();
         popup.onHistoryRequested = () => runtime.showHistoryList();
-        popup.onLoadChat = id => runtime.loadChat(id);
+        popup.onLoadChat = id => {
+            runtime.loadChat(id);
+            notifier.dismiss(id);
+        };
         popup.onDeleteChat = id => runtime.deleteChat(id);
         popup.onApprove = (id, scope) => runtime.approve(id, scope);
         popup.onDeny = id => runtime.deny(id);
         popup.onAnswer = (id, value) => runtime.answer(id, value);
+        popup.onRemoveAttachment = () => runtime.removeAttachment();
         popup.onOpenSettings = () => this.openPreferences();
         popup.onToggleExpand = isExpanded => {
             runtime.toggleExpand(isExpanded);
             this._syncIndicatorState();
         };
-        popup.onOpenStateChanged = () => this._syncIndicatorState();
+        popup.onOpenStateChanged = isOpen => {
+            const current = runtime.currentConversation;
+            if (isOpen && current && !popup.isShowingHistory) notifier.dismiss(current);
+            this._syncIndicatorState();
+        };
         // The first time the extension meets a runtime whose setup isn't done, open setup (§18.3).
         runtime.onSetupNeeded = () => this.openPreferences();
 
         this._settings = this.getSettings();
         // POPUP too: while Mei's popup is open it holds a grab, and the same keys should close it.
-        Main.wm.addKeybinding('open-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
-            Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP, () => popup.toggle());
+        const modes = Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP;
+        Main.wm.addKeybinding('open-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT, modes,
+            () => popup.toggle());
+        // "Ask about this" (§18.4): the focused window and the selected text go with a new message.
+        Main.wm.addKeybinding('ask-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT, modes, () => {
+            focusedContext()
+                .then(attachment => {
+                    if (this._runtime === runtime) runtime.askAbout(attachment);
+                })
+                .catch(e => Logger.warn(Tag.Extension, `Ask about this: ${(e as Error).message}`));
+        });
 
         runtime.start();
         if (__DEV__ && GLib.getenv('MEI_DEV_HOOKS') === '1') {
             void import('./runtime/devHooks.js').then(({ DevHooks }) => {
-                if (this._runtime === runtime) this._devHooks = new DevHooks(popup, runtime);
+                if (this._runtime === runtime) this._devHooks = new DevHooks(popup, runtime, notifier);
             });
         }
         this._syncIndicatorState();
@@ -87,12 +110,17 @@ export default class MeiExtension extends Extension {
 
     override disable(): void {
         Logger.info(Tag.Extension, 'Disabling Mei extension');
-        if (this._settings) Main.wm.removeKeybinding('open-shortcut');
+        if (this._settings) {
+            Main.wm.removeKeybinding('open-shortcut');
+            Main.wm.removeKeybinding('ask-shortcut');
+        }
         this._settings = null;
         this._devHooks?.destroy();
         this._devHooks = null;
         this._runtime?.destroy();
         this._runtime = null;
+        this._notifier?.destroy();
+        this._notifier = null;
         this._bridge?.destroy();
         this._bridge = null;
         this._popup?.destroy();
@@ -107,10 +135,11 @@ export default class MeiExtension extends Extension {
     private _syncIndicatorState(): void {
         if (!this._indicator) return;
         const isStreaming = this._runtime?.isStreaming ?? false;
+        const busy = this._runtime?.isBusy ?? false;
         const waiting = this._runtime?.needsAttention ?? false;
         const popupOpen = Boolean(this._popup?.isOpen);
         const popupExpanded = Boolean(this._popup?.isExpanded);
         this._indicator.setStopControlVisible(isStreaming && !waiting && popupOpen && !popupExpanded);
-        this._indicator.setActivity((isStreaming || waiting) && !popupOpen);
+        this._indicator.setActivity((isStreaming || busy || waiting) && !popupOpen);
     }
 }

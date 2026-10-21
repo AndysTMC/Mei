@@ -97,7 +97,7 @@ def _earlier(store: Store, rows: list) -> list[ChatTurn]:
     turns = []
     for i, r in enumerate(rows):
         if r["role"] == "user":
-            turns.append(ChatTurn("user", r["content"]))
+            turns.append(_user_turn(r))
         elif r["role"] == "assistant" and not r["tool_calls"] and r["content"]:
             note = ""
             if r["task_id"] and last_answer.get(r["task_id"]) == i and done.get(r["task_id"]):
@@ -135,7 +135,7 @@ def _current(inputs: Inputs, task_id: str, rows: list, actions: dict) -> list[Ch
         if r["role"] == "system":
             turns.append(ChatTurn("user", f"<runtime_note>{r['content']}</runtime_note>"))
         elif r["role"] == "user":
-            turns.append(ChatTurn("user", r["content"]))
+            turns.append(_user_turn(r))
         elif r["role"] == "assistant":
             calls = [ToolCall(c["id"], c["name"], c["arguments"], c.get("signature", "")) for c in
                      json.loads(r["tool_calls"] or "[]")]
@@ -148,6 +148,27 @@ def _current(inputs: Inputs, task_id: str, rows: list, actions: dict) -> list[Ch
                 if message is not None:
                     turns.append(_tool_turn(inputs, action, message))
     return turns
+
+
+def attachment_of(message) -> dict | None:
+    """What the person attached to this message with "Ask about this", if anything."""
+    return json.loads(message["metadata"] or "{}").get("attachment")
+
+
+def _user_turn(message) -> ChatTurn:
+    """The person's words, then what they attached, marked as content others wrote."""
+    attachment = attachment_of(message)
+    if not attachment:
+        return ChatTurn("user", message["content"])
+    named = (("app", attachment.get("app_id", "").removesuffix(".desktop")), ("window", attachment.get("window_title", "")))
+    attrs = "".join(f' {name}="{_attr(value)}"' for name, value in named if value)
+    body = attachment.get("text", "").replace("</attachment>", "</attachment_>")
+    block = f'<attachment kind="selection"{attrs} trust="untrusted">\n{body}\n</attachment>'
+    return ChatTurn("user", f"{message['content']}\n\n{redact(block)}")
+
+
+def _attr(value: str) -> str:
+    return value.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
 
 
 def _tool_turn(inputs: Inputs, action, message) -> ChatTurn:

@@ -3,7 +3,7 @@
  *
  * The main page holds the service status, setup, links to the provider and log pages, and the
  * approval, privacy, and shortcut settings. Settings live in the Mei runtime (ADR 0002), reached over D-Bus;
- * the keyboard shortcut is the one GSettings key, because keybindings must be GSettings keys.
+ * the keyboard shortcuts are the only GSettings keys, because keybindings must be GSettings keys.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -49,6 +49,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         const retention = buildRetentionRow(window, settings);
         const cloudFiles = buildCloudFilesRow(settings);
         const shortcut = buildShortcutRow(window, this.getSettings(), 'open-shortcut', 'Open Mei');
+        const askShortcut = buildShortcutRow(window, this.getSettings(), 'ask-shortcut', 'Ask about this');
 
         const page = new Adw.PreferencesPage({ title: 'Mei', icon_name: 'preferences-system-symbolic' });
         const mei = new Adw.PreferencesGroup({ title: 'Mei' });
@@ -74,7 +75,9 @@ export default class MeiPreferences extends ExtensionPreferences {
         privacy.add(retention.row);
         privacy.add(cloudFiles.row);
         page.add(privacy);
-        page.add(group('Shortcuts', shortcut.row));
+        const shortcuts = group('Shortcuts', shortcut.row);
+        shortcuts.add(askShortcut.row);
+        page.add(shortcuts);
         window.add(page);
 
         // This window isn't subscribed to the runtime's events (they include every streamed reply),
@@ -126,7 +129,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         window.connect('destroy', () => {
             sources.destroy();
             settings.disconnect(saveFailed);
-            for (const part of [providers, logs, setup, preset, retention, cloudFiles, shortcut]) part.destroy();
+            for (const part of [providers, logs, setup, preset, retention, cloudFiles, shortcut, askShortcut]) part.destroy();
         });
     }
 }
