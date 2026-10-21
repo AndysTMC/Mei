@@ -1184,6 +1184,8 @@ Progress (2026-10-20): **implemented; two acceptance items open** (see the table
 | Re-running setup changes nothing; every setup choice is a setting | `test_setup.py::test_rerunning_setup_without_changes_changes_nothing`, `test_ipc.py::test_setup_and_provider_test_over_the_bus` (revision unchanged); setup and Settings share the same rows (`src/prefs/rows.ts`) |
 | `npm run check` and `pytest` green | yes |
 
+Review fixes (2026-10-21, after Gemini and GPT reviews): keys echoed inside a stream are scrubbed (`KeyScrubbing` wraps every adapter); `ListModels` sends a stored key only to the provider's own or configured endpoint; keyring transfers are encrypted (ADR 0006); a stream without its end marker leaves the task INTERRUPTED with its partial answer instead of COMPLETED; replays no longer drop events after a deleted conversation's gap; settings conflicts replay only the changed fields and failed saves are kept and retried; stale migration backups can't block startup; the installer verifies uv instead of running its install script. Live smoke after these changes: Gemini, Groq, OpenRouter pass.
+
 Decisions along the way: OpenCode retired (it refuses non-OpenCode clients); keys keyring-only (ADR 0005); setup progress kept in the store, not in the config, since it isn't a setting; the open-Mei shortcut is the one GSettings key (keybindings must be). Also fixed: upstream error bodies that echo the request's key are scrubbed before they become a task error. Not yet: `mei-runtime setup` in a terminal (§18.3) and model roles.
 
 - Port all adapters and profiles; model discovery; config in SQLite with CAS; libsecret; prefs over IPC (config only, no approvals).
@@ -1204,6 +1206,16 @@ Decisions along the way: OpenCode retired (it refuses non-OpenCode clients); key
 - `npm run check` and `pytest` green.
 
 ### Stage 2b — Popup decomposition and card primitives (M) — can overlap Stage 3
+
+Progress (2026-10-21): **done except the card renderers**, which wait for Stage 3's events (`approval`, `choice`, `form`, `progress` don't exist yet, and renderers without events would be guesses).
+
+| Criterion | Evidence |
+|---|---|
+| No file in `src/ui` over 600 lines | Largest is `src/ui/conversation/messageList.ts` (401). `chatPopup.ts` (was 2,738) is a 390-line shell over `ui/popup/` (header, history panel, error pill) and `ui/conversation/` (message list, composer); `messageRenderer.ts` (was 1,066) is an entry point over `ui/markdown/` (types, parse, preview, links, render). |
+| `projection.ts` tested for every event type | `tests/runtimeProjection.test.ts`: the recorded fixtures cover `conversation.created`, `message.completed`, `task.accepted`, `task.state_changed`, `model.started`, `task.finished`, and `message.delta`; unit tests cover `conversation.deleted`, replays with gaps from deleted conversations, and a conversation reply overtaken by a newer event. |
+| Behaviour unchanged against recorded events | The fixtures above, plus the nested-Shell e2e (13 checks, including compact and expanded screenshots). |
+| Settings in prefs only | The popup's inline settings and log views are gone; the gear opens Settings. `prefs.ts` (was ~990 lines in one function) is an entry point over `src/prefs/` (provider page, logs page, setup assistant, shared rows). `RuntimeSettings` is typed (`active`, `provider(id)`, `setActive`, `setProviderField`), so every write is field-level. |
+| Indicator fallback | If the panel's private center box is missing, the indicator adds itself through `Main.panel.addToStatusArea`; the e2e passes with the fallback forced (`MEI_DEV_NO_CENTER_BOX=1`, dev builds only). |
 
 - Split `chatPopup.ts` into the §18 modules; move settings to prefs only; indicator fallback; card renderers for `approval`, `choice`, `form`, `progress`.
 
