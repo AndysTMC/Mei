@@ -20,6 +20,7 @@ from mei.core.states import Disposition
 from mei.policy.paths import PathRules
 
 
+
 class Effects(msgspec.Struct, frozen=True, kw_only=True):
     mutates: Literal["no", "local", "external", "unknown"] = "no"
     undo: Literal["n/a", "recorded", "none"] = "n/a"  # "recorded" only when an undo record is really kept
@@ -45,6 +46,11 @@ class Resource(msgspec.Struct, frozen=True, kw_only=True):
 
 DataClass = Literal["none", "metadata", "file_content", "settings", "memory"]
 ErrorClass = Literal["", "invalid", "not_found", "exists", "permission", "unavailable", "failed", "timeout"]
+
+
+# A resource value standing for the conversation's workspace, which `resources()` can't name (it
+# doesn't know the conversation); the decision step puts the real path in its place.
+WORKSPACE = "{workspace}"
 
 
 class ActionResult(msgspec.Struct, kw_only=True):
@@ -128,6 +134,44 @@ class MemoryPort(Protocol):
     def archive(self, memory_id: str) -> dict | None: ...
 
 
+@dataclass(frozen=True)
+class Mount:
+    path: Path
+    writable: bool = False
+
+
+@dataclass(frozen=True)
+class RunSpec:
+    command: str
+    cwd: Path
+    timeout_s: float
+    spill: Path  # where the full output goes
+    workspace: Path | None = None  # the conversation's scratch folder, writable, also $HOME inside the jail
+    mounts: tuple[Mount, ...] = ()
+    hidden: tuple[Path, ...] = ()  # sensitive files and folders inside the mounts, masked
+    network: bool = False
+    sandboxed: bool = True  # False: shell.run_host, the person's own session as it is
+
+
+@dataclass
+class RunResult:
+    exit_code: int | None  # None: killed (timeout or cancel)
+    head: bytes
+    tail: bytes
+    total_bytes: int
+    seconds: float
+    timed_out: bool = False
+    spilled: Path | None = None
+    notes: list[str] = field(default_factory=list)
+
+
+class Runner(Protocol):
+    """Runs commands in a jail or on the host (desktop/sandbox.py)."""
+
+    def available(self, sandboxed: bool = True) -> bool: ...
+    async def run(self, spec: RunSpec) -> RunResult: ...
+
+
 class Notifier(Protocol):
     async def notify(self, title: str, body: str) -> int: ...
 
@@ -150,6 +194,8 @@ class Env:
     extractor: TextExtractor | None = None
     volume: Volume | None = None
     memory: MemoryPort | None = None
+    runner: Runner | None = None
+    cache_home: Path | None = None  # $XDG_CACHE_HOME: task workspaces live under it
     clock: Callable[[], float] = time.time
 
     @cached_property
@@ -159,6 +205,14 @@ class Env:
     @property
     def trash_dir(self) -> Path:
         return (self.data_home or self.home / ".local/share") / "Trash"
+
+    def workspace(self, conversation_id: str) -> Path:
+        """A conversation's scratch folder for commands: Mei's own, so changes there need no card."""
+        return (self.cache_home or self.home / ".cache") / "mei" / "workspaces" / conversation_id
+
+    def artifacts(self, conversation_id: str) -> Path:
+        """Where a conversation's large outputs are kept; deleted with the conversation."""
+        return self.data_dir / "artifacts" / conversation_id
 
     def path(self, value: str) -> Path:
         """A model-given path, made absolute: `~` is home, and relative paths start at home."""
@@ -184,6 +238,7 @@ class ActionContext:
     env: Env
     action_id: str
     conversation_id: str = "none"
+    task_id: str = ""
 
     @property
     def backup_dir(self) -> Path:
@@ -212,6 +267,7 @@ class Capability(ABC):
     idempotent: ClassVar[bool] = False
     timeout_s: ClassVar[float] = 30.0
     meta: ClassVar[bool] = False  # plan.update, ask_user, task.finish: handled by the loop, not run
+    always_ask: ClassVar[bool] = False  # a card every time, whatever the preset or grants (shell.run_host)
 
     def effects(self, p, env: Env) -> Effects:
         return READ_ONLY

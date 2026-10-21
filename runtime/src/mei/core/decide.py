@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 import msgspec
 from pathlib import Path
 
-from mei.capabilities.base import Capability, CapabilityError, Effects, Env, Resource
+from mei.capabilities.base import WORKSPACE, Capability, CapabilityError, Effects, Env, Resource
 from mei.capabilities.registry import InvalidArguments, Registry
 from mei.policy import provenance
 from mei.policy.engine import PRESETS, Decision, Facts, Grant, GrantRule, Subject, evaluate, rules_for
@@ -34,6 +34,7 @@ _REASONS = {
     "disclosure": "this sends data off this computer",
     "protected_folder": "this changes a whole top-level folder",
     "runs_code": "a file written here runs later (at login or in a terminal)",
+    "host_command": "this runs on your computer outside Mei's sandbox",
     "needs_approval": "this changes something you didn't name",
     "after_reading": "Mei read a document in this task, and you didn't name this exactly",
 }
@@ -58,6 +59,7 @@ class Seen:
     user_texts: list[str]
     untrusted_content: list[str]  # file contents and the like: where instructions hide
     untrusted_other: list[str]  # listings and search results
+    workspace: Path | None = None  # the conversation's scratch folder: Mei's own, granted by design
 
 
 class Refused(Exception):
@@ -108,6 +110,10 @@ def _subject(r: Resource, anchored: list[Path], seen: Seen, env: Env) -> Subject
             where = "untrusted" if any(_says(t, r.value) for t in seen.untrusted_content) else "model"
         return Subject(kind=r.kind, value=r.value, access=r.access, role=r.role, provenance=where,
                        named=where == "user")
+    if r.value == WORKSPACE or (seen.workspace and provenance.inside(_real(Path(r.value)), _real(seen.workspace))):
+        value = seen.workspace if r.value == WORKSPACE else Path(r.value)
+        return Subject(kind="path", value=str(_real(value)), access=r.access, role=r.role, provenance="user",
+                       named=True)
     path = Path(r.value)
     is_named = provenance.named(path, anchored, seen.user_texts)
     where = provenance.classify(path, anchored, seen.untrusted_content, seen.untrusted_other, env, is_named=is_named)
@@ -133,7 +139,8 @@ _WORD = re.compile(r"\w+(?:[.-]\w+)*")  # "org.gnome.Nautilus" and "24-hour" are
 def judge(store: Store, env: Env, task, proposal: Proposal, preset_name: str) -> Decision:
     grants = [Grant(g["id"], g["capability"], tuple(GrantRule(**r) for r in json.loads(g["resources"])), g["task_id"])
               for g in agent.active_grants(store, task["id"])]
-    facts = Facts(proposal.cap.name, proposal.cap.meta, proposal.effects, proposal.subjects, bool(task["tainted"]))
+    facts = Facts(proposal.cap.name, proposal.cap.meta, proposal.effects, proposal.subjects, bool(task["tainted"]),
+                  always_ask=proposal.cap.always_ask)
     return evaluate(facts, PRESETS.get(preset_name, PRESETS["balanced"]), grants, env.rules, env.home)
 
 

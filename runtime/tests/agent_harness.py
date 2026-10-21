@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from mei.capabilities.base import Env
+from mei.desktop.sandbox import Sandbox
 from mei.protocol import ProviderConfig
 from mei.providers.fake import FakeProvider
 
@@ -31,7 +32,7 @@ def make_world(tmp: Path) -> Env:
     for d in dirs.values():
         d.mkdir(parents=True)
     return Env(home=home, data_dir=tmp / "mei", data_home=home / ".local/share", user_dirs=dirs,
-               extractor=TextExtractor())
+               extractor=TextExtractor(), runner=Sandbox(), cache_home=home / ".cache")
 
 
 def put(env: Env, path: str, text: str = "x", *, days_old: float = 0) -> Path:

@@ -59,6 +59,30 @@ class PathRules:
     def protected(self, path: Path) -> bool:
         return any(p in self._protected for p in _views(path))
 
+    def holds_denied(self, folder: Path) -> bool:
+        """Does this folder contain one Mei never touches (so mounting it whole would expose it)?"""
+        return any(v == root or v in root.parents for v in _views(folder) for root in self._denied)
+
+    def secrets_under(self, folder: Path, limit: int = 20_000) -> tuple[list[Path], bool]:
+        """Sensitive files and folders inside `folder`, to hide from a command that mounts it.
+        The second value is False if the walk stopped at `limit` entries before seeing everything."""
+        found: list[Path] = []
+        seen = 0
+        for here, dirs, files in os.walk(folder):
+            base = Path(here)
+            for name in list(dirs):
+                if self.sensitive(base / name) or self.denied(base / name):
+                    found.append(base / name)
+                    dirs.remove(name)
+            for name in files:
+                seen += 1
+                if self.sensitive(base / name):
+                    found.append(base / name)
+            seen += len(dirs)
+            if seen > limit:
+                return found, False
+        return found, True
+
     def skip_when_walking(self, path: Path) -> bool:
         """Directories a search never enters, whatever it is asked to include."""
         return self.denied(path) or self.sensitive(path)

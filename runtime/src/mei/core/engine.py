@@ -328,14 +328,16 @@ class Engine:
         return result
 
     def _delete_files(self, conversation_id: str) -> None:
-        """What a conversation left on disk: backups of files its tasks overwrote."""
-        folder = backups_dir(self.env, conversation_id)
-        try:
-            shutil.rmtree(folder)
-        except FileNotFoundError:
-            pass
-        except OSError as e:  # the conversation is gone either way; say what's left behind
-            log.warning("couldn't delete %s: %s", folder, e)
+        """What a conversation left on disk: backups of files its tasks overwrote, command output,
+        and its workspace."""
+        for folder in (backups_dir(self.env, conversation_id), self.env.artifacts(conversation_id),
+                       self.env.workspace(conversation_id)):
+            try:
+                shutil.rmtree(folder)
+            except FileNotFoundError:
+                pass
+            except OSError as e:  # the conversation is gone either way; say what's left behind
+                log.warning("couldn't delete %s: %s", folder, e)
 
     def update_config(self, args: UpdateConfigArgs) -> dict:
         revision, current = repo.get_config(self.store)

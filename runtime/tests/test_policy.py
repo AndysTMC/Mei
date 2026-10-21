@@ -16,8 +16,9 @@ RULES = PathRules(HOME, USER_DIRS, [ENV.data_dir])
 ALL_PRESETS = list(PRESETS.values())
 
 
-def subject(path: str, access="write", provenance="user", role="") -> Subject:
-    return Subject(kind="path", value=str(ENV.path(path)), access=access, provenance=provenance, role=role)
+def subject(path: str, access="write", provenance="user", role="", named=False) -> Subject:
+    return Subject(kind="path", value=str(ENV.path(path)), access=access, provenance=provenance, role=role,
+                   named=named)
 
 
 def facts(*subjects: Subject, effects: Effects = LOCAL_UNDOABLE, capability="fs.move", tainted=False, meta=False):
@@ -105,7 +106,6 @@ def test_floor_holds_under_every_preset(preset):
     denied = decide(facts(subject("~/.ssh/id_rsa", access="read"), effects=READ_ONLY), preset)
     assert denied.decision == "deny"
     for f in (facts(subject("~/proj/.env", access="read"), effects=READ_ONLY),
-              facts(subject("~/Downloads/a", provenance="user"), effects=Effects(mutates="local", loses_data=True)),
               facts(subject("~/Documents", provenance="user"), capability="fs.trash"),
               facts(subject("~/.config/autostart/x.desktop", provenance="user"), capability="fs.write_text"),
               facts(subject("~/.bashrc", provenance="model"), capability="fs.edit"),
@@ -187,3 +187,33 @@ def test_reading_start_up_files_is_fine_writing_them_asks():
     write = facts(subject("~/.config/autostart/x.desktop", provenance="user"), capability="fs.write_text")
     grant = Grant("g", "fs.write_text", rules_for(write.subjects), task_id=None)
     assert decide(write, "hands_off", [grant]).reason == "runs_code"
+
+
+@pytest.mark.parametrize("preset", PRESETS)
+def test_data_loss_asks_and_only_a_task_grant_covers_it(preset):
+    f = facts(subject("~/Projects/site", provenance="user"), effects=Effects(mutates="local", loses_data=True),
+              capability="shell.run")
+    d = decide(f, preset)
+    assert d.decision == "ask" and d.scopes == ("once", "task")
+    task_grant = Grant("t", "shell.run", rules_for(f.subjects), task_id="t1")
+    standing = Grant("p", "shell.run", rules_for(f.subjects), task_id=None)
+    assert decide(f, preset, [task_grant]).decision == "allow"
+    assert decide(f, preset, [standing]).decision == "ask"
+
+
+def test_host_commands_ask_every_time():
+    f = Facts(capability="shell.run_host", meta=False, effects=Effects(mutates="unknown"),
+              subjects=(subject("~/Projects", provenance="user", named=True),), tainted=False, always_ask=True)
+    grant = Grant("t", "shell.run_host", rules_for(f.subjects), task_id="t1")
+    for preset in PRESETS:
+        d = decide(f, preset, [grant])
+        assert (d.decision, d.reason, d.scopes) == ("ask", "host_command", ("once",))
+
+
+def test_a_folder_granted_to_commands_covers_it_and_what_is_inside():
+    s = Subject(kind="path", value=str(ENV.path("~/Projects/site")), access="write", role="folder", provenance="user")
+    grant = Grant("g", "shell.run", rules_for((s,)), task_id="t")
+    inside_it = Subject(kind="path", value=str(ENV.path("~/Projects/site/src")), access="write", role="folder")
+    beside_it = Subject(kind="path", value=str(ENV.path("~/Projects/other")), access="write", role="folder")
+    run = lambda *subs: Facts("shell.run", False, Effects(mutates="local", loses_data=True), subs, False)  # noqa: E731
+    assert covers(grant, run(s)) and covers(grant, run(inside_it)) and not covers(grant, run(beside_it))

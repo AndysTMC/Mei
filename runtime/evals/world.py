@@ -11,6 +11,7 @@ from mei.capabilities.base import App, Env, Window
 from mei.desktop.apps import Launcher
 from mei.desktop.gsettings import GSETTINGS, GSettingsCli
 from mei.desktop.pdf import PdfToText
+from mei.desktop.sandbox import Sandbox
 
 from .pdf import write_pdf
 
@@ -73,7 +74,8 @@ class World:
         self.env = Env(home=self.home, data_dir=root / "mei", data_home=self.home / ".local/share", user_dirs=dirs,
                        gsettings=self.gsettings, bridge=lambda: self.shell, apps=lambda: APPS,
                        launcher=Launcher(lambda: self.shell), notifier=self.notifier,
-                       extractor=PdfToText() if PdfToText.available() else None, volume=self.volume)
+                       extractor=PdfToText() if PdfToText.available() else None, volume=self.volume,
+                       runner=Sandbox(), cache_home=self.home / ".cache")
 
     def path(self, value: str) -> Path:
         return self.env.path(value)

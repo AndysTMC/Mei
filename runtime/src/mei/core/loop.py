@@ -216,7 +216,7 @@ class TaskLoop:
             result = json.loads(r["result"])
             if result.get("trust") == "untrusted":
                 (content if result.get("data_class") == "file_content" else other).append(r["content"])
-        return decide.Seen(texts, content, other)
+        return decide.Seen(texts, content, other, workspace=self.d.env.workspace(task["conversation_id"]))
 
     def _proposal(self, task, action) -> decide.Proposal:
         cfg = msgspec.convert(json.loads(task["provider"]), ProviderConfig)
@@ -401,7 +401,7 @@ class TaskLoop:
         self.d.publish(tx.events)
         flight.action_id = action["id"]
         self.d.boundary("action_started")
-        ctx = ActionContext(self.d.env, action["id"], task["conversation_id"])
+        ctx = ActionContext(self.d.env, action["id"], task["conversation_id"], task["id"])
         timeout = min(cap.timeout_s, MAX_ACTION_S)
         started = time.monotonic()
         try:
@@ -461,7 +461,7 @@ class TaskLoop:
             await self._execute(task, action, cap, params, flight)
             return True
         try:
-            disposition = await cap.probe(params, ActionContext(self.d.env, action["id"], task["conversation_id"]))
+            disposition = await cap.probe(params, ActionContext(self.d.env, action["id"], task["conversation_id"], task["id"]))
         except Exception as e:
             log.warning("probing %s failed: %s", cap.name, e, extra={"task_id": task["id"]})
             disposition = Disposition.UNKNOWN

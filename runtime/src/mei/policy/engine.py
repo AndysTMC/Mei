@@ -50,6 +50,7 @@ class GrantRule(msgspec.Struct, frozen=True, kw_only=True):
     kind: Literal["path", "app", "setting", "memory"]
     access: Literal["read", "write"]
     value: str  # a folder for paths (things directly in it match, not deeper); the exact value otherwise
+    tree: bool = False  # for a folder a command works in: the folder itself and everything inside it
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class Facts:
     effects: Effects
     subjects: tuple[Subject, ...]
     tainted: bool
+    always_ask: bool = False  # the capability asks every time (shell.run_host)
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,8 @@ def evaluate(facts: Facts, preset: Preset, grants: list[Grant], rules: PathRules
         return Decision("deny", "hard_deny")
     if any(rules.sensitive(p) for p in paths):
         return _ask("sensitive", preset, floor=True)
+    if facts.always_ask:
+        return _ask("host_command", preset, floor=True)
     if e.mutates == "no" and e.disclosure == "none":
         return Decision("allow", "read_only")
     if not facts.subjects:
@@ -96,8 +100,8 @@ def evaluate(facts: Facts, preset: Preset, grants: list[Grant], rules: PathRules
     task_grant = grant if grant is not None and grant.task_id is not None else None
     if e.mutates == "unknown":
         return _granted(task_grant) or _ask("unknown_effect", preset, scopes=("once", "task"))
-    if e.loses_data:
-        return _ask("loses_data", preset, floor=True)
+    if e.loses_data:  # never on autopilot or by a standing grant; the person can grant a folder for the task
+        return _granted(task_grant) or _ask("loses_data", preset, scopes=("once", "task"))
     untrusted = any(s.provenance == "untrusted" or (facts.tainted and s.provenance == "model") for s in facts.subjects)
     if e.visibility == "others":
         return _granted(task_grant) or _ask("visible_to_others", preset, scopes=("once", "task"))
@@ -134,15 +138,27 @@ def covers(grant: Grant, facts: Facts) -> bool:
 
 
 def rules_for(subjects: tuple[Subject, ...]) -> tuple[GrantRule, ...]:
-    """What a grant made from this action covers: for paths, anything in the same folders."""
-    return tuple(dict.fromkeys(
-        GrantRule(kind=s.kind, access=s.access, value=str(Path(s.value).parent) if s.kind == "path" else s.value)
-        for s in subjects))
+    """What a grant made from this action covers: for paths, things in the same folders (for a command's
+    folders, the folders themselves)."""
+    return tuple(dict.fromkeys(_rule(s) for s in subjects))
+
+
+TREE_ROLES = frozenset({"folder", "workspace", "cwd"})  # a command's folders: granted as the folder itself
+
+
+def _rule(s: Subject) -> GrantRule:
+    if s.kind != "path":
+        return GrantRule(kind=s.kind, access=s.access, value=s.value)
+    if s.role in TREE_ROLES:
+        return GrantRule(kind="path", access=s.access, value=s.value, tree=True)
+    return GrantRule(kind="path", access=s.access, value=str(Path(s.value).parent))
 
 
 def _matches(rule: GrantRule, s: Subject) -> bool:
     if rule.kind != s.kind or rule.access != s.access:
         return False
+    if s.kind == "path" and rule.tree:
+        return inside(Path(s.value), Path(rule.value))
     if s.kind == "path":
         return Path(s.value).parent == Path(rule.value)  # things in that folder, not the folder or deeper
     return rule.value == s.value

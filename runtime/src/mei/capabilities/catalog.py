@@ -9,11 +9,16 @@ from .meta import AskUser, PlanUpdate, TaskFinish
 from .notify import NotifySend
 from .registry import Registry
 from .settings import SettingsGet, SettingsSet
+from .shell import ShellOutput, ShellRun, ShellRunHost
 from .sound import SoundGetVolume, SoundSetVolume
 
 
 def file_capabilities() -> list[Capability]:
     return [FsList(), FsSearch(), FsReadText(), FsWriteText(), FsEdit(), FsMove(), FsMakeDir(), FsTrash()]
+
+
+def shell_capabilities() -> list[Capability]:
+    return [ShellRun(), ShellOutput(), ShellRunHost()]
 
 
 def desktop_capabilities() -> list[Capability]:
@@ -32,4 +37,5 @@ MEMORY_TOOLS = frozenset({"memory.save", "memory.search", "memory.forget"})  # h
 
 
 def default_registry() -> Registry:
-    return Registry([*meta_capabilities(), *memory_capabilities(), *file_capabilities(), *desktop_capabilities()])
+    return Registry([*meta_capabilities(), *memory_capabilities(), *file_capabilities(), *shell_capabilities(),
+                     *desktop_capabilities()])

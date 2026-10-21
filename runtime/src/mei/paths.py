@@ -18,6 +18,10 @@ def config_home() -> Path:
     return _xdg("XDG_CONFIG_HOME", ".config")
 
 
+def cache_home() -> Path:
+    return _xdg("XDG_CACHE_HOME", ".cache")
+
+
 def data_dir() -> Path:
     """Mei's store. MEI_DATA_DIR overrides it for tests and development."""
     return Path(os.environ["MEI_DATA_DIR"]) if os.environ.get("MEI_DATA_DIR") else data_home() / "mei"
