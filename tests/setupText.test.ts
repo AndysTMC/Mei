@@ -19,7 +19,7 @@ import {
 import type { ModelsStep, ServiceStep } from '../src/runtime/protocol.js';
 
 test('setup steps: the service step comes first and is the only one that cannot be skipped', () => {
-    assert.deepEqual(SETUP_STEPS.map(s => s.id), ['service', 'models', 'approvals', 'privacy', 'shortcuts']);
+    assert.deepEqual(SETUP_STEPS.map(s => s.id), ['service', 'models', 'approvals', 'memory', 'privacy', 'shortcuts']);
     assert.deepEqual(SETUP_STEPS.filter(s => !s.skippable).map(s => s.id), ['service']);
 });
 

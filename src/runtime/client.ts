@@ -39,6 +39,8 @@ const KNOWN_EVENTS = new Set([
     // 2.2
     'plan.updated', 'action.proposed', 'policy.decided', 'action.started', 'action.updated', 'action.finished',
     'approval.requested', 'approval.resolved', 'input.requested', 'input.answered', 'grant.created', 'grant.revoked',
+    // 2.3
+    'memory.saved', 'memory.pending_review', 'memory.updated', 'memory.deleted',
 ]);
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'unavailable' | 'incompatible';

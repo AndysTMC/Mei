@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import type { ActionView, ApprovalView, InputRequestView, MessageView, Outcome, Plan, TaskView } from './protocol.js';
+import type { ActionView, ApprovalView, InputRequestView, MemoryView, MessageView, Outcome, Plan, TaskView } from './protocol.js';
 import type { LoadedConversation } from './projection.js';
 
 /** Tools that steer the task rather than act; their effect shows as the plan, a card, or the outcome. */
@@ -28,6 +28,7 @@ export type TimelineItem =
     | { kind: 'plan'; taskId: string; plan: Plan }
     | { kind: 'approval'; taskId: string; approval: ApprovalView }
     | { kind: 'question'; taskId: string; request: InputRequestView }
+    | { kind: 'memory'; memory: MemoryView }
     | { kind: 'outcome'; taskId: string; outcome: Outcome };
 
 export function buildTimeline(conv: LoadedConversation): TimelineItem[] {
@@ -44,11 +45,14 @@ export function buildTimeline(conv: LoadedConversation): TimelineItem[] {
     }
     const items: TimelineItem[] = [];
     const ended = new Set<string>();
+    const remembered = [...conv.memories.values()].filter(m => m.status !== 'archived')
+        .sort((a, b) => a.created_at - b.created_at);
     const close = (task: TaskView | undefined): void => {
         if (!task || ended.has(task.id)) return;
         ended.add(task.id);
         if (task.approval) items.push({ kind: 'approval', taskId: task.id, approval: task.approval });
         if (task.input_request) items.push({ kind: 'question', taskId: task.id, request: task.input_request });
+        for (const memory of remembered) if (memory.source_task_id === task.id) items.push({ kind: 'memory', memory });
         if (task.outcome) items.push({ kind: 'outcome', taskId: task.id, outcome: task.outcome });
     };
     let current: TaskView | undefined;
@@ -68,6 +72,7 @@ export function buildTimeline(conv: LoadedConversation): TimelineItem[] {
     }
     close(current);
     for (const task of tasks) close(task); // a task whose input isn't loaded (shouldn't happen) still shows its card
+    for (const memory of remembered) if (!memory.source_task_id || !conv.tasks.has(memory.source_task_id)) items.push({ kind: 'memory', memory });
     return items;
 }
 

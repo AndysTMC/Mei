@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import type { ApprovalPreset, CloudFiles, ModelsStep, ServiceStep, TestProviderReply } from '../runtime/protocol.js';
+import type { ApprovalPreset, CloudFiles, MemoryView, ModelsStep, ServiceStep, TestProviderReply } from '../runtime/protocol.js';
 
 export interface StepInfo {
-    id: 'service' | 'models' | 'approvals' | 'privacy' | 'shortcuts';
+    id: 'service' | 'models' | 'approvals' | 'memory' | 'privacy' | 'shortcuts';
     title: string;
     skippable: boolean;
 }
@@ -17,6 +17,7 @@ export const SETUP_STEPS: StepInfo[] = [
     { id: 'service', title: 'Mei service', skippable: false },
     { id: 'models', title: 'Models', skippable: true },
     { id: 'approvals', title: 'Approvals', skippable: true },
+    { id: 'memory', title: 'Memory', skippable: true },
     { id: 'privacy', title: 'Privacy', skippable: true },
     { id: 'shortcuts', title: 'Shortcuts', skippable: true },
 ];
@@ -119,4 +120,17 @@ export function doneText(skipped: Iterable<string>, shortcutLabel: string): stri
 function joinTitles(titles: string[]): string {
     if (titles.length < 2) return titles.join('');
     return `${titles.slice(0, -1).join(', ')} and ${titles[titles.length - 1]}`;
+}
+
+const MEMORY_SOURCE: Record<MemoryView['provenance'], string> = {
+    user_stated: 'You said this',
+    inferred: 'Mei worked this out',
+    untrusted: 'From something Mei read',
+};
+
+/** Under a memory in Settings: where it came from, how often Mei used it, and how it's kept. */
+export function memorySubtitle(memory: MemoryView): string {
+    const used = memory.use_count ? `used ${memory.use_count} ${memory.use_count === 1 ? 'time' : 'times'}` : 'not used yet';
+    const kept = [memory.pinned ? 'pinned' : '', memory.sensitivity === 'local_only' ? 'local only' : ''].filter(Boolean);
+    return [MEMORY_SOURCE[memory.provenance] ?? '', used, ...kept].filter(Boolean).join(' · ');
 }

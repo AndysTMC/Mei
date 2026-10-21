@@ -71,6 +71,8 @@ export default class MeiExtension extends Extension {
         popup.onDeny = id => runtime.deny(id);
         popup.onAnswer = (id, value) => runtime.answer(id, value);
         popup.onRemoveAttachment = () => runtime.removeAttachment();
+        popup.onKeepMemory = id => runtime.keepMemory(id);
+        popup.onForgetMemory = id => runtime.forgetMemory(id);
         popup.onOpenSettings = () => this.openPreferences();
         popup.onToggleExpand = isExpanded => {
             runtime.toggleExpand(isExpanded);

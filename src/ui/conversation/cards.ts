@@ -10,7 +10,9 @@ import Atk from 'gi://Atk';
 import Clutter from 'gi://Clutter';
 import St from 'gi://St';
 
-import type { ApprovalScope, ApprovalView, FormField, InputRequestView, Outcome, Plan, Provenance } from '../../runtime/protocol.js';
+import type {
+    ApprovalScope, ApprovalView, FormField, InputRequestView, MemoryView, Outcome, Plan, Provenance,
+} from '../../runtime/protocol.js';
 import { outcomeBadge, type ActivityRow, type ActivityState } from '../../runtime/timeline.js';
 import { addClickScale, wrapLabel } from '../effects.js';
 
@@ -20,6 +22,10 @@ export interface CardActions {
     onApprove(approvalId: string, scope: ApprovalScope): void;
     onDeny(approvalId: string): void;
     onAnswer(requestId: string, value: Answer): void;
+    /** Make a memory waiting for review active. */
+    onKeepMemory(memoryId: string): void;
+    /** Undo a memory just saved, or discard one waiting for review. */
+    onForgetMemory(memoryId: string): void;
 }
 
 const ACTIVITY_MARK: Record<ActivityState, string> = {
@@ -142,6 +148,36 @@ export function questionCard(request: InputRequestView, actions: CardActions): S
         });
         card.add_child(entry);
     }
+    return card;
+}
+
+/**
+ * A memory saved in this task (§17.4): "Remembered … Undo". One that came from something Mei read,
+ * or that automatic saving didn't keep, waits for the person: "Keep this? … Keep / Discard".
+ */
+export function memoryCard(memory: MemoryView, actions: CardActions): St.BoxLayout {
+    const pending = memory.status === 'pending_review';
+    const card = cardBox(`mei-memory-card${pending ? ' pending' : ''}`);
+    card.add_child(title(pending ? 'Keep this in memory?' : 'Remembered'));
+    card.add_child(wrapLabel(new St.Label({ text: memory.text, style_class: 'mei-card-text' })));
+    if (pending && memory.provenance === 'untrusted')
+        card.add_child(muted('This may have come from something Mei read, not from you.'));
+    const row = new St.BoxLayout({ x_expand: true, style_class: 'mei-card-buttons' });
+    const buttons: St.Button[] = [];
+    const once = (fn: () => void) => () => {
+        buttons.forEach(b => b.set_reactive(false));
+        fn();
+    };
+    if (pending) {
+        const keep = cardButton('Keep', 'Keep this memory', 'suggested');
+        keep.connect('clicked', once(() => actions.onKeepMemory(memory.id)));
+        buttons.push(keep);
+    }
+    const forget = cardButton(pending ? 'Discard' : 'Undo', pending ? 'Discard this memory' : 'Forget this memory');
+    forget.connect('clicked', once(() => actions.onForgetMemory(memory.id)));
+    buttons.push(forget);
+    buttons.forEach(b => row.add_child(b));
+    card.add_child(row);
     return card;
 }
 

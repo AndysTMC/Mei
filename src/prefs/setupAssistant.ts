@@ -15,7 +15,7 @@ import Gtk from 'gi://Gtk';
 import type { CallOptions } from '../runtime/client.js';
 import type { ModelsStep, ServiceStep, SetupStatusReply, TestProviderReply } from '../runtime/protocol.js';
 import type { RuntimeSettings } from '../runtime/settings.js';
-import { buildApprovalRow, buildCloudFilesRow, buildRetentionRow, buildShortcutRow, type Row } from './rows.js';
+import { buildApprovalRow, buildCloudFilesRow, buildMemoryRows, buildRetentionRow, buildShortcutRow, type Row } from './rows.js';
 import { APPROVAL_FLOOR, doneText, keyringText, modelsText, SETUP_STEPS, storageText, testText } from './setupText.js';
 
 export type Call = <T>(method: string, args?: object, opts?: CallOptions) => Promise<T>;
@@ -127,7 +127,16 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
     rows.push(preset);
     approvals.add(preset.row);
 
-    /* ── 4. Privacy ── */
+    /* ── 4. Memory ── */
+    const memory = step('memory', 'Memory',
+        'Mei can remember facts about you, such as where your invoices go, and use them without being reminded. '
+        + 'You can see, change, and delete everything it remembers in Settings.');
+    for (const r of buildMemoryRows(settings)) {
+        rows.push(r);
+        memory.add(r.row);
+    }
+
+    /* ── 5. Privacy ── */
     const privacy = step('privacy', 'Privacy',
         'Mei keeps everything until you delete it. You can have conversations you no longer use deleted automatically, '
         + 'and choose which file contents may go to a cloud model.');
@@ -137,7 +146,7 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
     privacy.add(retention.row);
     privacy.add(cloudFiles.row);
 
-    /* ── 5. Shortcuts ── */
+    /* ── 6. Shortcuts ── */
     const shortcuts = step('shortcuts', 'Shortcuts', 'Open Mei from anywhere, with the message box ready for typing, '
         + 'or ask about what you are looking at: the window and the text you selected go with your question.');
     const shortcut = buildShortcutRow(window, gsettings, 'open-shortcut', 'Open Mei');

@@ -29,6 +29,7 @@ NEXT_BUTTON = (920, 665)  # in the setup assistant, in the nested Shell's 1280×
 CHOOSE_PROVIDER_BUTTON = (842, 287)  # "Choose…" on the Models step
 BACK_BUTTON = (342, 135)  # the header's back arrow
 MODEL_PROVIDER_ROW = (460, 412)  # "Model provider" on Settings' main page
+MEMORY_ROW = (460, 463)  # "Memory", the row under it
 
 
 class MockProvider(BaseHTTPRequestHandler):
@@ -164,7 +165,7 @@ async def main() -> int:
                 and st["controller"]["setupOffered"], {"offered": setup["offered"]})
         await asyncio.sleep(2.0)  # let the window finish drawing
         await h.hook("Screenshot", os.path.join(OUT, "setup-1-service.png"))
-        for name in ("2-models", "3-approvals", "4-privacy", "5-shortcuts", "6-done"):
+        for name in ("2-models", "3-approvals", "4-memory", "5-privacy", "6-shortcuts", "7-done"):
             await h.click(*NEXT_BUTTON)
             await h.hook("Screenshot", os.path.join(OUT, f"setup-{name}.png"))
             if name == "2-models":  # "Choose…" opens the provider page on top of setup; Back returns
@@ -190,6 +191,9 @@ async def main() -> int:
 
         await h.click(*MODEL_PROVIDER_ROW)  # Settings is still open on its main page
         await h.hook("Screenshot", os.path.join(OUT, "provider-custom.png"))
+        await h.click(*BACK_BUTTON)
+        await h.click(*MEMORY_ROW)
+        await h.hook("Screenshot", os.path.join(OUT, "memory-page.png"))
         await h.click(*BACK_BUTTON)
 
         # 1b. The default shortcut (Super+Alt+M) opens the popup from anywhere and closes it again.
@@ -370,6 +374,25 @@ async def main() -> int:
         h.check("ask_about_this_attaches_the_selection", attached["text"] == selected and selected[:20] in chip
                 and sent["content"] == "what does this mean?" and sent["metadata"]["attachment"]["text"] == selected
                 and conv["tasks"][-1]["state"] == "COMPLETED", {"chip": chip, "attached": attached})
+
+        # 10. Memory: "remember that…" is saved as the person's own fact and shown in the conversation;
+        #     Undo there forgets it.
+        fact = "Invoices go in Documents/Invoices"
+        await h.use_fake([{"tool_calls": [{"name": "memory_save", "arguments": {"text": fact}}]}, {"text": "Got it."}])
+        await h.hook("Popup", "new")
+        await h.hook("Popup", "open")
+        await h.hook("Popup", "expand")
+        await h.hook("Send", "Remember that my invoices go in Documents/Invoices")
+        st = await h.until(lambda s: "memory" in s["controller"]["timeline"] and not s["controller"]["streaming"], 30,
+                           "the memory card")
+        saved = (await h.runtime("Memories", {}))["memories"]
+        h.check("memory_saved_and_shown", "Remembered" in st["shown"] and fact in st["shown"]
+                and [(m["text"], m["provenance"], m["status"]) for m in saved] == [(fact, "user_stated", "active")],
+                {"saved": saved, "shown": st["shown"][-6:]})
+        await h.hook("Screenshot", os.path.join(OUT, "memory-card.png"))
+        clicked = await h.press("Undo")
+        st = await h.until(lambda s: "memory" not in s["controller"]["timeline"], 10, "Undo to forget it")
+        h.check("memory_undone_from_the_popup", clicked and (await h.runtime("Memories", {}))["memories"] == [])
     except AssertionError as e:
         h.results["error"] = str(e)
     finally:

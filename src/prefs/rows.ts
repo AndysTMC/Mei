@@ -94,6 +94,36 @@ function choiceRow<T extends string>(settings: RuntimeSettings, signal: string, 
     return { row, destroy: () => settings.disconnect(id) };
 }
 
+/** Memory on or off, and whether what Mei infers is kept without review (§17.4). */
+export function buildMemoryRows(settings: RuntimeSettings): Row<Adw.SwitchRow>[] {
+    return [
+        switchRow(settings, 'Remember things about me',
+            'Mei recalls what it knows about you in each task, and saves new facts. Everything stays on this computer.',
+            () => settings.memoryEnabled, on => settings.setMemoryEnabled(on)),
+        switchRow(settings, 'Keep what Mei works out',
+            'Facts Mei infers are kept without asking. What you tell it to remember is always kept; anything '
+            + 'that came from a file or page waits for you to review it.',
+            () => settings.memoryAutoSave, on => settings.setMemoryAutoSave(on)),
+    ];
+}
+
+function switchRow(settings: RuntimeSettings, title: string, subtitle: string, current: () => boolean,
+    choose: (on: boolean) => void): Row<Adw.SwitchRow> {
+    const row = new Adw.SwitchRow({ title, subtitle });
+    let updating = false;
+    const render = () => {
+        updating = true;
+        row.set_active(current());
+        updating = false;
+    };
+    row.connect('notify::active', () => {
+        if (!updating) choose(row.get_active());
+    });
+    const id = settings.connect('changed::memory', render);
+    render();
+    return { row, destroy: () => settings.disconnect(id) };
+}
+
 /** Which actions Mei takes without asking (§13.2). */
 export function buildApprovalRow(settings: RuntimeSettings): Row<Adw.ComboRow> {
     return choiceRow(settings, 'changed::approvals', 'When Mei asks first', APPROVAL_PRESETS,

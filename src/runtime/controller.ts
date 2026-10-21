@@ -25,7 +25,8 @@ import { buildTimeline, type TimelineItem } from './timeline.js';
 const LOAD_ATTEMPTS = 3;
 /** Events that change what a conversation shows besides its messages. */
 const AGENT_EVENTS = new Set(['action.proposed', 'policy.decided', 'action.started', 'action.updated', 'action.finished',
-    'plan.updated', 'approval.requested', 'approval.resolved', 'input.requested', 'input.answered']);
+    'plan.updated', 'approval.requested', 'approval.resolved', 'input.requested', 'input.answered',
+    'memory.saved', 'memory.pending_review', 'memory.updated', 'memory.deleted']);
 /** Events that put a card in front of the person. */
 const ASKS = new Set(['approval.requested', 'input.requested']);
 /** Events that change a conversation's task in progress (the history list and indicator show it). */
@@ -198,6 +199,19 @@ export class RuntimeChatController {
     answer(requestId: string, value: Answer): void {
         this._popup.hideError();
         this._client.call('AnswerInput', { command_id: GLib.uuid_string_random(), request_id: requestId, value })
+            .catch((e: RuntimeError) => this._showFailure(e));
+    }
+
+    /** From the popup, which only the Shell process can show: no "Mei will now remember" notification. */
+    keepMemory(memoryId: string): void {
+        this._popup.hideError();
+        this._client.call('UpdateMemory', { command_id: GLib.uuid_string_random(), memory_id: memoryId,
+            patch: { status: 'active' } }).catch((e: RuntimeError) => this._showFailure(e));
+    }
+
+    forgetMemory(memoryId: string): void {
+        this._popup.hideError();
+        this._client.call('ForgetMemory', { command_id: GLib.uuid_string_random(), memory_id: memoryId })
             .catch((e: RuntimeError) => this._showFailure(e));
     }
 

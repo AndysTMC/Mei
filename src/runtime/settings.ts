@@ -15,11 +15,14 @@
 import { getProviderProfile, resolveProviderId } from '../providers/profiles.js';
 import type { ProviderId } from '../providers/types.js';
 import { Logger, Tag } from '../utils/logger.js';
-import type { ApprovalPreset, CloudFiles, ConfigDoc, ConfigReply, GrantView, LogEntry, ModelsReply, ProviderSettings } from './protocol.js';
+import type {
+    ApprovalPreset, CloudFiles, ConfigDoc, ConfigReply, GrantView, LogEntry, MemoriesReply, MemoryPatch, ModelsReply,
+    ProviderSettings,
+} from './protocol.js';
 
 export type Call = <T>(method: string, args?: object) => Promise<T>;
 /** What changed, for `changed` and `changed::<key>`. */
-export type SettingsKey = 'active' | 'providers' | 'privacy' | 'approvals';
+export type SettingsKey = 'active' | 'providers' | 'privacy' | 'approvals' | 'memory';
 /** `detail` is the changed key for `changed`/`changed::<key>`, the error message for `save-failed`. */
 type Listener = (settings: RuntimeSettings, detail: string) => void;
 type Mutation = (doc: ConfigDoc) => void;
@@ -32,7 +35,7 @@ export interface ModelListResult {
     requiresApiKey: boolean;
 }
 
-const KEYS: SettingsKey[] = ['active', 'providers', 'privacy', 'approvals'];
+const KEYS: SettingsKey[] = ['active', 'providers', 'privacy', 'approvals', 'memory'];
 const MAX_CONFLICT_RETRIES = 3;
 
 export class RuntimeSettings {
@@ -106,6 +109,16 @@ export class RuntimeSettings {
         return this._doc.approvals?.preset ?? 'balanced';
     }
 
+    /** Whether Mei recalls memories into tasks and saves new ones (§17). */
+    get memoryEnabled(): boolean {
+        return this._doc.memory?.enabled ?? true;
+    }
+
+    /** Whether facts Mei infers are kept without review (what the person states always is). */
+    get memoryAutoSave(): boolean {
+        return this._doc.memory?.auto_save ?? true;
+    }
+
     // ── Writing ──────────────────────────────────────────────────────────────
 
     /** Choose the provider for new conversations. Refuses unknown and retired providers. */
@@ -149,7 +162,39 @@ export class RuntimeSettings {
         }, 'approvals');
     }
 
+    setMemoryEnabled(enabled: boolean): void {
+        if (!this._writable() || enabled === this.memoryEnabled) return;
+        this._mutate(doc => {
+            doc.memory = { ...memoryOf(doc), enabled };
+        }, 'memory');
+    }
+
+    setMemoryAutoSave(autoSave: boolean): void {
+        if (!this._writable() || autoSave === this.memoryAutoSave) return;
+        this._mutate(doc => {
+            doc.memory = { ...memoryOf(doc), auto_save: autoSave };
+        }, 'memory');
+    }
+
     // ── Runtime calls that belong with settings ──────────────────────────────
+
+    /** Memories matching `query` (all when empty), optionally only those with `status`. */
+    async memories(query = '', status: '' | 'active' | 'pending_review' | 'archived' = ''): Promise<MemoriesReply> {
+        return this._call<MemoriesReply>('Memories', { query, status });
+    }
+
+    async updateMemory(id: string, patch: MemoryPatch): Promise<void> {
+        await this._call('UpdateMemory', { command_id: uuid(), memory_id: id, patch });
+    }
+
+    async forgetMemory(id: string): Promise<void> {
+        await this._call('ForgetMemory', { command_id: uuid(), memory_id: id });
+    }
+
+    /** Deletes every memory. Returns how many there were. */
+    async forgetEverything(): Promise<number> {
+        return (await this._call<{ forgotten: number }>('ForgetMemory', { command_id: uuid(), everything: true })).forgotten;
+    }
 
     /** Things the person told Mei it may always do (persistent grants, §13.3). */
     async listGrants(): Promise<GrantView[]> {
@@ -178,7 +223,7 @@ export class RuntimeSettings {
 
     // ── Signals ──────────────────────────────────────────────────────────────
 
-    /** `changed`, `changed::active|providers|privacy|approvals`, or `save-failed`. */
+    /** `changed`, `changed::active|providers|privacy|approvals|memory`, or `save-failed`. */
     connect(signal: string, fn: Listener): number {
         const id = this._nextId++;
         this._listeners.set(id, { signal, fn });
@@ -275,6 +320,10 @@ export class RuntimeSettings {
     }
 }
 
+function memoryOf(doc: ConfigDoc): NonNullable<ConfigDoc['memory']> {
+    return { enabled: true, auto_save: true, ...doc.memory };
+}
+
 function emptyProvider(): ProviderSettings {
     return { model: '', url: '', mode: '', thinking: '', reasoning_effort: '', options: {} };
 }
@@ -290,6 +339,7 @@ function normalize(doc: Partial<ConfigDoc> | undefined): ConfigDoc {
         providers: { ...(doc?.providers ?? {}) },
         privacy: { ...doc?.privacy, conversation_retention_days: doc?.privacy?.conversation_retention_days ?? null },
         approvals: { ...doc?.approvals, preset: doc?.approvals?.preset ?? 'balanced' },
+        memory: { ...doc?.memory, enabled: doc?.memory?.enabled ?? true, auto_save: doc?.memory?.auto_save ?? true },
     };
 }
 

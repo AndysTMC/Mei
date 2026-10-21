@@ -9,7 +9,7 @@ export const BUS_NAME = 'com.andystmc.Mei1';
 export const OBJECT_PATH = '/com/andystmc/Mei1';
 export const INTERFACE = 'com.andystmc.Mei1.Runtime';
 export const ERROR_PREFIX = 'com.andystmc.Mei1.Error.';
-export const PROTOCOL_VERSION: [number, number] = [2, 2];
+export const PROTOCOL_VERSION: [number, number] = [2, 3];
 
 export type TaskState =
     | 'ACCEPTED' | 'RUNNING' | 'WAITING_APPROVAL' | 'WAITING_INPUT' | 'WAITING_RESOURCE' | 'VERIFYING'
@@ -219,6 +219,40 @@ export interface ConversationReply {
     messages: MessageView[];
     tasks: TaskView[];
     streams: StreamView[];
+    /** 2.3: what Mei remembered in this conversation. */
+    memories?: MemoryView[];
+}
+
+/** A memory (2.3, §17): one fact about the person, where it came from, and whether it is in use. */
+export interface MemoryView {
+    id: string;
+    kind: string;
+    text: string;
+    /** Who said it: the person, Mei's inference, or something Mei read (which waits for review). */
+    provenance: 'user_stated' | 'inferred' | 'untrusted';
+    status: 'active' | 'pending_review' | 'archived';
+    /** local_only: never sent to a cloud model. */
+    sensitivity: 'normal' | 'local_only';
+    pinned: boolean;
+    source_task_id: string | null;
+    source_conversation_id: string | null;
+    use_count: number;
+    created_at: number;
+    updated_at: number;
+    last_used_at: number | null;
+}
+
+export interface MemoriesReply {
+    memories: MemoryView[];
+    /** How many wait for review, whatever the filter. */
+    pending: number;
+}
+
+export interface MemoryPatch {
+    text?: string;
+    status?: 'active' | 'archived';
+    pinned?: boolean;
+    sensitivity?: 'normal' | 'local_only';
 }
 
 export interface SubmitReply {
@@ -246,6 +280,7 @@ export interface ConfigDoc {
     providers: Record<string, ProviderSettings>;
     privacy: { conversation_retention_days: number | null; cloud_files?: CloudFiles; [field: string]: unknown };
     approvals?: { preset: ApprovalPreset; [field: string]: unknown };
+    memory?: { enabled: boolean; auto_save: boolean; [field: string]: unknown };
     /** Fields a newer runtime added; kept as they are when this client writes the config back. */
     [field: string]: unknown;
 }
@@ -304,12 +339,19 @@ export interface ApprovalsStep {
     preset: ApprovalPreset;
 }
 
+export interface MemoryStep {
+    id: 'memory';
+    state: 'done';
+    enabled: boolean;
+    auto_save: boolean;
+}
+
 export interface SetupStatusReply {
     version: number;
     completed: boolean;
     offered: boolean;
     skipped: string[];
-    steps: (ServiceStep | ModelsStep | ApprovalsStep | PrivacyStep)[];
+    steps: (ServiceStep | ModelsStep | ApprovalsStep | MemoryStep | PrivacyStep)[];
 }
 
 export interface TestProviderReply {

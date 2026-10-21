@@ -159,10 +159,38 @@ async def agent_with_approval(d: Path) -> dict:
                        "task_id": r["task_id"]}}
 
 
+async def agent_remembers(d: Path) -> dict:
+    """The person asks Mei to remember a fact; it is saved as theirs, then undone from the popup."""
+    from mei.capabilities.base import Env
+    from mei.capabilities.catalog import default_registry
+    from mei.protocol import ForgetMemoryArgs
+    home = d / "home"
+    home.mkdir(parents=True)
+    tape = Tape()
+    eng = Engine(Store(d / "mei"), tape, factory, registry=default_registry(),
+                 env=Env(home=home, data_dir=d / "mei", data_home=home / ".local/share", user_dirs={}))
+    fact = "Invoices go in Documents/Invoices"
+    script = [{"tool_calls": [{"name": "memory_save", "arguments": {"text": fact}}]}, {"text": "Got it."}]
+    eng.update_config(UpdateConfigArgs(eng.get_config()["revision"], Config(active="fake", providers={
+        "fake": ProviderSettings(model="fake-1", options={"script": script, "chunk_chars": 8, "delay_ms": 5})})))
+    tape.items.clear()
+    attach = attach_reply(eng)
+    r = eng.submit_input(SubmitInputArgs(command_id="cmd-1", text="Remember that my invoices go in Documents/Invoices"))
+    await until(lambda: finished(tape, r["task_id"]))
+    saved = next(i for i in tape.items if i["type"] == "memory.saved")["payload"]["memory"]
+    undone_at = len(tape.items)
+    eng.forget_memory(ForgetMemoryArgs(command_id="cmd-2", memory_id=saved["id"]))
+    return {"description": "Mei saves what the person asked it to remember (memory.saved, user_stated), and the "
+                           "person undoes it (memory.deleted).",
+            "attach": attach, "events": tape.items, "undone_at": undone_at,
+            "expect": {"conversation_id": r["conversation_id"], "task_id": r["task_id"], "memory_id": saved["id"],
+                       "text": fact, "provenance": "user_stated"}}
+
+
 async def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for scenario in (turn_completed, turn_cancelled, interrupted_then_resumed, reattach_mid_stream,
-                     agent_with_approval):
+                     agent_with_approval, agent_remembers):
         with tempfile.TemporaryDirectory() as tmp:
             data = await scenario(Path(tmp))
         path = OUT / f"{scenario.__name__}.json"

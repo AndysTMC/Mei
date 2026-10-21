@@ -15,6 +15,7 @@ import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/
 
 import { GrantsPage } from './prefs/grantsPage.js';
 import { LogsPage } from './prefs/logsPage.js';
+import { MemoryPage } from './prefs/memoryPage.js';
 import { ProviderPage } from './prefs/providerPage.js';
 import { buildApprovalRow, buildCloudFilesRow, buildRetentionRow, buildShortcutRow } from './prefs/rows.js';
 import { buildSetupAssistant, type Call } from './prefs/setupAssistant.js';
@@ -45,6 +46,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         const providers = new ProviderPage(settings);
         const logs = new LogsPage(window, settings);
         const grants = new GrantsPage(window, settings);
+        const memory = new MemoryPage(window, settings);
         const preset = buildApprovalRow(settings);
         const retention = buildRetentionRow(window, settings);
         const cloudFiles = buildCloudFilesRow(settings);
@@ -63,7 +65,9 @@ export default class MeiPreferences extends ExtensionPreferences {
         const more = new Adw.PreferencesGroup({ title: 'Settings' });
         const providerRow = navRow('Model provider', 'Ollama, OpenAI, Anthropic, Gemini, and more', 'network-server-symbolic');
         const logsRow = navRow('Logs', 'What the Mei service has been doing', 'format-justify-left-symbolic');
+        const memoryRow = navRow('Memory', 'What Mei remembers about you', 'user-bookmarks-symbolic');
         more.add(providerRow);
+        more.add(memoryRow);
         more.add(logsRow);
         page.add(more);
         const approvals = new Adw.PreferencesGroup({ title: 'Approvals', description: APPROVAL_FLOOR });
@@ -92,6 +96,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         });
         logsRow.connect('activated', () => window.push_subpage(logs.page));
         grantsRow.connect('activated', () => window.push_subpage(grants.page));
+        memoryRow.connect('activated', () => window.push_subpage(memory.page));
 
         const setup = buildSetupAssistant({
             window, call, settings, gsettings: this.getSettings(),
@@ -129,7 +134,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         window.connect('destroy', () => {
             sources.destroy();
             settings.disconnect(saveFailed);
-            for (const part of [providers, logs, setup, preset, retention, cloudFiles, shortcut, askShortcut]) part.destroy();
+            for (const part of [providers, logs, setup, preset, retention, cloudFiles, shortcut, askShortcut, memory]) part.destroy();
         });
     }
 }

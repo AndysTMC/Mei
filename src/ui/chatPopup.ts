@@ -70,6 +70,10 @@ export class ChatPopup {
     onDeny: ((approvalId: string) => void) | null = null;
     /** Called when the person answers one of Mei's questions. */
     onAnswer: ((requestId: string, value: Answer) => void) | null = null;
+    /** Called when the person keeps a memory waiting for review. */
+    onKeepMemory: ((memoryId: string) => void) | null = null;
+    /** Called when the person undoes or discards a memory. */
+    onForgetMemory: ((memoryId: string) => void) | null = null;
     /** Called when the person drops what "Ask about this" attached. */
     onRemoveAttachment: (() => void) | null = null;
 
@@ -208,6 +212,8 @@ export class ChatPopup {
             onApprove: (id, scope) => this.onApprove?.(id, scope),
             onDeny: id => this.onDeny?.(id),
             onAnswer: (id, value) => this.onAnswer?.(id, value),
+            onKeepMemory: id => this.onKeepMemory?.(id),
+            onForgetMemory: id => this.onForgetMemory?.(id),
         };
     }
 

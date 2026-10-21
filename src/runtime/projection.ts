@@ -22,6 +22,7 @@ import {
     type Draft,
     type Envelope,
     type InputRequestView,
+    type MemoryView,
     type MessageView,
     type Outcome,
     type Plan,
@@ -34,6 +35,8 @@ export interface LoadedConversation {
     summary: ConversationSummary;
     messages: MessageView[];
     tasks: Map<string, TaskView>;
+    /** What Mei remembered in this conversation (2.3), by id. */
+    memories: Map<string, MemoryView>;
     /** Events for this conversation at or below this seq are already reflected. */
     loadedSeq: number;
 }
@@ -45,10 +48,12 @@ export interface LiveStream extends StreamView {
 export type ApplyResult = 'applied' | 'duplicate' | 'gap' | 'ignored';
 
 const WAITING: ReadonlySet<string> = new Set(['WAITING_APPROVAL', 'WAITING_INPUT']);
+const MEMORY_EVENTS = new Set(['memory.saved', 'memory.pending_review', 'memory.updated', 'memory.deleted']);
 const ACTION_EVENTS = new Set(['action.proposed', 'policy.decided', 'action.started', 'action.updated', 'action.finished']);
 /** Events that change a conversation's loaded messages or tasks (skipped while it isn't loaded). */
 const NEEDS_LOADED = new Set(['message.completed', 'task.accepted', 'task.state_changed', 'task.finished',
-    'plan.updated', 'approval.requested', 'approval.resolved', 'input.requested', 'input.answered', ...ACTION_EVENTS]);
+    'plan.updated', 'approval.requested', 'approval.resolved', 'input.requested', 'input.answered', ...ACTION_EVENTS,
+    ...MEMORY_EVENTS]);
 
 export class Projection {
     epoch: string | null = null;
@@ -92,6 +97,7 @@ export class Projection {
             summary,
             messages: [...reply.messages],
             tasks: new Map(reply.tasks.map(t => [t.id, { ...t }])),
+            memories: new Map((reply.memories ?? []).map(m => [m.id, m])),
             loadedSeq: reply.seq,
         });
         for (const [id, s] of this.streams) {
@@ -173,7 +179,7 @@ export class Projection {
             const summary = p.conversation as ConversationSummary;
             this.conversations.set(summary.id, summary);
             // A conversation's first event: everything after it arrives as events, so track it now.
-            this.loaded.set(summary.id, { summary, messages: [], tasks: new Map(), loadedSeq: event.seq ?? 0 });
+            this.loaded.set(summary.id, { summary, messages: [], tasks: new Map(), memories: new Map(), loadedSeq: event.seq ?? 0 });
             break;
         }
         case 'conversation.deleted': {
@@ -251,8 +257,13 @@ export class Projection {
         if (state !== undefined) summary.active = TERMINAL_STATES.has(state) ? null : state;
     }
 
-    /** Actions, approvals, questions, and the plan (protocol 2.2). */
+    /** Actions, approvals, questions, and the plan (protocol 2.2); memories (2.3). */
     private _reduceAgent(event: Envelope, conv: LoadedConversation): void {
+        if (MEMORY_EVENTS.has(event.type)) {
+            if (event.type === 'memory.deleted') conv.memories.delete(event.payload.memory_id as string);
+            else conv.memories.set((event.payload.memory as MemoryView).id, event.payload.memory as MemoryView);
+            return;
+        }
         const task = event.task_id ? conv.tasks.get(event.task_id) : undefined;
         if (!task) return;
         const p = event.payload;

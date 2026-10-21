@@ -89,12 +89,14 @@ test('unknown and retired providers cannot be chosen', async () => {
 });
 
 test('fields from a newer runtime survive a write from this client', async () => {
-    const rt = fakeRuntime({ ...BASE, memory: { enabled: true }, privacy: { ...BASE.privacy, screenshots_days: 7 } });
+    const rt = fakeRuntime({ ...BASE, voice: { mode: 'local' }, memory: { enabled: false, auto_save: true, review_days: 3 },
+        privacy: { ...BASE.privacy, screenshots_days: 7 } });
     const settings = new RuntimeSettings(rt.call);
     await settings.reload();
     settings.setRetentionDays(90);
     await settings.flushed();
-    assert.deepEqual(rt.doc.memory, { enabled: true });
+    assert.deepEqual(rt.doc.voice, { mode: 'local' });
+    assert.deepEqual(rt.doc.memory, { enabled: false, auto_save: true, review_days: 3 });
     assert.deepEqual(rt.doc.privacy, { screenshots_days: 7, conversation_retention_days: 90 });
 });
 
@@ -178,6 +180,42 @@ test('the approval preset and cloud-file choice are fields like any other', asyn
     assert.deepEqual(heard, ['approvals', 'privacy']);
     assert.deepEqual(rt.doc.approvals, { preset: 'cautious' });
     assert.deepEqual(rt.doc.privacy, { conversation_retention_days: null, cloud_files: 'never' });
+});
+
+test('memory settings default to on and change one field at a time', async () => {
+    const rt = fakeRuntime(BASE);
+    const settings = new RuntimeSettings(rt.call);
+    await settings.reload();
+    assert.equal(settings.memoryEnabled, true);
+    assert.equal(settings.memoryAutoSave, true);
+    const heard: string[] = [];
+    settings.connect('changed::memory', (_s, key) => heard.push(key));
+    settings.setMemoryAutoSave(false);
+    settings.setMemoryAutoSave(false);
+    await settings.flushed();
+    assert.deepEqual(heard, ['memory']);
+    assert.deepEqual(rt.doc.memory, { enabled: true, auto_save: false });
+});
+
+test('memories are listed, changed, and forgotten through the runtime', async () => {
+    const calls: { method: string; args: Record<string, unknown> }[] = [];
+    const call = async <T>(method: string, args: object = {}): Promise<T> => {
+        calls.push({ method, args: args as Record<string, unknown> });
+        if (method === 'Memories') return { memories: [], pending: 2 } as T;
+        if (method === 'ForgetMemory') return { forgotten: 5 } as T;
+        return {} as T;
+    };
+    const settings = new RuntimeSettings(call);
+    assert.equal((await settings.memories('invoices', 'active')).pending, 2);
+    await settings.updateMemory('m1', { pinned: true });
+    await settings.forgetMemory('m2');
+    assert.equal(await settings.forgetEverything(), 5);
+    assert.deepEqual(calls.map(c => c.method), ['Memories', 'UpdateMemory', 'ForgetMemory', 'ForgetMemory']);
+    assert.deepEqual(calls[0].args, { query: 'invoices', status: 'active' });
+    assert.deepEqual(calls[1].args.patch, { pinned: true });
+    assert.equal(calls[2].args.memory_id, 'm2');
+    assert.equal(calls[3].args.everything, true);
+    assert.ok(calls.slice(1).every(c => typeof c.args.command_id === 'string'));
 });
 
 test('grants are listed and revoked through the runtime', async () => {
