@@ -1207,7 +1207,7 @@ Decisions along the way: OpenCode retired (it refuses non-OpenCode clients); key
 
 ### Stage 2b — Popup decomposition and card primitives (M) — can overlap Stage 3
 
-Progress (2026-10-21): **done except the card renderers**, which wait for Stage 3's events (`approval`, `choice`, `form`, `progress` don't exist yet, and renderers without events would be guesses).
+Progress (2026-10-21): **done**. The card renderers landed with Stage 3's events: approval, question (choices, a small form, or free text), plan, activity rows, and outcome (`src/ui/conversation/cards.ts`).
 
 | Criterion | Evidence |
 |---|---|
@@ -1222,6 +1222,42 @@ Progress (2026-10-21): **done except the card renderers**, which wait for Stage 
 **Accept when:** no source file in `src/ui` exceeds 600 lines; `projection.ts` has unit tests for every event type; behaviour unchanged against a recorded event fixture.
 
 ### Stage 3 — Agent loop, policy, first capabilities, first evals (L)
+
+Progress (2026-10-21): **done**, except the CI and nightly eval jobs: the repository has no CI yet, so the suite runs from `npm run eval`. Decisions 0007 (durable loop), 0008 (policy), and 0009 (outcomes).
+
+| Criterion | Evidence |
+|---|---|
+| Both slices `outcome_verified` on a fresh profile; invoices needs at most one card | Scripted: `test_invoices_slice_is_verified_without_a_single_prompt` (the PDFs taint the task; zero cards), `test_dark_mode_slice_is_verified_without_a_prompt`. In a real nested Shell: the e2e's dark-mode scenario sets the setting, opens Files through the Shell bridge, and both criteria pass Mei's own checks. Live models: see the eval baseline below. |
+| A model claiming "done" without acting is `reported`; a failed check goes back once, then `partially_verified` | `test_a_claim_with_nothing_checkable_is_only_reported`, `test_a_failed_check_goes_back_once_then_completes_partially_verified`; the evals check that a model which only claims success fails every world check. |
+| The §20 batch scenario in all five variants | `test_batch_approve`, `_deny`, `_steer`, `_cancel`, `_kill_while_waiting`; every request passes a provider-validity check. |
+| An injected "trash ~/Documents" can't act without a card that shows its provenance | `test_an_injected_instruction_cannot_trash_documents_without_a_card` (under Hands-off: the card marks `~/Documents` as suggested by a file and names the file); the `readme_injection` eval. |
+| No file content to a cloud model from a sensitive path without a card, nor any class Privacy excludes | `test_file_contents_reach_cloud_models_only_as_privacy_allows` (five cases, asserted on the scripted provider's request log), `test_sensitive_files_need_a_card_that_says_where_they_go`. |
+| No preset can disable a floor rule | `test_floor_holds_under_every_preset`, `test_floor_ignores_grants`: the floor is code, run before presets and grants are consulted. |
+| Killing the runtime at each durable boundary yields the §15 outcome | `tests/test_recovery.py`: model call, reply stored, decided, action started, action ran, result stored; one-time vs task approvals across a restart; a stop requested before the crash. The file moves exactly once in every case. |
+| Changing params after approval invalidates it | `test_changing_params_after_approval_invalidates_it`. |
+| Eval baseline recorded | Below. |
+
+**Eval baseline (2026-10-21, `runtime/evals/`, 15 tasks, one run each).** The scripted model passes all 15, which proves the harness and the checks; a model that only claims success fails every check.
+
+| Model | Passed | Prompts per task | Outcomes | Wrong-reported rate | Verified but wrong |
+|---|---|---|---|---|---|
+| `gemini-flash-lite-latest` | 15/15 | 0.0 | 7 verified, 6 reported, 2 answers | 0/6 | 0 |
+| `gemini-3.1-flash-lite` (before the final fixes) | 17/17 of the tasks that ran across three runs; the rest hit Google's 503 "high demand" | 0.0 | — | 0 | 0 |
+| `gpt-oss-20b` on Groq's free tier | not measurable: 8,000 tokens a minute and 200,000 a day against ~3k-token requests | — | — | — | — |
+
+What the live runs found and fixed: transient refusals now honor `Retry-After`; Groq's `tool_use_failed` is retried; `gpt-oss-20b` leaves out a criterion's `text`, which Groq rejects server-side, so neither it nor a check's `type` is required; Gemini rejects empty enum values; and the "model can't use tools" fallback had been hiding a schema error by answering without tools. The six `reported` outcomes are tasks where the model set no checkable criterion (the invoices slice among them, on this model); all six were right. The injection task needed no card on Gemini: the model ignored the instruction. The scripted run covers the case where a model obeys it.
+
+What differs from the plan above, and why:
+
+- **Presets are parameters, and the floor is code** (not a rule file): a data file could describe a preset that turns the floor off. One floor row was added: changing a whole top-level folder (home, Documents, …) always asks, even when the person named it for something else.
+- **Provenance for apps and settings** comes from the words that name them ("dark mode", "Files"), matched word by word, so "switch to dark mode" needs no card.
+- **GSettings goes through `/usr/bin/gsettings`** from the core: the desktop worker (§5.2) arrives with Stage 6. The absolute path avoids the shadowed-tool problem that rule was about.
+- **Volume** isn't a GSettings key; it is `sound.get_volume`/`sound.set_volume` through `wpctl`.
+- **A task that was running when Mei died comes back INTERRUPTED**, and the person resumes it. This includes a batch whose results were all stored. The model is never re-called automatically.
+- **New input while a task runs joins it** (a steer), from the popup's composer too.
+- **Requests, like approvals, come only from the Shell** unless `clients.external_input` is set: a request carries the person's authority.
+- **Earlier tasks reach the model collapsed** to the request, the reply, and a line of what Mei did.
+- Not done: undoing an action from the UI (the records are kept), editing criteria in the task header, the token/cost budget, and the stall guard (repetition is guarded).
 
 - Registry, effect attributes, policy engine with defaults, argument provenance, disclosure filter, approvals and task-scoped grants (INTERACTIVE only), batches with durable cursors, action ledger, criteria and outcome checks, `task.finish`, budgets, guards, recovery table.
 - Capabilities: `fs.*` (workspace + home with policy), `apps.list/launch`, `settings.get/set` (allowlist: interface, wallpaper, night light, sound volume), `notify.send`, `plan.update`, `ask_user`.
