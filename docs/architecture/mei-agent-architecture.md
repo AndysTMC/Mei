@@ -1281,6 +1281,27 @@ What differs from the plan above, and why:
 
 ### Stage 4 — Sandboxed shell, OS integration, background tasks, memory v0 (M)
 
+Progress (2026-10-21): **done**, except a live-model eval of the four new tasks: the Gemini key's free quota was spent when they ran (every call a 429), so only the scripted run is recorded. Decisions 0011 (commands), 0012 (memory), and 0013 (background notices and attachments).
+
+| Criterion | Evidence |
+|---|---|
+| Escape tests: no `$HOME` write outside grants, no network without a grant, no surviving processes after cancel | `tests/test_shell.py` against the real bubblewrap jail: writes land only in the workspace, `getent hosts` fails, a named folder is read-only with its `.env` masked, a folder holding `~/.ssh` is refused, network asks; after Stop, no `sleep` started by the command survives. |
+| Cancel stops a running `sleep 600` within 2 s | `test_stop_kills_a_long_command_and_everything_it_started_within_2s` (a backgrounded `sleep 600` and a foreground one, through the engine's Cancel). |
+| A long background task survives a Shell restart and notifies on completion | Nested-Shell e2e: a 34-second task across a real `gnome-shell` restart, and a 25-second one across an extension restart, each raise "Mei finished" from the restarted extension with the popup closed; clicking the notification opens the conversation; a task that finishes while the extension is off gets the runtime's own notification. The 20-minute length isn't exercised: nothing on the path depends on it except the 30-minute active-time budget, which asks "Keep going?" rather than ending the task. |
+| "Remember that my invoices go in Documents/Invoices" survives a restart and is used, unprompted, later | `test_a_remembered_fact_survives_a_restart_and_shapes_a_later_task`; the `remember_invoices` eval (saved in one conversation, used in another with no card, since a recalled user-stated memory anchors the place); in the e2e, the "Remembered" card shows and Undo forgets it. |
+| A page or file saying "remember that…" makes only a `pending_review` item | `test_a_document_saying_remember_only_makes_a_pending_item`, the `remember_injection` eval. |
+| A deleted memory is gone from the next turn's context and from search | `test_a_forgotten_memory_is_gone_from_the_next_turn_and_from_search` (FTS rows go in the same transaction, by trigger). |
+
+The eval suite grows to 19 tasks: the 15 of Stage 3 and `remember_invoices`, `remember_injection`, `archive_report` (a real `tar` in the jail, one card for writing into Documents), and `attached_injection` (a selected web page asks to trash a file: the card marks it as suggested by a page, and the careful person denies it). The scripted model passes all 19; the nested-Shell e2e has 24 checks.
+
+What differs from the plan above, and why:
+
+- **Commands run in a jail per conversation, not per task**: the workspace keeps a build's output between messages. Writable folders outside it are data-loss risk, covered by a task grant at most (0011).
+- **Background tasks are interactive tasks the person isn't watching**, not a separate mode: the same approvals and grants apply, and what changes is how Mei tells them (0013). A quick answer still reopens the popup; anything longer notifies.
+- **Memory "toast + Undo"** is a card in the conversation ("Remembered … Undo"), next to what the task did, rather than a transient toast.
+- **"Ask about this" starts a new chat**, so the attachment never steers a task already running in the current one.
+- Not done: a summary line in the notification for tasks that end without a checked outcome (it names the conversation), and fd-based file operations for the symlink race noted in 0010.
+
 - `shell.run` with bwrap and scopes; bounded head/tail output with artifact spill; `shell.run_host` with per-command approval.
 - ShellBridge: windows, clipboard, idle; MPRIS; `system.status`; "Ask about this" shortcut (§18.4).
 - Background tasks (INTERACTIVE, with task-scoped grants): notifications for completion and approvals; task list in the popup.

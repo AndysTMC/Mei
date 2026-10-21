@@ -3,7 +3,11 @@ Mei is a modern GNOME Shell extension powered by LLMs that understands your inte
 
 ## Key Features
 - **Broad AI Support**: Seamless integration with local engines (Ollama, llama.cpp) and cloud APIs (OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter).
-- **Gets things done, with your say**: Mei can find, read (including PDFs), write, move, and trash files; open apps; and change a short list of desktop settings (dark mode, accent color, text size, night light, wallpaper, volume). It asks before anything you didn't name, shows where each thing it touches came from, and checks the result itself: "Verified by Mei" means its own check passed, not that the model said so.
+- **Gets things done, with your say**: Mei can find, read (including PDFs), write, move, and trash files; open apps and switch windows; use the clipboard; play and pause music; check battery and disk; and change a short list of desktop settings (dark mode, accent color, text size, night light, wallpaper, volume). It asks before anything you didn't name, shows where each thing it touches came from, and checks the result itself: "Verified by Mei" means its own check passed, not that the model said so.
+- **Runs commands in a sandbox**: builds, conversions, and archives run in a jail that sees only the folders the command names (read-only unless it asks to write, which needs your OK), with no network unless asked. A command outside the sandbox asks every time and shows you the exact command.
+- **Remembers what you tell it**: "Remember that my invoices go in Documents/Invoices", and later tasks use it without being reminded. Settings → Memory shows everything Mei remembers, to search, pin, keep local, or delete. Anything a file or web page tried to make it remember waits for your review.
+- **Works in the background**: close the popup and Mei keeps going. When a task finishes or needs you, a notification says so; clicking it opens the conversation. Tasks in progress are listed first in the history.
+- **Ask about this**: press `Super+Alt+A` to ask about the window you're in, with the text you selected attached.
 - **Dual Layouts**: Toggle between a compact quick-query popup and an expanded view with full chat history management.
 - **Native Markdown Rendering**: Responses are beautifully formatted with native GNOME widgets for code blocks, tables, lists, and syntax formatting.
 - **Deep System Integration**: Automatic GNOME dark/light mode syncing and responsive viewport constraints.
@@ -49,7 +53,8 @@ its sha256 before installing anything.
 ## Configuration & Usage
 
 Setup walks through the Mei service, your model provider and key, when Mei asks before acting,
-privacy, and the shortcut (by default `Super+Alt+M` opens Mei). Every choice can be changed later in Settings, opened from the ⚙
+memory, privacy, and the shortcuts (by default `Super+Alt+M` opens Mei and `Super+Alt+A` asks about
+the current window). Every choice can be changed later in Settings, opened from the ⚙
 (gear) icon in the chat popup or with:
 
 ```sh
@@ -73,6 +78,13 @@ gnome-extensions prefs mei@andystmc.com
   web page suggested sending off your computer. It never reads SSH keys, keyrings, or browser
   profiles ([ADR 0008](docs/decisions/0008-policy-outside-the-model.md)). Only the popup can approve.
 - Overwritten files are backed up under `~/.local/share/mei/backups`, and "delete" means the trash.
+- What Mei remembers stays in the same database. Memories marked local-only never go to a cloud
+  model, and Settings → Memory → "Forget everything" deletes them all.
+- Commands run in a scratch folder per conversation (`~/.cache/mei/workspaces`); their long output
+  is kept under `~/.local/share/mei/artifacts`. Both are deleted with the conversation
+  ([ADR 0011](docs/decisions/0011-commands-in-a-jail.md)).
+- Text you attach with "Ask about this" is treated like a document Mei read: it can't ask Mei to do
+  anything on your behalf ([ADR 0013](docs/decisions/0013-background-notices-and-attachments.md)).
 - The runtime logs to the journal (`journalctl --user -u mei-runtime`); Settings → Logs shows
   recent entries. Logs are redacted and don't record request or response bodies.
 
