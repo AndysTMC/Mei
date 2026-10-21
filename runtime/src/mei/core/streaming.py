@@ -28,6 +28,7 @@ DRAFT_EVERY_CHARS = 2048
 CALL_TIMEOUT_S = 600.0
 MAX_ATTEMPTS = 3
 RETRY_BASE_S = 1.0
+MAX_RETRY_WAIT_S = 60.0  # a provider asking for longer than this is better reported than waited on
 
 
 class Publisher(Protocol):
@@ -113,9 +114,11 @@ class Streamer:
                             log.warning("%s; asking again without tools", e, extra={"task_id": stream.task_id})
                             request, dropped = replace(request, tools=()), True
                             continue
-                        if not e.retryable or produced or attempt >= MAX_ATTEMPTS:
+                        asked = e.details.get("retry_after")
+                        if not e.retryable or produced or attempt >= MAX_ATTEMPTS or (asked or 0) > MAX_RETRY_WAIT_S:
                             raise
-                        delay = RETRY_BASE_S * (3 ** (attempt - 1)) * random.uniform(0.8, 1.2)
+                        # Back off, and at least as long as the provider asked (§8.2: honor Retry-After).
+                        delay = max(RETRY_BASE_S * (3 ** (attempt - 1)) * random.uniform(0.8, 1.2), asked or 0.0)
                         log.warning("%s; retrying in %.1f s (attempt %d of %d)", e, delay, attempt + 1, MAX_ATTEMPTS,
                                     extra={"task_id": stream.task_id})
                         await asyncio.sleep(delay)

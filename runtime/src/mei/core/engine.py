@@ -17,7 +17,7 @@ import msgspec
 from mei.capabilities.base import Env
 from mei.capabilities.registry import Registry
 from mei.core.states import TERMINAL, Disposition, Execution, TaskState
-from mei.protocol import (MAX_INPUT_CHARS, AnswerInputArgs, ConversationCommandArgs, ProtocolError,
+from mei.protocol import (MAX_INPUT_CHARS, AnswerInputArgs, Config, ConversationCommandArgs, ProtocolError,
                           ProviderConfig, ResolveApprovalArgs, RevokeGrantArgs, SubmitInputArgs, TaskCommandArgs,
                           UpdateConfigArgs, active_provider)
 from mei.policy.engine import Subject, rules_for
@@ -283,7 +283,25 @@ class Engine:
         self._publish(tx.events)
         if args.config.privacy != current.privacy:
             self.apply_retention()
+        loosened = _loosened(current, args.config)
+        if loosened:
+            self._notify("Mei now asks less", loosened)
         return {"revision": revision, "changed": True}
+
+    def _notify(self, title: str, body: str) -> None:
+        """A desktop notification, so a change made by any program is seen (§13.7)."""
+        notifier = self.env.notifier
+        if notifier is None:
+            log.warning("%s: %s (no notifications available)", title, body)
+            return
+
+        async def send() -> None:
+            try:
+                await notifier.notify(title, body)
+            except Exception as e:  # the setting is saved either way; say so in the log
+                log.warning("couldn't show the notification %r: %s", title, e)
+
+        asyncio.get_running_loop().create_task(send())
 
     def apply_retention(self, now: int | None = None) -> int:
         """Delete conversations untouched for longer than the user's retention setting (§14.4).
@@ -350,6 +368,22 @@ class Engine:
             if not self._shutting_down:
                 self._settle_cancel(task_id)
             raise
+
+
+_PRESET_ORDER = ("cautious", "balanced", "hands_off")
+_CLOUD_ORDER = ("never", "pointed", "always")
+
+
+def _loosened(before: Config, after: Config) -> str:
+    """What a config change relaxed, in words, or "" if nothing was."""
+    changes = []
+    if _PRESET_ORDER.index(after.approvals.preset) > _PRESET_ORDER.index(before.approvals.preset):
+        changes.append("more actions now go ahead without asking")
+    if _CLOUD_ORDER.index(after.privacy.cloud_files) > _CLOUD_ORDER.index(before.privacy.cloud_files):
+        changes.append("more file contents may now go to cloud models")
+    if not changes:
+        return ""
+    return "Its settings changed: " + " and ".join(changes) + ". If you didn't do this, check Mei's Settings."
 
 
 def _valid_answer(spec: dict, value):

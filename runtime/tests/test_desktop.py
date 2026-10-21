@@ -17,8 +17,8 @@ from mei.desktop.pdf import PdfToText
 from mei.ipc.peers import is_shell_executable
 
 from agent_harness import make_world, put
+from evals.pdf import write_pdf
 
-FIXTURES = Path(__file__).parent / "fixtures"
 needs_gsettings = pytest.mark.skipif(not os.access(GSETTINGS, os.X_OK), reason="needs /usr/bin/gsettings")
 
 
@@ -166,8 +166,9 @@ async def test_launch_without_the_shell_runs_in_its_own_scope(monkeypatch):
 
 
 @pytest.mark.skipif(not PdfToText.available(), reason="needs pdftotext")
-async def test_pdf_text_from_the_sandboxed_parser():
-    text = await PdfToText().pdf_text(FIXTURES / "invoice.pdf", 1000)
+async def test_pdf_text_from_the_sandboxed_parser(tmp_path):
+    write_pdf(tmp_path / "invoice.pdf", ["INVOICE 2026-0042", "Total 120.00 EUR"])
+    text = await PdfToText().pdf_text(tmp_path / "invoice.pdf", 1000)
     assert "INVOICE 2026-0042" in text and "Total 120.00 EUR" in text and "\x0c" not in text
 
 

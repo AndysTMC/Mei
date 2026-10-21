@@ -86,7 +86,7 @@ class GetParams(msgspec.Struct, kw_only=True):
 
 class SettingsGet(Capability):
     name = "settings.get"
-    summary = f"Read a desktop setting. Available: {KEYS_TEXT}."
+    summary = "Read a desktop setting; the same keys settings_set can change."
     Params = GetParams
     idempotent = True
 

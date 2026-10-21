@@ -26,7 +26,8 @@ from mei.providers.factory import label_of
 from mei.store import agent, repo
 from mei.store.db import Store
 
-from . import context, decide, finish, ledger
+from . import context, decide, ending, finish, ledger
+from .ending import InFlight
 from .streaming import CALL_TIMEOUT_S, Reply, Stream, Streamer
 
 log = logging.getLogger("mei.loop")
@@ -54,35 +55,31 @@ class Deps:
     now: Callable[[], datetime.datetime] = field(default=lambda: datetime.datetime.now(datetime.UTC))
 
 
-@dataclass
-class _InFlight:
-    stream: Stream | None = None
-    action_id: str | None = None
-
-
 class TaskLoop:
     def __init__(self, deps: Deps) -> None:
         self.d = deps
 
     async def run(self, task_id: str) -> None:
         """Drive a RUNNING task until it waits or ends. Re-raises CancelledError after settling."""
-        flight = _InFlight()
+        flight = InFlight()
         try:
             await self._drive(task_id, flight)
         except asyncio.CancelledError:
-            self._stopped(task_id, flight)
+            ending.stopped(self.d.store, self.d.publish, task_id, flight)
             raise
-        except IncompleteResponse as e:
-            self._end(task_id, flight, S.INTERRUPTED, redact(str(e)))  # cut off: keep it and let them resume
+        except IncompleteResponse as e:  # cut off: keep it and let them resume
+            ending.failed(self.d.store, self.d.publish, task_id, flight, S.INTERRUPTED, redact(str(e)))
         except ProviderError as e:
-            self._end(task_id, flight, S.FAILED, redact(str(e)))
+            ending.failed(self.d.store, self.d.publish, task_id, flight, S.FAILED, redact(str(e)))
         except TimeoutError:
-            self._end(task_id, flight, S.FAILED, f"no complete reply within {int(CALL_TIMEOUT_S)} s")
+            ending.failed(self.d.store, self.d.publish, task_id, flight, S.FAILED,
+                          f"no complete reply within {int(CALL_TIMEOUT_S)} s")
         except Exception:
             log.exception("task failed", extra={"task_id": task_id})
-            self._end(task_id, flight, S.FAILED, "internal error (see the Mei runtime log)")
+            ending.failed(self.d.store, self.d.publish, task_id, flight, S.FAILED,
+                          "internal error (see the Mei runtime log)")
 
-    async def _drive(self, task_id: str, flight: _InFlight) -> None:
+    async def _drive(self, task_id: str, flight: InFlight) -> None:
         while True:
             task = repo.get_task(self.d.store, task_id)
             if S(task["state"]) != S.RUNNING:
@@ -98,7 +95,7 @@ class TaskLoop:
 
     # ── Model ───────────────────────────────────────────────────────────────
 
-    async def _model_step(self, task, flight: _InFlight) -> None:
+    async def _model_step(self, task, flight: InFlight) -> None:
         store = self.d.store
         cfg = msgspec.convert(json.loads(task["provider"]), ProviderConfig)
         _revision, config = repo.get_config(store)
@@ -166,7 +163,7 @@ class TaskLoop:
 
     # ── Batches ─────────────────────────────────────────────────────────────
 
-    async def _run_batch(self, task, batch, flight: _InFlight) -> bool:
+    async def _run_batch(self, task, batch, flight: InFlight) -> bool:
         """Work through the batch from its cursor. False: the task now waits or has ended."""
         store = self.d.store
         for position in range(batch["cursor"], batch["size"]):
@@ -261,7 +258,7 @@ class TaskLoop:
 
     # ── Acting ──────────────────────────────────────────────────────────────
 
-    async def _authorized(self, task, action, flight: _InFlight) -> bool:
+    async def _authorized(self, task, action, flight: InFlight) -> bool:
         cap = self.d.registry.get(action["capability"])
         params = self.d.registry.decode(cap, action["params"])
         if cap.meta:
@@ -308,7 +305,7 @@ class TaskLoop:
         self.d.publish(tx.events)
         return S(repo.get_task(store, task["id"])["state"]) not in TERMINAL
 
-    async def _execute(self, task, action, cap: Capability, params, flight: _InFlight) -> None:
+    async def _execute(self, task, action, cap: Capability, params, flight: InFlight) -> None:
         store = self.d.store
         with store.tx() as tx:
             agent.update_action(tx, action["id"], E.STARTED, epoch=store.epoch)  # durable before any effect
@@ -362,7 +359,7 @@ class TaskLoop:
                        (elapsed_ms, int(result.trust == "untrusted"), task["id"]))
         self.d.publish(tx.events)
 
-    async def _settle_in_doubt(self, task, action, flight: _InFlight) -> bool:
+    async def _settle_in_doubt(self, task, action, flight: InFlight) -> bool:
         """An action that was running when Mei died (§15): re-run it if that's safe, else probe the
         world, else ask the person. False: now waiting for their answer."""
         cap = self.d.registry.get(action["capability"])
@@ -390,49 +387,3 @@ class TaskLoop:
                 ledger.ask_in_doubt(tx, taskd, action)
         self.d.publish(tx.events)
         return disposition != Disposition.UNKNOWN
-
-    # ── Ending ──────────────────────────────────────────────────────────────
-
-    def _draft(self, tx, flight: _InFlight) -> dict | None:
-        stream = flight.stream
-        if stream is None:
-            return None
-        tx.execute("UPDATE turns SET draft_text = ?, draft_thinking = ?, draft_chunk = ? WHERE id = ?",
-                   (stream.text, stream.thinking, stream.chunk, stream.turn_id))
-        repo.finish_turn(tx, stream.turn_id, "lost")
-        return {"text": stream.text, "thinking": stream.thinking}
-
-    def _stopped(self, task_id: str, flight: _InFlight) -> None:
-        """Cancelled: by the person (CANCEL_REQUESTED is stored first) or by a shutdown."""
-        with self.d.store.tx() as tx:
-            state = S(repo.get_task(tx, task_id)["state"])
-            if state in TERMINAL:
-                return
-            draft = self._draft(tx, flight)
-            if state == S.CANCEL_REQUESTED:
-                running = agent.get_action(tx, flight.action_id) if flight.action_id else None
-                if running is not None and E(running["execution"]) == E.STARTED:
-                    task = repo.task_dict(repo.get_task(tx, task_id))
-                    mutating = (json.loads(running["effects"] or "{}")).get("mutates", "no") != "no"
-                    ledger.finish_action(tx, task, running, E.CANCELLED, "Stopped by the person before it finished.",
-                                         is_error=True,
-                                         disposition=Disposition.UNKNOWN if mutating else Disposition.NONE)
-                ledger.cancel_now(tx, task_id, draft=draft)
-            else:
-                # A shutdown. An action in flight stays STARTED; recovery treats it as in doubt (§15).
-                final = repo.set_task_state(tx, task_id, S.INTERRUPTED, error="Mei was restarting")
-                repo.finished_event(tx, final, draft=draft)
-        self.d.publish(tx.events)
-
-    def _end(self, task_id: str, flight: _InFlight, to: TaskState, error: str) -> None:
-        with self.d.store.tx() as tx:
-            state = S(repo.get_task(tx, task_id)["state"])
-            if state in TERMINAL:
-                return
-            draft = self._draft(tx, flight)
-            if state == S.CANCEL_REQUESTED:
-                ledger.cancel_now(tx, task_id, draft=draft)  # the person's stop wins over a failure
-            else:
-                final = repo.set_task_state(tx, task_id, to, error=error)
-                repo.finished_event(tx, final, draft=draft)
-        self.d.publish(tx.events)

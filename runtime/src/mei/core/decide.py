@@ -84,7 +84,13 @@ def _provenance(r: Resource, anchored: list[Path], user_texts: list[str], untrus
 
 
 def _says(text: str, name: str) -> bool:
-    return bool(name) and re.search(rf"(?<!\w){re.escape(name.lower())}(?!\w)", text.lower()) is not None
+    """Does the text name this? Every word of the name appears in it ("make the text bigger" names
+    "bigger text"); ids like org.gnome.Nautilus count as one word."""
+    wanted = set(_WORD.findall(name.lower()))
+    return bool(wanted) and wanted <= set(_WORD.findall(text.lower()))
+
+
+_WORD = re.compile(r"\w+(?:[.-]\w+)*")  # "org.gnome.Nautilus" and "24-hour" are one word; "Files." is "files"
 
 
 def judge(store: Store, env: Env, task, proposal: Proposal, preset_name: str) -> Decision:

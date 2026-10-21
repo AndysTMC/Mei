@@ -74,8 +74,21 @@ async def _http_error(label: str, response: httpx.Response, headers: dict[str, s
         if len(body) >= MAX_ERROR_BODY_BYTES:
             break
     detail = scrub(error_message(body[:MAX_ERROR_BODY_BYTES]), headers)
-    return ProviderError(f"{label}: HTTP {response.status_code}" + (f": {detail}" if detail else ""),
-                         retryable=response.status_code in RETRYABLE_STATUS, status=response.status_code)
+    error = ProviderError(f"{label}: HTTP {response.status_code}" + (f": {detail}" if detail else ""),
+                          retryable=response.status_code in RETRYABLE_STATUS, status=response.status_code)
+    wait = retry_after(response.headers.get("retry-after"))
+    if wait is not None:
+        error.details["retry_after"] = wait
+    return error
+
+
+def retry_after(value: str | None) -> float | None:
+    """Seconds from a Retry-After header (the delay form; an HTTP date is rare from these APIs)."""
+    try:
+        seconds = float(value) if value else None
+    except ValueError:
+        return None
+    return seconds if seconds is not None and 0 <= seconds < 86_400 else None
 
 
 def error_message(body: bytes | str | dict) -> str:

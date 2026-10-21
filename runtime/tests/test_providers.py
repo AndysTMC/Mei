@@ -349,3 +349,14 @@ async def test_keys_echoed_inside_a_successful_stream_are_scrubbed():
     with pytest.raises(ProviderError) as err:
         await collect(provider)
     assert key not in str(err.value) and "[redacted]" in str(err.value)
+
+
+async def test_retry_after_is_kept_with_the_error():
+    from mei.providers.http_stream import retry_after
+    client = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda _r: httpx.Response(429, headers={"retry-after": "20"}, json={"error": {"message": "slow down"}})))
+    p = OpenAIChatProvider(client, label="T", url="https://x.test/v1/chat/completions", model="m")
+    with pytest.raises(ProviderError) as err:
+        await collect(p)
+    assert err.value.retryable and err.value.details["retry_after"] == 20.0
+    assert retry_after("1.5") == 1.5 and retry_after("Wed, 21 Oct 2026 07:28:00 GMT") is None and retry_after("-3") is None

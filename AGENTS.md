@@ -14,7 +14,8 @@
 - Live provider smoke: `npm run smoke:providers` (runs `runtime/tests/live_smoke.py`; needs a local `.env` from `.env.example`; keys are never printed; never commit `.env`)
 - Runtime (Python, `runtime/`): `cd runtime && uv sync && uv run pytest` (process tests need `dbus-run-session`)
 - Protocol fixtures (after changing `runtime/src/mei/protocol.py` or event payloads): `cd runtime && uv run python tests/make_fixtures.py`
-- End-to-end in a nested Shell (dev build, private session, mock provider): `scripts/e2e-stage1.sh`
+- End-to-end in a nested Shell (dev build, private session and home, mock provider): `scripts/e2e-stage1.sh`
+- Evals (agent tasks scored by the world they leave): `npm run eval` (scripted model); `npm run eval -- --provider <id>` uses that provider's key and model from `.env` and can use quota
 - Install test (install, upgrade, uninstall, purge in a private home): `scripts/install-test.sh`
 - Release build (wheel with the extension inside, plus a pinned `install.sh`): `scripts/build-release.sh`
 - Run this checkout on your own session: `npm run build && npm run install:ext` (links `dist/` as the extension), then `cd runtime && uv run mei-runtime install-dev` (this checkout's runtime becomes the service); log out and back in. Undo with `uv run mei-runtime uninstall-dev`. `mei-runtime install` leaves a symlinked extension alone unless `--force`.

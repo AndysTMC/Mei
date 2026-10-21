@@ -3,6 +3,7 @@ Mei is a modern GNOME Shell extension powered by LLMs that understands your inte
 
 ## Key Features
 - **Broad AI Support**: Seamless integration with local engines (Ollama, llama.cpp) and cloud APIs (OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter).
+- **Gets things done, with your say**: Mei can find, read (including PDFs), write, move, and trash files; open apps; and change a short list of desktop settings (dark mode, accent color, text size, night light, wallpaper, volume). It asks before anything you didn't name, shows where each thing it touches came from, and checks the result itself: "Verified by Mei" means its own check passed, not that the model said so.
 - **Dual Layouts**: Toggle between a compact quick-query popup and an expanded view with full chat history management.
 - **Native Markdown Rendering**: Responses are beautifully formatted with native GNOME widgets for code blocks, tables, lists, and syntax formatting.
 - **Deep System Integration**: Automatic GNOME dark/light mode syncing and responsive viewport constraints.
@@ -47,8 +48,8 @@ its sha256 before installing anything.
 
 ## Configuration & Usage
 
-Setup walks through the Mei service, your model provider and key, privacy, and the shortcut (by
-default `Super+Alt+M` opens Mei). Every choice can be changed later in Settings, opened from the ⚙
+Setup walks through the Mei service, your model provider and key, when Mei asks before acting,
+privacy, and the shortcut (by default `Super+Alt+M` opens Mei). Every choice can be changed later in Settings, opened from the ⚙
 (gear) icon in the chat popup or with:
 
 ```sh
@@ -65,7 +66,14 @@ gnome-extensions prefs mei@andystmc.com
   once, moves any API keys stored in GSettings into the keyring, and removes the plaintext copies
   after checking each key reads back.
 - Mei sends Gemini keys in the `x-goog-api-key` header, never in request URLs.
-- The runtime logs to the journal (`journalctl --user -u mei-runtime`); Settings → Show Logs shows
+- File contents Mei reads go to a cloud model only from files you pointed at (Settings → Privacy can
+  change that to any file or none); local models see what Mei reads.
+- Whatever approval setting you choose, Mei always asks before anything that can't be undone,
+  anything involving passwords or keys, changes to whole top-level folders, and anything a file or
+  web page suggested sending off your computer. It never reads SSH keys, keyrings, or browser
+  profiles ([ADR 0008](docs/decisions/0008-policy-outside-the-model.md)). Only the popup can approve.
+- Overwritten files are backed up under `~/.local/share/mei/backups`, and "delete" means the trash.
+- The runtime logs to the journal (`journalctl --user -u mei-runtime`); Settings → Logs shows
   recent entries. Logs are redacted and don't record request or response bodies.
 
 ### Compatibility
@@ -81,6 +89,7 @@ npm run test:runtime   # the runtime's pytest suite (cd runtime && uv sync first
 npm run test:e2e       # nested GNOME Shell + extension + runtime, on a private session
 npm run test:install   # install.sh install/upgrade/uninstall in a private home
 npm run smoke:providers # live provider checks using keys from .env
+npm run eval           # the eval tasks with the scripted model; add -- --provider groq for a real one
 npm run release        # scripts/build-release.sh
 npm run dev            # build, link dist/ as the extension, and start a devkit Shell
 ```

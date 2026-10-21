@@ -19,6 +19,7 @@
     "test:install": "scripts/install-test.sh",
     "release": "scripts/build-release.sh",
     "test:live": "npm run smoke:providers",
+    "eval": "cd runtime && uv run python -m evals.run",
     "check": "npm test && npm run lint && npm run format:check && npm run build && node scripts/check-bundle.js",
     "typecheck": "tsc --noEmit",
     "build:ts": "node esbuild.js",

@@ -5,7 +5,7 @@ import pytest
 
 from mei.core import streaming as engine_mod
 from mei.core.engine import Engine
-from mei.core.loop import TaskLoop
+from mei.core import ending
 from mei.core.states import TERMINAL, TaskState
 import msgspec
 
@@ -199,7 +199,7 @@ async def test_crash_recovery_interrupts_with_draft_and_never_resends(tmp_path, 
     queued = submit(eng, text="queued", command_id="c2")
     await wait_deltas(rec, 3)
     # Simulate a crash: the process dies mid-turn, nothing gets to finish its bookkeeping.
-    monkeypatch.setattr(TaskLoop, "_stopped", lambda *a, **k: None)
+    monkeypatch.setattr(ending, "stopped", lambda *a, **k: None)
     for runner in list(eng._runners.values()):
         runner.cancel()
     await asyncio.sleep(0.05)
@@ -321,3 +321,63 @@ async def test_retention_leaves_a_conversation_that_is_still_answering(tmp_path)
     await wait_state(eng, r["task_id"])
     _age(eng, r["conversation_id"], 400)
     assert eng.apply_retention() == 1
+
+
+async def test_a_retry_waits_as_long_as_the_provider_asks(tmp_path, monkeypatch):
+    from mei.providers.base import Done, ProviderError, TextDelta
+
+    class Busy:
+        label, model = "Busy", "m"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def stream(self, request):
+            self.calls += 1
+            if self.calls == 1:
+                raise ProviderError("Busy: HTTP 429", retryable=True, status=429, details={"retry_after": 0.3})
+            yield TextDelta("ok")
+            yield Done()
+
+    busy = Busy()
+
+    async def factory(_cfg):
+        return busy
+    monkeypatch.setattr(engine_mod, "RETRY_BASE_S", 0.01)
+    eng = Engine(Store(tmp_path), Recorder(), factory)
+    eng.update_config(UpdateConfigArgs(eng.get_config()["revision"], Config(active="fake")))
+    started = asyncio.get_running_loop().time()
+    r = submit(eng)
+    assert await wait_state(eng, r["task_id"]) == S.COMPLETED
+    assert busy.calls == 2 and asyncio.get_running_loop().time() - started >= 0.3
+
+
+async def test_loosening_approvals_or_cloud_sharing_is_announced(tmp_path):
+    from mei.capabilities.base import Env
+    from mei.protocol import Approvals, Privacy
+
+    class Notes:
+        def __init__(self) -> None:
+            self.shown = []
+
+        async def notify(self, title, body):
+            self.shown.append((title, body))
+            return 1
+
+    notes = Notes()
+    eng = Engine(Store(tmp_path / "db"), Recorder(), fake_factory,
+                 env=Env(home=tmp_path, data_dir=tmp_path / "db", notifier=notes))
+
+    def change(**kw):
+        revision, config = repo.get_config(eng.store)
+        eng.update_config(UpdateConfigArgs(revision, msgspec.structs.replace(config, **kw)))
+
+    change(approvals=Approvals(preset="cautious"))  # stricter: nothing to say
+    change(privacy=Privacy(cloud_files="never"))
+    await asyncio.sleep(0)
+    assert notes.shown == []
+    change(approvals=Approvals(preset="hands_off"), privacy=Privacy(cloud_files="always"))
+    await asyncio.sleep(0.01)
+    assert len(notes.shown) == 1
+    title, body = notes.shown[0]
+    assert title == "Mei now asks less" and "without asking" in body and "cloud models" in body

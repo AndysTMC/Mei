@@ -6,3 +6,6 @@
 | 0004 | Install per user with a script; the extension activates at the next login | accepted | 2026-10-20 | — |
 | 0005 | Keep API keys only in the keyring; the runtime reads them there | accepted | 2026-10-20 | 0001 |
 | 0006 | API keys cross the bus encrypted, go only to configured endpoints, and never come back in errors | accepted | 2026-10-21 | — |
+| 0007 | The agent loop keeps a durable action ledger; waiting is a state, and recovery is a table | accepted | 2026-10-21 | — |
+| 0008 | Authority lives outside the model: a policy engine with presets over a fixed floor | accepted | 2026-10-21 | — |
+| 0009 | Outcomes are checked by the runtime; badges claim only what checks established | accepted | 2026-10-21 | — |
