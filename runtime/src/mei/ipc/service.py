@@ -20,9 +20,10 @@ from dbus_fast.constants import NameFlag, RequestNameReply
 from mei import protocol
 from mei.core.engine import Engine
 from mei.obs import RECENT
-from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, GetLogsArgs, HelloArgs,
-                          ListModelsArgs, ProtocolError, ResolveApprovalArgs, RevokeGrantArgs, SetupApplyArgs,
-                          SubmitInputArgs, TaskCommandArgs, TestProviderArgs, UpdateConfigArgs, decode_args, encode)
+from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, ForgetMemoryArgs,
+                          GetLogsArgs, HelloArgs, ListModelsArgs, MemoriesArgs, ProtocolError, ResolveApprovalArgs,
+                          RevokeGrantArgs, SetupApplyArgs, SubmitInputArgs, TaskCommandArgs, TestProviderArgs,
+                          UpdateConfigArgs, UpdateMemoryArgs, decode_args, encode)
 from mei.providers.profiles import PROFILES
 from mei.setup import Setup
 from mei.store import repo
@@ -70,6 +71,7 @@ class RuntimeService:
             "ClearLogs": self._clear_logs, "SetupStatus": self._setup_status, "SetupApply": self._setup_apply,
             "TestProvider": self._test, "ResolveApproval": self._resolve_approval, "AnswerInput": self._answer_input,
             "ListGrants": self._list_grants, "RevokeGrant": self._revoke_grant,
+            "Memories": self._memories, "UpdateMemory": self._update_memory, "ForgetMemory": self._forget_memory,
         }
 
     async def start(self) -> None:
@@ -288,6 +290,16 @@ class RuntimeService:
         args = decode_args(data, AnswerInputArgs)
         await self._shell_only(sender, "answer Mei's questions")
         return self._engine.answer_input(args)
+
+    def _memories(self, _sender: str, data: str) -> dict:
+        return self._engine.memories(decode_args(data, MemoriesArgs))
+
+    async def _update_memory(self, sender: str, data: str) -> dict:
+        args = decode_args(data, UpdateMemoryArgs)
+        return self._engine.update_memory(args, from_shell=await self._is_shell(sender))
+
+    def _forget_memory(self, _sender: str, data: str) -> dict:
+        return self._engine.forget_memory(decode_args(data, ForgetMemoryArgs))
 
     def _list_grants(self, _sender: str, _data: str) -> dict:
         return self._engine.list_grants()

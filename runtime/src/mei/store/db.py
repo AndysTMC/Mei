@@ -139,4 +139,14 @@ class Store:
 
 
 def _split_sql(sql: str) -> list[str]:
-    return [s.strip() for s in sql.split(";") if s.strip()]
+    """Statements one by one; a trigger's BEGIN … END holds semicolons of its own."""
+    statements, current = [], ""
+    for piece in sql.split(";"):
+        current += piece + ";"
+        if sqlite3.complete_statement(current):
+            if current.strip(" \n;"):
+                statements.append(current.strip())
+            current = ""
+    if current.strip(" \n;"):
+        statements.append(current.strip())
+    return statements

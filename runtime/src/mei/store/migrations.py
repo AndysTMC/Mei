@@ -195,4 +195,61 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX input_requests_by_task ON input_requests (task_id, state)
     """,
+    # 4: memory v0 (§17): profile memories, episode summaries, and full-text indexes over memories,
+    # episodes, and the messages people see. The indexes are contentless and keyed by rowid; triggers
+    # keep them in step, so deleting a memory or a conversation removes its index rows in the same
+    # transaction. (A plain VACUUM could renumber rowids; Mei never runs one, and store.reindex()
+    # rebuilds the indexes from the tables if they ever disagree.)
+    """
+    CREATE TABLE memories (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('profile')),
+        text TEXT NOT NULL,
+        provenance TEXT NOT NULL CHECK (provenance IN ('user_stated', 'inferred', 'untrusted')),
+        status TEXT NOT NULL CHECK (status IN ('active', 'pending_review', 'archived')),
+        sensitivity TEXT NOT NULL DEFAULT 'normal' CHECK (sensitivity IN ('normal', 'local_only')),
+        pinned INTEGER NOT NULL DEFAULT 0,
+        source_task_id TEXT,
+        source_conversation_id TEXT,
+        superseded_by TEXT,
+        use_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_used_at INTEGER
+    );
+    CREATE INDEX memories_by_status ON memories (status, updated_at);
+    CREATE VIRTUAL TABLE memories_fts USING fts5(text, content='', contentless_delete=1, tokenize='unicode61');
+    CREATE TRIGGER memories_fts_insert AFTER INSERT ON memories BEGIN
+        INSERT INTO memories_fts (rowid, text) VALUES (new.rowid, new.text);
+    END;
+    CREATE TRIGGER memories_fts_update AFTER UPDATE OF text ON memories BEGIN
+        DELETE FROM memories_fts WHERE rowid = old.rowid;
+        INSERT INTO memories_fts (rowid, text) VALUES (new.rowid, new.text);
+    END;
+    CREATE TRIGGER memories_fts_delete AFTER DELETE ON memories BEGIN
+        DELETE FROM memories_fts WHERE rowid = old.rowid;
+    END;
+    CREATE TABLE episodes (
+        task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        summary TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+    );
+    CREATE VIRTUAL TABLE episodes_fts USING fts5(summary, content='', contentless_delete=1, tokenize='unicode61');
+    CREATE TRIGGER episodes_fts_insert AFTER INSERT ON episodes BEGIN
+        INSERT INTO episodes_fts (rowid, summary) VALUES (new.rowid, new.summary);
+    END;
+    CREATE TRIGGER episodes_fts_delete AFTER DELETE ON episodes BEGIN
+        DELETE FROM episodes_fts WHERE rowid = old.rowid;
+    END;
+    CREATE VIRTUAL TABLE messages_fts USING fts5(content, content='', contentless_delete=1, tokenize='unicode61');
+    CREATE TRIGGER messages_fts_insert AFTER INSERT ON messages WHEN new.role IN ('user', 'assistant') BEGIN
+        INSERT INTO messages_fts (rowid, content) VALUES (new.rowid, new.content);
+    END;
+    CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages WHEN old.role IN ('user', 'assistant') BEGIN
+        DELETE FROM messages_fts WHERE rowid = old.rowid;
+    END;
+    INSERT INTO messages_fts (rowid, content) SELECT rowid, content FROM messages WHERE role IN ('user', 'assistant');
+    ALTER TABLE tasks ADD COLUMN recalled TEXT NOT NULL DEFAULT '[]'
+    """,
 ]

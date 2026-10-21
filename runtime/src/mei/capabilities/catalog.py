@@ -4,6 +4,7 @@ from .apps import AppsLaunch, AppsList
 from .base import Capability
 from .fs_read import FsList, FsReadText, FsSearch
 from .fs_write import FsEdit, FsMakeDir, FsMove, FsTrash, FsWriteText
+from .memory import HistorySearch, MemoryForget, MemorySave, MemorySearch
 from .meta import AskUser, PlanUpdate, TaskFinish
 from .notify import NotifySend
 from .registry import Registry
@@ -23,5 +24,12 @@ def meta_capabilities() -> list[Capability]:
     return [PlanUpdate(), AskUser(), TaskFinish()]
 
 
+def memory_capabilities() -> list[Capability]:
+    return [MemorySave(), MemorySearch(), MemoryForget(), HistorySearch()]
+
+
+MEMORY_TOOLS = frozenset({"memory.save", "memory.search", "memory.forget"})  # hidden while memory is off
+
+
 def default_registry() -> Registry:
-    return Registry([*meta_capabilities(), *file_capabilities(), *desktop_capabilities()])
+    return Registry([*meta_capabilities(), *memory_capabilities(), *file_capabilities(), *desktop_capabilities()])

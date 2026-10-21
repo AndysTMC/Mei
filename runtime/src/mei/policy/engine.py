@@ -38,7 +38,7 @@ PRESETS = {p.name: p for p in (
 class Subject(msgspec.Struct, frozen=True, kw_only=True):
     """A resource as policy sees it."""
 
-    kind: Literal["path", "app", "setting"]
+    kind: Literal["path", "app", "setting", "memory"]
     value: str
     access: Literal["read", "write"]
     role: str = ""
@@ -47,7 +47,7 @@ class Subject(msgspec.Struct, frozen=True, kw_only=True):
 
 
 class GrantRule(msgspec.Struct, frozen=True, kw_only=True):
-    kind: Literal["path", "app", "setting"]
+    kind: Literal["path", "app", "setting", "memory"]
     access: Literal["read", "write"]
     value: str  # a folder for paths (things directly in it match, not deeper); the exact value otherwise
 

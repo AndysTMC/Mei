@@ -68,6 +68,9 @@ class Inputs:
     provider: ProviderConfig
     now: datetime.datetime
     tools: bool = True
+    memories: tuple[dict, ...] = ()  # recalled for this task (core/memories.py)
+    episodes: tuple[dict, ...] = ()
+    hidden_tools: frozenset[str] = frozenset()  # capability names not offered (memory turned off)
 
 
 def build(inputs: Inputs, task) -> ModelRequest:
@@ -76,11 +79,12 @@ def build(inputs: Inputs, task) -> ModelRequest:
     rows = store.read("SELECT * FROM messages WHERE conversation_id = ? ORDER BY ordinal", (task["conversation_id"],))
     input_ordinal = next(r["ordinal"] for r in rows if r["id"] == task["input_message_id"])
     actions = {a["id"]: a for a in store.read("SELECT * FROM actions WHERE task_id = ?", (task["id"],))}
-    turns = [ChatTurn("system", prompt.system_prompt(inputs.env, inputs.now, plan))]
+    turns = [ChatTurn("system", prompt.system_prompt(inputs.env, inputs.now, plan, memories=inputs.memories,
+                                                     episodes=inputs.episodes))]
     turns += _earlier(store, [r for r in rows if r["ordinal"] < input_ordinal])
     turns += _current(inputs, task["id"], [r for r in rows if r["ordinal"] == input_ordinal or
                                (r["task_id"] == task["id"] and r["ordinal"] > input_ordinal)], actions)
-    tools = inputs.registry.specs(inputs.env) if inputs.tools else ()
+    tools = inputs.registry.specs(inputs.env, without=inputs.hidden_tools) if inputs.tools else ()
     return ModelRequest(turns, tools=tools)
 
 

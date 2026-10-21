@@ -46,10 +46,10 @@ class Registry:
     def names(self) -> list[str]:
         return list(self._by_name)
 
-    def specs(self, env: Env) -> tuple[ToolSpec, ...]:
-        """Tools for the model: every capability that is available in this environment."""
+    def specs(self, env: Env, without: frozenset[str] = frozenset()) -> tuple[ToolSpec, ...]:
+        """Tools for the model: every capability available in this environment, less `without`."""
         return tuple(ToolSpec(wire_name(cap.name), cap.summary, self._schemas[cap.name])
-                     for cap in self._by_name.values() if cap.available(env).ok)
+                     for cap in self._by_name.values() if cap.name not in without and cap.available(env).ok)
 
     @staticmethod
     def decode(cap: Capability, arguments: str):

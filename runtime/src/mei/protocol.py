@@ -11,7 +11,7 @@ from typing import Literal
 import msgspec
 
 PROTOCOL_MAJOR = 2  # 2.0: the runtime owns all provider settings (Config.active + Config.providers)
-PROTOCOL_MINOR = 2  # 2.2: the agent loop: actions, approvals, questions, grants
+PROTOCOL_MINOR = 3  # 2.3: memory; 2.2: the agent loop (actions, approvals, questions, grants)
 BUS_NAME = "com.andystmc.Mei1"
 EXTENSION_UUID = "mei@andystmc.com"  # the Shell extension this runtime pairs with
 OBJECT_PATH = "/com/andystmc/Mei1"
@@ -44,6 +44,11 @@ DURABLE_EVENTS = frozenset({
     "input.answered",
     "grant.created",
     "grant.revoked",
+    # 2.3: memory
+    "memory.saved",
+    "memory.pending_review",
+    "memory.updated",
+    "memory.deleted",
 })
 EPHEMERAL_EVENTS = frozenset({"message.delta", "runtime.notice"})
 
@@ -124,6 +129,30 @@ class RevokeGrantArgs(msgspec.Struct):
     grant_id: str
 
 
+class MemoriesArgs(msgspec.Struct):
+    query: str = ""
+    status: Literal["active", "pending_review", "archived", ""] = ""
+
+
+class MemoryPatch(msgspec.Struct, kw_only=True, omit_defaults=True):
+    text: str | None = None
+    status: Literal["active", "archived"] | None = None
+    pinned: bool | None = None
+    sensitivity: Literal["normal", "local_only"] | None = None
+
+
+class UpdateMemoryArgs(msgspec.Struct):
+    command_id: str
+    memory_id: str
+    patch: MemoryPatch
+
+
+class ForgetMemoryArgs(msgspec.Struct):
+    command_id: str
+    memory_id: str | None = None  # None with `everything`: forget every memory
+    everything: bool = False
+
+
 class ProviderConfig(msgspec.Struct, kw_only=True):
     """The user's provider preferences. No secrets: the key is looked up in the keyring by `id`.
 
@@ -170,12 +199,18 @@ class Clients(msgspec.Struct, kw_only=True):
     external_input: bool = False
 
 
+class MemorySettings(msgspec.Struct, kw_only=True):
+    enabled: bool = True  # recall memories into tasks, and let Mei save new ones
+    auto_save: bool = True  # save facts Mei infers, not only what the person asks it to remember (§17.4)
+
+
 class Config(msgspec.Struct, kw_only=True):
     active: str = ""  # provider id used for new tasks
     providers: dict[str, ProviderSettings] = msgspec.field(default_factory=dict)
     privacy: Privacy = msgspec.field(default_factory=Privacy)
     approvals: Approvals = msgspec.field(default_factory=Approvals)
     clients: Clients = msgspec.field(default_factory=Clients)
+    memory: MemorySettings = msgspec.field(default_factory=MemorySettings)
 
 
 def active_provider(config: Config) -> ProviderConfig:
@@ -217,7 +252,7 @@ def decode_args(data: str, kind: type):
         raise ProtocolError("InvalidArgument", str(e)) from None
     except msgspec.DecodeError as e:
         raise ProtocolError("InvalidArgument", f"invalid JSON: {e}") from None
-    for field in ("command_id", "task_id", "conversation_id", "approval_id", "request_id", "grant_id"):
+    for field in ("command_id", "task_id", "conversation_id", "approval_id", "request_id", "grant_id", "memory_id"):
         value = getattr(args, field, None)
         if value is not None and (not value or len(value) > MAX_ID_CHARS):
             raise ProtocolError("InvalidArgument", f"{field} must be 1–{MAX_ID_CHARS} characters")
@@ -232,7 +267,8 @@ def json_schema() -> dict:
     """JSON Schema for the commands and the event envelope, for tooling and docs."""
     kinds = [Envelope, HelloArgs, AttachArgs, SubmitInputArgs, TaskCommandArgs,
              ConversationCommandArgs, UpdateConfigArgs, Config, ListModelsArgs, GetLogsArgs, SetupApplyArgs,
-             TestProviderArgs, ResolveApprovalArgs, AnswerInputArgs, RevokeGrantArgs]
+             TestProviderArgs, ResolveApprovalArgs, AnswerInputArgs, RevokeGrantArgs, MemoriesArgs,
+             UpdateMemoryArgs, ForgetMemoryArgs]
     _schemas, components = msgspec.json.schema_components(kinds)
     return {"$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": f"Mei runtime protocol {PROTOCOL_MAJOR}.{PROTOCOL_MINOR}",

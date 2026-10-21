@@ -23,10 +23,12 @@ from mei.obs import redact
 from mei.protocol import Envelope, ProviderConfig
 from mei.providers.base import IncompleteResponse, Provider, ProviderError
 from mei.providers.factory import label_of
+from mei.capabilities.catalog import MEMORY_TOOLS
 from mei.store import agent, repo
+from mei.store import memory as mem
 from mei.store.db import Store
 
-from . import context, decide, ending, finish, ledger
+from . import context, decide, ending, finish, ledger, memories, remember
 from .ending import InFlight
 from .streaming import CALL_TIMEOUT_S, Reply, Stream, Streamer
 
@@ -100,8 +102,14 @@ class TaskLoop:
         cfg = msgspec.convert(json.loads(task["provider"]), ProviderConfig)
         _revision, config = repo.get_config(store)
         seen = ledger.last_ordinal(store, task["conversation_id"])
-        request = context.build(context.Inputs(store, self.d.env, self.d.registry, config.privacy, cfg, self.d.now()),
-                                task)
+        recalled: list[dict] = []
+        earlier: list[dict] = []
+        if config.memory.enabled:
+            recalled = memories.recall(store, task, local_only_ok=not context.is_cloud(cfg))
+            earlier = memories.episodes(store, task)
+        request = context.build(context.Inputs(
+            store, self.d.env, self.d.registry, config.privacy, cfg, self.d.now(), memories=tuple(recalled),
+            episodes=tuple(earlier), hidden_tools=frozenset() if config.memory.enabled else MEMORY_TOOLS), task)
         label = {"id": cfg.id, "label": label_of(cfg), "model": cfg.model}
         with store.tx() as tx:
             turn = repo.begin_turn(tx, task["id"], store.epoch, label)
@@ -191,11 +199,16 @@ class TaskLoop:
                 return False
         return True
 
-    def _seen(self, task) -> decide.Seen:
-        """The person's words in this task (not earlier ones), and what Mei has read in it."""
-        texts = [r["content"] for r in self.d.store.read(
+    def _own_words(self, task) -> list[str]:
+        """The person's messages in this task: its request and any steers, not earlier tasks."""
+        return [r["content"] for r in self.d.store.read(
             "SELECT content FROM messages WHERE role = 'user' AND (id = ? OR task_id = ?) ORDER BY ordinal",
             (task["input_message_id"], task["id"]))]
+
+    def _seen(self, task) -> decide.Seen:
+        """The person's words in this task, what they told Mei to remember that this task recalled
+        (§17.5), and what Mei has read in it."""
+        texts = self._own_words(task) + memories.stated(self.d.store, task)
         rows = self.d.store.read("SELECT a.result, m.content FROM actions a JOIN messages m ON m.action_id = a.id "
                                  "WHERE a.task_id = ? AND a.result IS NOT NULL", (task["id"],))
         content, other = [], []
@@ -329,6 +342,9 @@ class TaskLoop:
                 finish.ask(tx, taskd, action, params)
             self.d.publish(tx.events)
             return False
+        if cap.name == "memory.save":
+            self._remember(task, action, params)
+            return True
         with store.tx() as tx:  # task.finish
             repo.set_task_state(tx, task["id"], S.VERIFYING)
             agent.update_action(tx, action["id"], E.STARTED, epoch=store.epoch)
@@ -351,6 +367,32 @@ class TaskLoop:
                 finish.finished(tx, repo.task_dict(task), action, params, checked)
         self.d.publish(tx.events)
         return S(repo.get_task(store, task["id"])["state"]) not in TERMINAL
+
+    def _remember(self, task, action, params) -> None:
+        """memory.save: where the words came from decides what it becomes (core/remember.py)."""
+        store, taskd = self.d.store, repo.task_dict(task)
+        _revision, config = repo.get_config(store)
+        verdict = remember.judge(params.text, self._own_words(task), tainted=bool(task["tainted"]),
+                                 auto_save=config.memory.auto_save)
+        with store.tx() as tx:
+            agent.update_action(tx, action["id"], E.STARTED, epoch=store.epoch)
+            if not config.memory.enabled or verdict.status == "refused":
+                why = "memory is off in Mei's Settings" if not config.memory.enabled else verdict.reason
+                ledger.finish_action(tx, taskd, action, E.FAILED, f"Not saved: {why}.", is_error=True, error=why)
+            else:
+                same = mem.find_same(tx, params.text)
+                if same is not None:
+                    saved = mem.memory_view(same)
+                else:
+                    saved = mem.add_memory(tx, params.text.strip(), provenance=verdict.provenance,
+                                           status=verdict.status, task_id=task["id"],
+                                           conversation_id=task["conversation_id"])
+                note = ("Already remembered." if same else "Saved." if saved["status"] == "active"
+                        else f"Kept for the person to review: {verdict.reason}.")
+                ledger.finish_action(tx, taskd, action, E.SUCCEEDED, note, is_error=False,
+                                     result={"ok": True, "summary": f"Remembered: {saved['text']}",
+                                             "memory_id": saved["id"], "memory_status": saved["status"]})
+        self.d.publish(tx.events)
 
     async def _execute(self, task, action, cap: Capability, params, flight: InFlight) -> None:
         store = self.d.store

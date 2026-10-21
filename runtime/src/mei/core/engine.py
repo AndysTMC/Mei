@@ -19,15 +19,18 @@ import msgspec
 from mei.capabilities.base import Env, backups_dir
 from mei.capabilities.registry import Registry
 from mei.core.states import TERMINAL, Disposition, Execution, TaskState
-from mei.protocol import (MAX_INPUT_CHARS, AnswerInputArgs, Config, ConversationCommandArgs, ProtocolError,
+from mei.protocol import (MAX_INPUT_CHARS, AnswerInputArgs, Config, ConversationCommandArgs, ForgetMemoryArgs,
+                          MemoriesArgs, ProtocolError, UpdateMemoryArgs,
                           ProviderConfig, ResolveApprovalArgs, RevokeGrantArgs, SubmitInputArgs, TaskCommandArgs,
                           UpdateConfigArgs, active_provider)
 from mei.policy.engine import Subject, rules_for
 from mei.providers.base import Provider
 from mei.store import agent, repo
+from mei.store import memory as mem
 from mei.store.db import Store, Tx, now_ms
 
-from . import finish, ledger, recovery
+from . import finish, ledger, recovery, remember
+from .memories import StoreMemory
 from .loop import MORE_CALLS, MORE_TIME_MS, Deps, TaskLoop
 from .streaming import Publisher, Streamer
 
@@ -46,6 +49,8 @@ class Engine:
         self._runners: dict[str, asyncio.Task] = {}
         self._shutting_down = False
         self.env = env or Env(home=Path.home(), data_dir=store.path.parent)
+        if self.env.memory is None:
+            self.env.memory = StoreMemory(store, self._publish)
         self.streamer = Streamer(store, lambda: self.publisher)
         self.loop = TaskLoop(Deps(store=store, publish=self._publish, streamer=self.streamer,
                                   make_provider=provider_factory, registry=registry or Registry([]), env=self.env,
@@ -62,6 +67,8 @@ class Engine:
 
     def recover(self) -> None:
         """Startup reconciliation (§15). Call once, before accepting commands."""
+        if mem.reindex(self.store):
+            log.warning("the search indexes disagreed with their tables and were rebuilt")
         with self.store.tx() as tx:
             to_start = recovery.reconcile(tx, self.store.epoch)
         self._publish(tx.events)
@@ -255,6 +262,50 @@ class Engine:
         else:
             ledger.finish_action(tx, task, action, E.ABANDONED, "Nobody knows whether this happened; don't assume "
                                  "it did. Check before relying on it.", is_error=True, disposition=Disposition.UNKNOWN)
+
+    # ── Memory (§17.7) ──────────────────────────────────────────────────────
+
+    def memories(self, args: MemoriesArgs) -> dict:
+        rows = mem.listed(self.store, status=args.status or None, text=args.query)
+        pending = self.store.read_one("SELECT count(*) AS n FROM memories WHERE status = 'pending_review'")["n"]
+        return {"memories": [mem.memory_view(r) for r in rows], "pending": pending}
+
+    def update_memory(self, args: UpdateMemoryArgs, *, from_shell: bool) -> dict:
+        patch = {k: v for k, v in msgspec.structs.asdict(args.patch).items() if v is not None}
+        if "text" in patch and (not patch["text"].strip() or remember.judge(
+                patch["text"], [patch["text"]], tainted=False, auto_save=True).status == "refused"):
+            raise ProtocolError("InvalidArgument", "a memory is one fact, without keys or tokens")
+
+        def apply(tx: Tx) -> tuple[dict, list[str]]:
+            row = mem.get_memory(tx, args.memory_id)
+            if row is None:
+                raise ProtocolError("NotFound", "no such memory")
+            fields = {**patch, "pinned": int(patch["pinned"])} if "pinned" in patch else dict(patch)
+            if "text" in fields:
+                fields["provenance"] = "user_stated"  # the person wrote it now
+            view = mem.update_memory(tx, args.memory_id, **fields) if fields else mem.memory_view(row)
+            return {"memory": view}, []
+
+        result = self._command("UpdateMemory", args, apply)
+        activated = patch.get("status") == "active" or "text" in patch
+        if activated and not from_shell and not result["duplicate"]:
+            # Settings can't be told apart from other programs (§13.7): a memory made active or
+            # rewritten outside the popup is announced, since it goes into every future prompt.
+            self._notify("Mei will now remember", result["memory"]["text"])
+        return result
+
+    def forget_memory(self, args: ForgetMemoryArgs) -> dict:
+        def apply(tx: Tx) -> tuple[dict, list[str]]:
+            if args.everything:
+                ids = [r["id"] for r in tx.execute("SELECT id FROM memories").fetchall()]
+                for memory_id in ids:
+                    mem.delete_memory(tx, memory_id)
+                return {"forgotten": len(ids)}, []
+            if not args.memory_id or not mem.delete_memory(tx, args.memory_id):
+                raise ProtocolError("NotFound", "no such memory")
+            return {"forgotten": 1}, []
+
+        return self._command("ForgetMemory", args, apply)
 
     def list_grants(self) -> dict:
         return {"grants": [agent.grant_view(g) for g in agent.persistent_grants(self.store)]}

@@ -8,7 +8,7 @@ import msgspec
 from mei.core.states import TERMINAL, TaskState, check_transition
 from mei.protocol import Config, Envelope, ProtocolError
 
-from . import agent
+from . import agent, memory
 from .db import Store, Tx, new_id, now_ms
 
 TITLE_CHARS = 60
@@ -177,6 +177,8 @@ def latest_turn(tx_or_store, task_id: str):
 
 
 def finished_event(tx: Tx, task: dict, *, draft: dict | None = None, outcome: dict | None = None) -> None:
+    if task["state"] in (TaskState.COMPLETED, TaskState.BLOCKED):
+        memory.write_episode(tx, task)
     payload = {"task_id": task["id"], "state": task["state"], "error": task["error"]}
     if draft is not None:
         payload["draft"] = draft
@@ -245,8 +247,11 @@ def conversation_snapshot(store: Store, conversation_id: str) -> dict:
             if turn is not None:
                 item["draft"] = {"text": turn["draft_text"], "thinking": turn["draft_thinking"]}
         snapshot_tasks.append(item)
+    remembered = [memory.memory_view(r) for r in store.read(
+        "SELECT * FROM memories WHERE source_conversation_id = ? ORDER BY created_at", (conversation_id,))]
     return {"conversation": conversation_dict(conv),
-            "messages": [m for m in history(store, conversation_id) if shown(m)], "tasks": snapshot_tasks}
+            "messages": [m for m in history(store, conversation_id) if shown(m)], "tasks": snapshot_tasks,
+            "memories": remembered}
 
 
 def events_after(store: Store, after_seq: int, scope: str) -> list[Envelope]:

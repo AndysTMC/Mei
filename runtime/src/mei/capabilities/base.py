@@ -35,7 +35,7 @@ LOCAL_UNDOABLE = Effects(mutates="local", undo="recorded")
 class Resource(msgspec.Struct, frozen=True, kw_only=True):
     """Something an action touches: an absolute path, an app id, or a `schema key` setting."""
 
-    kind: Literal["path", "app", "setting"]
+    kind: Literal["path", "app", "setting", "memory"]
     value: str
     access: Literal["read", "write"]
     role: str = ""  # which parameter it came from ("source", "destination"), for the approval card
@@ -43,7 +43,7 @@ class Resource(msgspec.Struct, frozen=True, kw_only=True):
     aliases: tuple[str, ...] = ()
 
 
-DataClass = Literal["none", "metadata", "file_content", "settings"]
+DataClass = Literal["none", "metadata", "file_content", "settings", "memory"]
 ErrorClass = Literal["", "invalid", "not_found", "exists", "permission", "unavailable", "failed", "timeout"]
 
 
@@ -119,6 +119,15 @@ class Volume(Protocol):
     async def set(self, percent: int, muted: bool) -> None: ...
 
 
+class MemoryPort(Protocol):
+    """Mei's memory and history, as the memory tools see them (store/memory.py behind it)."""
+
+    def search(self, text: str, limit: int) -> list[dict]: ...
+    def history(self, text: str, limit: int) -> list[dict]: ...
+    def get(self, memory_id: str) -> dict | None: ...
+    def archive(self, memory_id: str) -> dict | None: ...
+
+
 class Notifier(Protocol):
     async def notify(self, title: str, body: str) -> int: ...
 
@@ -140,6 +149,7 @@ class Env:
     notifier: Notifier | None = None
     extractor: TextExtractor | None = None
     volume: Volume | None = None
+    memory: MemoryPort | None = None
     clock: Callable[[], float] = time.time
 
     @cached_property
