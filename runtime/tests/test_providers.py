@@ -14,8 +14,7 @@ from mei.providers.gemini import GeminiProvider
 from mei.providers.ollama import OllamaProvider
 from mei.providers.openai_chat import OpenAIChatProvider
 from mei.providers.openai_normalize import StreamNormalizer, separate_glued_reasoning_blocks
-from mei.providers.profiles import PROFILES, credential_headers, opencode_api_mode, resolve, resolve_id
-from mei.providers.responses import ResponsesProvider
+from mei.providers.profiles import PROFILES, credential_headers, resolve, resolve_id
 
 REQ = ModelRequest([ChatTurn("system", "be brief"), ChatTurn("user", "hi"), ChatTurn("assistant", "hello"),
                     ChatTurn("user", "again")])
@@ -162,13 +161,13 @@ async def test_anthropic_stream_auth_and_body():
     assert req.headers["anthropic-version"] == "2023-06-01"
     body = json.loads(req.content)
     assert body["system"] == "be brief" and [m["role"] for m in body["messages"]] == ["user", "assistant", "user"]
-    assert body["thinking"] == {"type": "adaptive", "display": "summarized"} and body["max_tokens"] == 4096
+    assert body["thinking"] == {"type": "adaptive", "display": "summarized"} and body["max_tokens"] == 16384
 
 
 async def test_anthropic_no_thinking_on_older_models():
     seen: list = []
-    p = AnthropicProvider(mock(ANTHROPIC_STREAM, seen=seen), label="OpenCode", url="https://opencode.test/messages",
-                          model="qwen3-coder")
+    p = AnthropicProvider(mock(ANTHROPIC_STREAM, seen=seen), label="Anthropic", url="https://a.test/messages",
+                          model="claude-3-haiku")
     await collect(p)
     assert "thinking" not in json.loads(seen[0].content)
 
@@ -246,36 +245,6 @@ async def test_ollama_error_line_and_gpt_oss_think_level():
     assert json.loads(seen[0].content)["think"] == "medium"
 
 
-# ── Responses ────────────────────────────────────────────────────────────────
-
-
-async def test_responses_stream_store_false_and_developer_role():
-    body = sse({"type": "response.reasoning_summary_text.delta", "delta": "thinking…"},
-               {"type": "response.output_text.delta", "delta": "Answer"},
-               {"type": "response.completed", "response": {"usage": {"input_tokens": 3, "output_tokens": 1}}})
-    seen: list = []
-    p = ResponsesProvider(mock(body, seen=seen), label="OpenCode", url="https://o.test/responses", model="gpt-5")
-    events = await collect(p)
-    assert (text(events), thinking(events)) == ("Answer", "thinking…") and Usage(3, 1) in events
-    sent = json.loads(seen[0].content)
-    assert sent["store"] is False and sent["input"][0]["role"] == "developer"
-
-
-async def test_responses_failed_and_incomplete():
-    p = ResponsesProvider(mock(sse({"type": "response.failed", "response": {"error": {"message": "quota"}}})),
-                          label="O", url="https://o.test", model="m")
-    with pytest.raises(ProviderError, match="quota"):
-        await collect(p)
-    p = ResponsesProvider(mock(sse({"type": "response.output_text.delta", "delta": "Partial"},
-                                   {"type": "response.incomplete", "response": {"incomplete_details": {"reason": "max_output_tokens"}}})),
-                          label="O", url="https://o.test", model="m")
-    assert text(await collect(p)) == "Partial\n\n[Response incomplete: max_output_tokens.]"
-    p = ResponsesProvider(mock(sse({"type": "response.incomplete", "response": {"incomplete_details": {"reason": "content_filter"}}})),
-                          label="O", url="https://o.test", model="m")
-    with pytest.raises(ProviderError, match="content_filter"):
-        await collect(p)
-
-
 # ── Profiles and factory ─────────────────────────────────────────────────────
 
 
@@ -283,20 +252,6 @@ def test_profiles_match_the_extension_ids():
     assert set(PROFILES) == {"ollama", "llamacpp", "lmstudio", "openai", "anthropic", "gemini", "groq", "mistral",
                              "openrouter", "deepseek", "fireworks", "nvidia", "opencode", "githubcopilot", "custom"}
     assert resolve_id("OR") == "openrouter" and resolve_id("vllm") == "custom" and resolve_id("nope") is None
-
-
-@pytest.mark.parametrize("model,mode,api_mode,path", [
-    ("glm-5.3", "go", "chat_completions", "/zen/go/v1/chat/completions"),
-    ("opencode-go/qwen3.8-max", "go", "anthropic_messages", "/zen/go/v1/messages"),
-    ("minimax-m3", "go", "anthropic_messages", "/zen/go/v1/messages"),
-    ("claude-sonnet-4-6", "zen", "anthropic_messages", "/zen/v1/messages"),
-    ("gpt-5.6-luna", "zen", "responses", "/zen/v1/responses"),
-    ("big-pickle", "zen", "chat_completions", "/zen/v1/chat/completions"),
-])
-def test_opencode_routing(model, mode, api_mode, path):
-    r = resolve("opencode", model=model, mode=mode)
-    assert opencode_api_mode(model, mode) == api_mode == r.api_mode
-    assert r.url == "https://opencode.ai" + path and "/" not in r.model
 
 
 def test_url_override():
@@ -316,7 +271,7 @@ async def test_factory_picks_the_adapter(provider_id, model, cls):
         asked.append(pid)
         return "k"
 
-    p = await factory.build(ProviderConfig(id=provider_id, model=model, mode="go"), httpx.AsyncClient(), key_for)
+    p = await factory.build(ProviderConfig(id=provider_id, model=model), httpx.AsyncClient(), key_for)
     assert isinstance(p, factory.KeyScrubbing) and isinstance(p.inner, cls) and asked == [provider_id]
 
 
@@ -367,8 +322,6 @@ def test_each_provider_takes_its_key_in_its_own_header():
      sse({"candidates": [{"content": {"parts": [{"text": "Half"}]}}]})),
     (lambda c: OllamaProvider(c, label="T", url="http://o.test/api/chat", model="m"),
      b'{"message": {"content": "Half"}}\n'),
-    (lambda c: ResponsesProvider(c, label="T", url="https://r.test", model="m"),
-     sse({"type": "response.output_text.delta", "delta": "Half"})),
 ])
 async def test_a_stream_without_its_end_marker_is_cut_off_not_complete(make, body):
     events = []

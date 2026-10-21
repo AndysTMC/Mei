@@ -18,10 +18,9 @@ import msgspec
 from mei.obs import redact
 from mei.protocol import (MAX_INPUT_CHARS, ConversationCommandArgs, active_provider, Envelope, ProtocolError,
                           ProviderConfig, SubmitInputArgs, TaskCommandArgs, UpdateConfigArgs)
-from mei.providers.base import (Done, IncompleteResponse, ModelRequest, Provider, ProviderError, TextDelta,
-                                ThinkingDelta, Usage)
+from mei.providers.base import (ChatTurn, Done, IncompleteResponse, ModelRequest, Provider, ProviderError,
+                                TextDelta, ThinkingDelta, Usage)
 from mei.providers.factory import label_of
-from mei.providers.openai_chat import to_turns
 from mei.store import repo
 from mei.store.db import Store, Tx, iso_now, new_id, now_ms
 
@@ -273,7 +272,7 @@ class Engine:
                 provider = await self._make_provider(provider_cfg)
                 messages = repo.history(self.store, row["conversation_id"],
                                         up_to_ordinal=repo.message_ordinal(self.store, row["input_message_id"]))
-                request = ModelRequest(to_turns(messages))
+                request = ModelRequest([ChatTurn(m["role"], m["content"]) for m in messages])
                 async with asyncio.timeout(TURN_TIMEOUT_S):
                     for attempt in range(1, MAX_ATTEMPTS + 1):
                         try:

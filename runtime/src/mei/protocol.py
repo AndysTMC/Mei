@@ -101,7 +101,7 @@ class ProviderConfig(msgspec.Struct, kw_only=True):
     id: str = ""  # a provider profile id ("gemini", "openrouter", …), "fake", or "" for none
     model: str = ""
     url: str = ""  # optional override of the profile's endpoint
-    mode: str = ""  # OpenCode: "go" or "zen"
+    mode: str = ""  # unused since OpenCode was retired; kept so stored settings still decode
     thinking: str = ""  # DeepSeek: "enabled", "disabled", or "" for the provider default
     reasoning_effort: str = ""  # DeepSeek: "low", "high", "max"
     options: dict = msgspec.field(default_factory=dict)  # fake provider script (tests, offline work)

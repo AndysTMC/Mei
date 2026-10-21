@@ -1,15 +1,15 @@
 """Provider profiles: where each provider lives and how to talk to it.
 
 Port of src/providers/profiles.ts. The runtime resolves a user's provider settings (id, model,
-optional URL override, OpenCode mode) into a concrete endpoint, wire format, auth style and
-headers, so the extension only ever sends non-secret preferences.
+optional URL override) into a concrete endpoint, wire format, auth style and headers, so the
+extension only ever sends non-secret preferences.
 """
 
 from dataclasses import dataclass, field
 from typing import Literal
 
 Transport = Literal["openai", "anthropic", "gemini", "ollama", "llamacpp"]
-ApiMode = Literal["chat_completions", "responses", "anthropic_messages", "bedrock_converse"]
+ApiMode = Literal["chat_completions", "anthropic_messages"]
 Auth = Literal["none", "bearer", "api_key"]
 
 ATTRIBUTION = {"HTTP-Referer": "https://github.com/AndysTMC/Mei", "X-Title": "Mei"}
@@ -105,29 +105,6 @@ class Resolved:
     model: str
 
 
-def normalize_opencode_model(model: str) -> str:
-    return model.strip().split("/")[-1]
-
-
-def opencode_api_mode(model: str, mode: str) -> ApiMode:
-    m = normalize_opencode_model(model).lower()
-    zen = mode.strip().lower() == "zen"
-    if not m:
-        return "chat_completions"
-    if m.startswith(("gpt-", "grok-", "muse-spark")):
-        return "responses"
-    if zen and m.startswith(("claude-", "qwen")):
-        return "anthropic_messages"
-    if not zen and m.startswith(("minimax-", "qwen")):
-        return "anthropic_messages"
-    return "chat_completions"
-
-
-def resolve(provider_id: str, *, model: str, url: str = "", mode: str = "") -> Resolved:
+def resolve(provider_id: str, *, model: str, url: str = "") -> Resolved:
     profile = PROFILES[provider_id]
-    if provider_id == "opencode":
-        api_mode = opencode_api_mode(model, mode)
-        base = "https://opencode.ai/zen/v1" if mode.strip().lower() == "zen" else "https://opencode.ai/zen/go/v1"
-        path = {"responses": "/responses", "anthropic_messages": "/messages"}.get(api_mode, "/chat/completions")
-        return Resolved(profile, api_mode, base + path, normalize_opencode_model(model))
     return Resolved(profile, profile.api_mode, url.strip() or profile.chat_url, model.strip())

@@ -16,7 +16,6 @@ from .gemini import GeminiProvider
 from .ollama import OllamaProvider
 from .openai_chat import OpenAIChatProvider
 from .profiles import PROFILES, credential_headers, resolve
-from .responses import ResponsesProvider
 
 log = logging.getLogger("mei.providers")
 
@@ -49,25 +48,22 @@ async def build(cfg: ProviderConfig, client: httpx.AsyncClient, key_for: KeyLook
         raise ProviderError("No model provider is configured.")
     if not profile.selectable:
         raise ProviderError(profile.unavailable or f"{profile.label} is no longer available.")
-    r = resolve(cfg.id, model=cfg.model, url=cfg.url, mode=cfg.mode)
-    if r.api_mode == "bedrock_converse":
-        raise ProviderError(f"{profile.label} needs AWS authentication, which Mei doesn't support.")
+    r = resolve(cfg.id, model=cfg.model, url=cfg.url)
     key = await key_for(cfg.id)
     if profile.auth != "none" and not key:
         log.warning("no API key in the keyring for %s", cfg.id)
     label = profile.label
     headers = {**profile.headers, **credential_headers(profile, key)}
-    if r.api_mode == "responses":
-        adapter: Provider = ResponsesProvider(client, label=label, url=r.url, model=r.model, headers=headers)
-    elif r.api_mode == "anthropic_messages":
-        adapter = AnthropicProvider(client, label=label, url=r.url, model=r.model, headers=_without_version(headers))
+    if r.api_mode == "anthropic_messages":
+        adapter: Provider = AnthropicProvider(client, label=label, url=r.url, model=r.model, headers=_without_version(headers))
     elif profile.transport == "gemini":
         adapter = GeminiProvider(client, label=label, base_url=r.url, model=r.model, headers=headers)
     elif profile.transport == "ollama":
         adapter = OllamaProvider(client, label=label, url=r.url, model=r.model, headers=headers)
     else:
         extra = deepseek_body(r.model, cfg.thinking, cfg.reasoning_effort) if cfg.id == "deepseek" else {}
-        adapter = OpenAIChatProvider(client, label=label, url=r.url, model=r.model, headers=headers, extra_body=extra)
+        adapter = OpenAIChatProvider(client, label=label, url=r.url, model=r.model, headers=headers, extra_body=extra,
+                                     echo_reasoning=cfg.id == "deepseek")
     return KeyScrubbing(adapter, key) if key else adapter
 
 
