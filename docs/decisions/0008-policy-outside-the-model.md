@@ -4,7 +4,7 @@ Status: accepted
 Date: 2026-10-21
 Deciders: owner (delegated)
 Supersedes: —
-Superseded-by: —
+Superseded-by: 0010 (in part)
 
 ## Context
 

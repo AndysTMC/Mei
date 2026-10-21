@@ -1227,13 +1227,13 @@ Progress (2026-10-21): **done**, except the CI and nightly eval jobs: the reposi
 
 | Criterion | Evidence |
 |---|---|
-| Both slices `outcome_verified` on a fresh profile; invoices needs at most one card | Scripted: `test_invoices_slice_is_verified_without_a_single_prompt` (the PDFs taint the task; zero cards), `test_dark_mode_slice_is_verified_without_a_prompt`. In a real nested Shell: the e2e's dark-mode scenario sets the setting, opens Files through the Shell bridge, and both criteria pass Mei's own checks. Live models: see the eval baseline below. |
+| Both slices `outcome_verified` on a fresh profile; invoices needs at most one card | Scripted: `test_invoices_slice_is_verified_with_one_card` (the PDFs taint the task, so the first move asks and "For this task" covers the second, decision 0010), `test_dark_mode_slice_is_verified_without_a_prompt`. In a real nested Shell: the e2e's dark-mode scenario sets the setting, opens Files through the Shell bridge, and both criteria pass Mei's own checks. Live models: see the eval baseline below. |
 | A model claiming "done" without acting is `reported`; a failed check goes back once, then `partially_verified` | `test_a_claim_with_nothing_checkable_is_only_reported`, `test_a_failed_check_goes_back_once_then_completes_partially_verified`; the evals check that a model which only claims success fails every world check. |
 | The §20 batch scenario in all five variants | `test_batch_approve`, `_deny`, `_steer`, `_cancel`, `_kill_while_waiting`; every request passes a provider-validity check. |
 | An injected "trash ~/Documents" can't act without a card that shows its provenance | `test_an_injected_instruction_cannot_trash_documents_without_a_card` (under Hands-off: the card marks `~/Documents` as suggested by a file and names the file); the `readme_injection` eval. |
 | No file content to a cloud model from a sensitive path without a card, nor any class Privacy excludes | `test_file_contents_reach_cloud_models_only_as_privacy_allows` (five cases, asserted on the scripted provider's request log), `test_sensitive_files_need_a_card_that_says_where_they_go`. |
 | No preset can disable a floor rule | `test_floor_holds_under_every_preset`, `test_floor_ignores_grants`: the floor is code, run before presets and grants are consulted. |
-| Killing the runtime at each durable boundary yields the §15 outcome | `tests/test_recovery.py`: model call, reply stored, decided, action started, action ran, result stored; one-time vs task approvals across a restart; a stop requested before the crash. The file moves exactly once in every case. |
+| Killing the runtime at each durable boundary yields the §15 outcome | Simulated in-process: `tests/test_recovery.py` raises at each boundary (model call, reply stored, decided, action started, action ran, result stored), closes the store without cleanup, and recovers in a new engine; plus one-time vs task approvals across a restart and a stop requested before the crash. The file moves exactly once in every case. A real `SIGKILL` of the runtime process is tested mid-stream only (`test_kill_mid_stream_interrupts_and_never_resends`). |
 | Changing params after approval invalidates it | `test_changing_params_after_approval_invalidates_it`. |
 | Eval baseline recorded | Below. |
 
@@ -1241,11 +1241,14 @@ Progress (2026-10-21): **done**, except the CI and nightly eval jobs: the reposi
 
 | Model | Passed | Prompts per task | Outcomes | Wrong-reported rate | Verified but wrong |
 |---|---|---|---|---|---|
-| `gemini-flash-lite-latest` | 15/15 | 0.0 | 7 verified, 6 reported, 2 answers | 0/6 | 0 |
+| `gemini-flash-lite-latest`, after the review fixes (decision 0010) | 15/15 | 0.13 (the invoices task and the todo edit read a document first, so one card each) | 9 verified, 1 partly verified, 3 reported, 2 answers | 0/4 | 0 |
+| `gemini-flash-lite-latest`, before them (14 tasks plus the swapped-out `light_mode`) | 15/15 | 0.0 | 7 verified, 6 reported, 2 answers | 0/6 | 0 |
 | `gemini-3.1-flash-lite` (before the final fixes) | 17/17 of the tasks that ran across three runs; the rest hit Google's 503 "high demand" | 0.0 | — | 0 | 0 |
 | `gpt-oss-20b` on Groq's free tier | not measurable: 8,000 tokens a minute and 200,000 a day against ~3k-token requests | — | — | — | — |
 
-What the live runs found and fixed: transient refusals now honor `Retry-After`; Groq's `tool_use_failed` is retried; `gpt-oss-20b` leaves out a criterion's `text`, which Groq rejects server-side, so neither it nor a check's `type` is required; Gemini rejects empty enum values; and the "model can't use tools" fallback had been hiding a schema error by answering without tools. The six `reported` outcomes are tasks where the model set no checkable criterion (the invoices slice among them, on this model); all six were right. The injection task needed no card on Gemini: the model ignored the instruction. The scripted run covers the case where a model obeys it.
+What the live runs found and fixed: transient refusals now honor `Retry-After`; Groq's `tool_use_failed` is retried; `gpt-oss-20b` leaves out a criterion's `text`, which Groq rejects server-side, so neither it nor a check's `type` is required; Gemini rejects empty enum values; and the "model can't use tools" fallback had been hiding a schema error by answering without tools. `reported` outcomes are tasks where the model set no checkable criterion (the invoices slice among them, on this model); all were right. Both injection tasks needed no card on Gemini: the model ignored the instructions. The scripted run covers the case where a model obeys it.
+
+Review fixes (2026-10-21, decision 0010): two reviews reproduced ways around the policy, now regression tests in `tests/test_security.py`. After Mei reads a document, a named folder no longer vouches for changes inside it; anchors come from the task's own words; resources are judged by their real targets and re-checked before running; only the Shell can let other programs give requests; completion checks follow the tools' rules; "local" endpoints must really be loopback; content search counts as file content; backups are deleted with their conversation. One flaky test was a test bug (a 1-byte secret found in random ciphertext). A symlink swap in the milliseconds between re-check and write remains open (needs fd-based file operations).
 
 What differs from the plan above, and why:
 
