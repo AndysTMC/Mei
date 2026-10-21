@@ -381,3 +381,14 @@ async def test_loosening_approvals_or_cloud_sharing_is_announced(tmp_path):
     assert len(notes.shown) == 1
     title, body = notes.shown[0]
     assert title == "Mei now asks less" and "without asking" in body and "cloud models" in body
+
+
+def test_only_a_real_no_tools_answer_drops_the_tools():
+    from mei.core.streaming import _refuses_tools
+    from mei.providers.base import ProviderError
+    yes = ["Ollama: HTTP 400: registry.ollama.ai/library/gemma:2b does not support tools",
+           "X: HTTP 400: Function calling is not enabled for this model", "Y: HTTP 404: tool use is not supported"]
+    no = ["Gemini: HTTP 400: * GenerateContentRequest.tools[0].function_declarations[0].parameters: cannot be empty",
+          "Groq: HTTP 400: Tool call validation failed"]
+    assert all(_refuses_tools(ProviderError(m, status=400)) for m in yes)
+    assert not any(_refuses_tools(ProviderError(m, status=400)) for m in no)

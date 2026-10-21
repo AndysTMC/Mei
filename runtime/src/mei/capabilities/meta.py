@@ -16,7 +16,9 @@ CheckType = Literal["file_exists", "file_absent", "dir_contains", "setting_equal
 
 
 class CheckSpec(msgspec.Struct, kw_only=True, omit_defaults=True):
-    type: CheckType
+    # Optional in the schema on purpose: some providers reject a whole reply whose arguments miss a
+    # required field (the evals saw it). A check without a type is simply no check.
+    type: CheckType | None = None
     path: Annotated[str, msgspec.Meta(description="file_exists, file_absent, dir_contains: the path")] = ""
     glob: Annotated[str, msgspec.Meta(description="dir_contains: names to count, e.g. *.pdf")] = ""
     count: Annotated[int, msgspec.Meta(ge=-1, description="dir_contains: how many must match (-1: at least one)")] = -1
@@ -34,8 +36,16 @@ class Step(msgspec.Struct, kw_only=True):
 
 
 class Criterion(msgspec.Struct, kw_only=True, omit_defaults=True):
-    text: Annotated[str, msgspec.Meta(description="What must be true when the task is done")]
+    # Not required either, for the same reason: a criterion given only as a check is named after it.
+    text: Annotated[str, msgspec.Meta(description="What must be true when the task is done")] = ""
     check: CheckSpec | None = None
+
+    def named(self) -> str:
+        if self.text.strip() or self.check is None or self.check.type is None:
+            return self.text.strip()
+        c = self.check
+        target = c.path or (f"{c.schema} {c.key} = {c.value}" if c.key else "") or c.app_id or c.title
+        return f"{c.type.replace('_', ' ')}: {target}".strip()
 
 
 class PlanParams(msgspec.Struct, kw_only=True):

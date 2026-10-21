@@ -22,7 +22,7 @@ async def run_check(spec: CheckSpec, env: Env) -> CheckResult:
             return await _window(spec, env)
     except ValueError as e:
         return CheckResult(status="unverifiable", detail=str(e))
-    return CheckResult(status="unverifiable", detail=f"unknown check {spec.type}")
+    return CheckResult(status="unverifiable", detail=f"unknown check {spec.type or '(none)'}")
 
 
 def _path_check(spec: CheckSpec, env: Env) -> CheckResult:

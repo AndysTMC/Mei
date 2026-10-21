@@ -8,6 +8,7 @@ jittered backoff: nothing was produced, so asking again can't duplicate anything
 import asyncio
 import logging
 import random
+import re
 import time
 from collections.abc import Callable
 from contextlib import aclosing
@@ -154,6 +155,11 @@ class Streamer:
             stream.draft_len = size
 
 
+_NO_TOOLS = re.compile(r"(does not|doesn't|do not|not) support (tools|tool use|tool calling|function calling)"
+                       r"|(tools|tool use|function calling) (is|are) not (supported|enabled|available)", re.IGNORECASE)
+
+
 def _refuses_tools(e: ProviderError) -> bool:
-    """A model that can't use tools says so with a 400-class error that mentions them."""
-    return e.status in (400, 404, 422) and "tool" in e.message.lower()
+    """A model that can't use tools says so in a 400-class error. Only that: an error that merely
+    mentions tools (a schema the provider rejects) must surface, not quietly drop the tools."""
+    return e.status in (400, 404, 422) and _NO_TOOLS.search(e.message) is not None

@@ -30,8 +30,8 @@ NUDGE = ("You changed things in this task but didn't call task_finish. Call it n
 
 def save_plan(tx: Tx, task: dict, action, p: PlanParams) -> None:
     plan = {"steps": [msgspec.to_builtins(s) for s in p.steps],
-            "criteria": [{"text": c.text, "check": msgspec.to_builtins(c.check) if c.check else None,
-                          "status": "pending"} for c in p.criteria]}
+            "criteria": [{"text": c.named(), "check": msgspec.to_builtins(c.check) if c.check and c.check.type is not None else None,
+                          "status": "pending"} for c in p.criteria if c.named()]}
     agent.update_action(tx, action["id"], E.STARTED)
     agent.set_plan(tx, task["id"], plan)
     finish_action(tx, task, action, E.SUCCEEDED, "Plan saved.", is_error=False,

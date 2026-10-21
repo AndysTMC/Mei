@@ -384,3 +384,18 @@ async def test_a_message_sent_while_mei_checks_is_read_before_finishing(tmp_path
     turns = h.requests()[-1]["turns"]
     assert {"role": "user", "content": "also, it's for Monday"} in turns
     assert any(t["role"] == "tool" and "Not finished yet" in t["content"] for t in turns)
+
+
+async def test_criteria_given_only_as_checks_are_kept_and_named(tmp_path):
+    """Small models often leave out a criterion's text; some providers reject the whole reply when a
+    required field is missing, so the schema doesn't require it and Mei names it after its check."""
+    h = Harness(tmp_path, script=[
+        turn(call("plan_update", criteria=[{"check": {"type": "file_exists", "path": "~/Documents/a.txt"}},
+                                           {"check": {"path": "~/Documents/b.txt"}}])),
+        turn(call("fs_write_text", path="~/Documents/a.txt", text="hi")),
+        turn(call("task_finish", summary="Wrote a.txt."))])
+    r = h.submit("write a.txt in my Documents")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    plan = h.task(r["task_id"])["plan"]
+    assert [c["text"] for c in plan["criteria"]] == ["file exists: ~/Documents/a.txt"]
+    assert h.task(r["task_id"])["outcome"]["kind"] == "outcome_verified"

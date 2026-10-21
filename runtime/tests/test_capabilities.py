@@ -235,6 +235,8 @@ def test_every_schema_is_in_the_portable_subset(env):
             assert not {"$ref", "$defs", "title", "additionalProperties"} & set(node), (spec.name, node)
             if "enum" in node:
                 assert node["type"] in ("string", "integer", "number"), (spec.name, node)
+                assert "" not in node["enum"], (spec.name, node)  # Gemini rejects empty enum values
+            assert node.get("default", 0) is not None, (spec.name, node)
             if "anyOf" in node:
                 assert all(o.get("type") != "null" for o in node["anyOf"]), (spec.name, node)
     finish = next(s for s in specs if s.name == "plan_update").parameters
@@ -265,5 +267,5 @@ def test_portable_schema_flattens_optional_fields():
         a: str
         b: int | None = None
     schema = portable_schema(P)
-    assert schema["properties"]["b"] == {"type": "integer", "default": None} and schema["required"] == ["a"]
+    assert schema["properties"]["b"] == {"type": "integer"} and schema["required"] == ["a"]
     json.dumps(schema)

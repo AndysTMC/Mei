@@ -2,7 +2,8 @@
 
 Tool names on the wire use `_` for `.` (OpenAI and Anthropic allow only letters, digits, `_`, `-`).
 Parameter schemas are exported in the subset every provider accepts: no `$ref`, no `title`, no
-`additionalProperties`, optional fields as plain types, and enums with their type.
+`additionalProperties`, optional fields as plain types without a null default, and enums with their
+type (Gemini also rejects an empty string as an enum value).
 """
 
 import hashlib
@@ -81,9 +82,9 @@ def _portable(node: dict, defs: dict) -> dict:
     node = _resolve(node, defs)
     if "anyOf" in node:
         options = [o for o in node["anyOf"] if o.get("type") != "null"]
-        if len(options) == 1:  # Optional[X]: the field is simply not required
-            merged = {**_portable(options[0], defs), **{k: v for k, v in node.items() if k not in ("anyOf", *_DROP)}}
-            return merged
+        if len(options) == 1:  # Optional[X]: the field is simply not required (and has no null default)
+            rest = {k: v for k, v in node.items() if k not in ("anyOf", *_DROP) and not (k == "default" and v is None)}
+            return {**_portable(options[0], defs), **rest}
     out: dict = {}
     for key, value in node.items():
         if key in _DROP or key == "$defs":
