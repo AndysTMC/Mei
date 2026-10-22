@@ -23,13 +23,14 @@ from mei.desktop.notify import BusNotifier
 from mei.desktop.pdf import PdfToText
 from mei.desktop.media import Mpris
 from mei.desktop.sandbox import Sandbox
+from mei.desktop.screen import watch_lock
 from mei.desktop.system import SystemStatus
 from mei.desktop.sound import WPCTL, Wpctl
 from mei.ipc import dbus_patch
 from mei.ipc.service import RUNTIME_VERSION, RuntimeService
 from mei.obs import redact
 from mei.paths import cache_home, data_dir, data_home, user_dirs
-from mei.protocol import ProviderConfig, provider_config
+from mei.protocol import Envelope, ProviderConfig, provider_config
 from mei.providers import factory, models
 from mei.providers.base import ChatTurn, ModelRequest, Provider, ProviderError, TextDelta
 from mei.providers.factory import label_of
@@ -38,7 +39,9 @@ from mei.secrets import (KeyringLocked, KeyringUnavailable, keyring_state, looku
                          unlock_keyring)
 from mei.setup import Probes, Setup
 from mei.store import repo
-from mei.store.db import Store
+from mei.store.db import Store, iso_now, new_id
+from mei.voice import jail as voice_jail
+from mei.voice.controller import Fanout, VoiceController
 
 log = logging.getLogger("mei.app")
 
@@ -164,6 +167,24 @@ def desktop_env(bus: MessageBus, bridge: Callable) -> Env:
                media=Mpris(bus), status=SystemStatus(home))
 
 
+def voice_controller(engine: Engine, service_ref: Callable[[], RuntimeService | None]) -> VoiceController | None:
+    """Voice, where it can run: the local engine installed and bubblewrap for the worker's jail."""
+    if not voice_jail.engine_installed() or not voice_jail.available():
+        log.info("voice isn't available here (the voice engine or bubblewrap is missing)")
+        return None
+
+    def emit(kind: str, payload: dict) -> None:
+        service = service_ref()
+        if service is not None:
+            service.publish_ephemeral(Envelope(type=kind, event_id=new_id(), epoch=engine.store.epoch, at=iso_now(),
+                                               required=False, payload=payload))
+
+    def argv(settings, models: Path) -> list[str]:
+        return voice_jail.worker_argv(models, gpu=voice_jail.wants_gpu(settings.tts, settings.device))
+
+    return VoiceController(engine, emit, argv)
+
+
 async def retention_loop(engine: Engine) -> None:
     while True:
         try:
@@ -204,17 +225,24 @@ async def serve() -> int:
                         registry=default_registry(), env=env)
         make_provider = provider_factory(client, key_for)
         setup = Setup(store, setup_probes(bus), data_dir(), RUNTIME_VERSION)
+        voice = voice_controller(engine, lambda: holder[0] if holder else None)
         service = RuntimeService(bus, engine, list_models=model_lister(store, client, key_for), setup=setup,
-                                 test_provider=provider_tester(store, make_provider), notifier=env.notifier)
-        engine.publisher = service  # the service needs the engine and the engine publishes through it
+                                 test_provider=provider_tester(store, make_provider), notifier=env.notifier, voice=voice)
+        # The service needs the engine and the engine publishes through it (and through voice).
+        engine.publisher = Fanout(service, voice) if voice is not None else service
         holder.append(service)
         engine.recover()
         await service.start()
+        if voice is not None:
+            await voice.apply(repo.get_config(store)[1].voice)
+            await watch_lock(bus, voice.set_locked)
         retention = asyncio.ensure_future(retention_loop(engine))
         disconnected = asyncio.ensure_future(bus.wait_for_disconnect())
         stopped = asyncio.ensure_future(stop.wait())
         done, _ = await asyncio.wait({disconnected, stopped}, return_when=asyncio.FIRST_COMPLETED)
         retention.cancel()
+        if voice is not None:
+            await voice.stop()
         await engine.shutdown()
         if disconnected in done:
             disconnected.exception()  # retrieve it (EOFError from dbus-fast) so asyncio doesn't warn

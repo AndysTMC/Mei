@@ -79,8 +79,10 @@ def build(inputs: Inputs, task) -> ModelRequest:
     rows = store.read("SELECT * FROM messages WHERE conversation_id = ? ORDER BY ordinal", (task["conversation_id"],))
     input_ordinal = next(r["ordinal"] for r in rows if r["id"] == task["input_message_id"])
     actions = {a["id"]: a for a in store.read("SELECT * FROM actions WHERE task_id = ?", (task["id"],))}
+    spoken = any(r["id"] == task["input_message_id"] and json.loads(r["metadata"] or "{}").get("source") == "voice"
+                 for r in rows)
     turns = [ChatTurn("system", prompt.system_prompt(inputs.env, inputs.now, plan, memories=inputs.memories,
-                                                     episodes=inputs.episodes))]
+                                                     episodes=inputs.episodes, spoken=spoken))]
     turns += _earlier(store, [r for r in rows if r["ordinal"] < input_ordinal])
     turns += _current(inputs, task["id"], [r for r in rows if r["ordinal"] == input_ordinal or
                                (r["task_id"] == task["id"] and r["ordinal"] > input_ordinal)], actions)

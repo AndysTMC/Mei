@@ -3,6 +3,7 @@ the person's files, and of the runtime directory only PipeWire's socket. With th
 NVIDIA device nodes too (they reach the GPU, not the network or files).
 """
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -15,6 +16,19 @@ NVIDIA_DEVICES = ("/dev/nvidiactl", "/dev/nvidia0", "/dev/nvidia-uvm", "/dev/nvi
 
 def available() -> bool:
     return os.access(BWRAP, os.X_OK)
+
+
+def engine_installed() -> bool:
+    """Is the local voice engine (the optional `voice` extra) installed? Checked without importing it."""
+    return importlib.util.find_spec("sherpa_onnx") is not None
+
+
+def wants_gpu(tts: str, device: str) -> bool:
+    """Only Kokoro gains from a GPU (spike 0c); give the jail the GPU only when it may use one."""
+    if tts != "kokoro" or device == "cpu" or not os.path.exists("/dev/nvidiactl"):
+        return False
+    spec = importlib.util.find_spec("sherpa_onnx")
+    return bool(spec and spec.origin and (Path(spec.origin).parent / "lib" / "libonnxruntime_providers_cuda.so").exists())
 
 
 def worker_argv(models: Path, *, gpu: bool = False, readable: tuple[Path, ...] = (), writable: tuple[Path, ...] = ()) -> list[str]:

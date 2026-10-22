@@ -24,7 +24,7 @@ from mei.obs import RECENT
 from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, ForgetMemoryArgs,
                           GetLogsArgs, HelloArgs, ListModelsArgs, MemoriesArgs, ProtocolError, ResolveApprovalArgs,
                           RevokeGrantArgs, SetupApplyArgs, SubmitInputArgs, TaskCommandArgs, TestProviderArgs,
-                          UpdateConfigArgs, UpdateMemoryArgs, decode_args, encode)
+                          UpdateConfigArgs, UpdateMemoryArgs, VoiceListenArgs, decode_args, encode)
 from mei.providers.profiles import PROFILES
 from mei.setup import Setup
 from mei.store import repo
@@ -54,7 +54,7 @@ class RuntimeService:
                  setup: Setup | None = None,
                  test_provider: Callable[[str], Awaitable[dict]] | None = None,
                  is_shell: Callable[[str], Awaitable[bool]] | None = None,
-                 notifier: Notifier | None = None) -> None:
+                 notifier: Notifier | None = None, voice=None) -> None:
         self._bus = bus
         self._engine = engine
         self._is_shell = is_shell or shell_check(bus)
@@ -63,6 +63,7 @@ class RuntimeService:
         self._list_models = list_models
         self._setup = setup
         self._test_provider = test_provider
+        self._voice = voice  # VoiceController, or None where voice can't run
         self._store = engine.store
         self.clients: dict[str, Client] = {}
         self._kinds: dict[str, str] = {}
@@ -76,6 +77,7 @@ class RuntimeService:
             "TestProvider": self._test, "ResolveApproval": self._resolve_approval, "AnswerInput": self._answer_input,
             "ListGrants": self._list_grants, "RevokeGrant": self._revoke_grant,
             "Memories": self._memories, "UpdateMemory": self._update_memory, "ForgetMemory": self._forget_memory,
+            "VoiceListen": self._voice_listen, "VoiceStop": self._voice_stop, "VoiceStatus": self._voice_status,
         }
 
     async def start(self) -> None:
@@ -287,6 +289,27 @@ class RuntimeService:
             return
         self.bridge = ShellBridgeClient(self._bus, sender, path)
         log.info("the Shell bridge is attached")
+
+    # ── Voice (2.4) ──────────────────────────────────────────────────────────
+
+    async def _voice_listen(self, sender: str, data: str) -> dict:
+        args = decode_args(data, VoiceListenArgs)
+        await self._shell_only(sender, "listen")  # it opens the microphone, and what is said is a request
+        if self._voice is None:
+            raise ProtocolError("Unavailable", "voice isn't installed")
+        await self._voice.listen(args.conversation_id)
+        return {"state": self._voice.state}
+
+    async def _voice_stop(self, sender: str, _data: str) -> dict:
+        await self._shell_only(sender, "stop voice")
+        if self._voice is not None:
+            await self._voice.hush()
+        return {}
+
+    def _voice_status(self, _sender: str, _data: str) -> dict:
+        if self._voice is None:
+            return {"state": "unavailable", "note": "voice isn't installed"}
+        return {"state": self._voice.state, "note": self._voice.note}
 
     async def _shell_only(self, sender: str, what: str) -> None:
         if not await self._is_shell(sender):

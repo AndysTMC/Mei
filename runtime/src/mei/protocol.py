@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 import msgspec
 
 PROTOCOL_MAJOR = 2  # 2.0: the runtime owns all provider settings (Config.active + Config.providers)
-PROTOCOL_MINOR = 3  # 2.3: memory; 2.2: the agent loop (actions, approvals, questions, grants)
+PROTOCOL_MINOR = 4  # 2.4: voice; 2.3: memory; 2.2: the agent loop (actions, approvals, questions, grants)
 BUS_NAME = "com.andystmc.Mei1"
 EXTENSION_UUID = "mei@andystmc.com"  # the Shell extension this runtime pairs with
 OBJECT_PATH = "/com/andystmc/Mei1"
@@ -51,7 +51,7 @@ DURABLE_EVENTS = frozenset({
     "memory.updated",
     "memory.deleted",
 })
-EPHEMERAL_EVENTS = frozenset({"message.delta", "runtime.notice"})
+EPHEMERAL_EVENTS = frozenset({"message.delta", "runtime.notice", "voice.state", "voice.partial"})
 
 
 class Envelope(msgspec.Struct, kw_only=True):
@@ -111,6 +111,7 @@ class SubmitInputArgs(msgspec.Struct):
     text: str
     conversation_id: str | None = None
     attachment: Attachment | None = None  # 2.3
+    source: Literal["text", "voice"] = "text"  # 2.4: spoken (the reply is spoken back, kept short)
 
 
 class TaskCommandArgs(msgspec.Struct):
@@ -216,6 +217,26 @@ class MemorySettings(msgspec.Struct, kw_only=True):
     auto_save: bool = True  # save facts Mei infers, not only what the person asks it to remember (§17.4)
 
 
+class VoiceSettings(msgspec.Struct, kw_only=True):
+    # Voice (§11, decision 0017). Off until the person turns it on in setup or Settings.
+    enabled: bool = False
+    speak_replies: bool = True  # answer out loud when spoken to
+    tts: Literal["piper", "kokoro"] = "piper"  # Piper starts at once; Kokoro sounds more natural, slower on a CPU
+    voice: str = "amy"  # Piper voice
+    kokoro_speaker: int = 0
+    speed: Annotated[float, msgspec.Meta(ge=0.5, le=2.0)] = 1.0
+    device: Literal["auto", "cpu", "gpu"] = "auto"  # for Kokoro: the GPU when one works
+    barge_in: bool = False  # interrupt by talking over Mei: reliable with earphones only (spike 0c)
+    wake_word: bool = False  # "Hey Mei": off by default, it misses the latency target (decision 0017)
+    end_silence_ms: Annotated[int, msgspec.Meta(ge=300, le=2000)] = 500
+    mic: str = ""  # a PipeWire node name; "" follows the system default
+    output: str = ""
+
+
+class VoiceListenArgs(msgspec.Struct):
+    conversation_id: str | None = None  # the conversation the popup shows; None starts a new one
+
+
 class Config(msgspec.Struct, kw_only=True):
     active: str = ""  # provider id used for new tasks
     providers: dict[str, ProviderSettings] = msgspec.field(default_factory=dict)
@@ -223,6 +244,7 @@ class Config(msgspec.Struct, kw_only=True):
     approvals: Approvals = msgspec.field(default_factory=Approvals)
     clients: Clients = msgspec.field(default_factory=Clients)
     memory: MemorySettings = msgspec.field(default_factory=MemorySettings)
+    voice: VoiceSettings = msgspec.field(default_factory=VoiceSettings)
 
 
 def active_provider(config: Config) -> ProviderConfig:

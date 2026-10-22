@@ -98,6 +98,7 @@ class Engine:
             raise ProtocolError("Unsupported", "no model provider is configured")
 
         attached = _attached(args.attachment)
+        metadata = {**(attached or {}), **({"source": "voice"} if args.source == "voice" else {})} or None
 
         def apply(tx: Tx) -> tuple[dict, list[str]]:
             if args.conversation_id is None:
@@ -108,10 +109,10 @@ class Engine:
                 conversation_id = args.conversation_id
                 active = repo.blocking_task(tx, conversation_id)
                 if active is not None:
-                    return self._steer(tx, active, text, attached)
+                    return self._steer(tx, active, text, attached, metadata)
                 for old in repo.interrupted_tasks(tx, conversation_id):  # superseded by the new message
                     ledger.cancel_now(tx, old["id"], error="replaced by a new message")
-            message = repo.add_message(tx, conversation_id, "user", text, metadata=attached)
+            message = repo.add_message(tx, conversation_id, "user", text, metadata=metadata)
             task = repo.create_task(tx, conversation_id, message["id"], msgspec.to_builtins(provider))
             if attached:
                 _taint(tx, task["id"])
@@ -121,13 +122,13 @@ class Engine:
 
         return self._command("SubmitInput", args, apply)
 
-    def _steer(self, tx: Tx, active, text: str, attached: dict | None) -> tuple[dict, list[str]]:
+    def _steer(self, tx: Tx, active, text: str, attached: dict | None, metadata: dict | None) -> tuple[dict, list[str]]:
         """New input while a task runs joins that task (§8.1). Unstarted actions are skipped and a
         pending approval or question is superseded; the model then reads the new message."""
         state = S(active["state"])
         if state == S.CANCEL_REQUESTED:
             raise ProtocolError("Busy", "Mei is stopping the current task")
-        message = repo.add_message(tx, active["conversation_id"], "user", text, task_id=active["id"], metadata=attached)
+        message = repo.add_message(tx, active["conversation_id"], "user", text, task_id=active["id"], metadata=metadata)
         if attached:
             _taint(tx, active["id"])
         result = {"conversation_id": active["conversation_id"], "task_id": active["id"], "message_id": message["id"],

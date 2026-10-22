@@ -77,7 +77,13 @@ def remembered(memories: list[dict], episodes: list[dict]) -> str:
     return "\n".join(lines)
 
 
+VOICE = """The person is talking to you by voice and hears your answer spoken aloud. Answer like a \
+person would out loud: one or two short sentences in plain words, no lists, tables, headings, code, \
+or links. If the full answer is long, say the gist and offer the details on screen."""
+
+
 def system_prompt(env: Env, now: datetime.datetime, plan: dict, *, memories: list[dict] = (),
-                  episodes: list[dict] = ()) -> str:
-    parts = [RULES, session_facts(env, now), remembered(list(memories), list(episodes)), working_state(plan)]
+                  episodes: list[dict] = (), spoken: bool = False) -> str:
+    parts = [RULES, VOICE if spoken else "", session_facts(env, now), remembered(list(memories), list(episodes)),
+             working_state(plan)]
     return "\n\n".join(p for p in parts if p)
