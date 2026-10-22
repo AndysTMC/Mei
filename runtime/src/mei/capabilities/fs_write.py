@@ -3,13 +3,14 @@
 Nothing here destroys data: overwritten files are backed up first, moves never replace an
 existing file, and deleting means the freedesktop trash. Each action keeps an undo record, so its
 effects are `local` with `undo=recorded`, and each can check its own postcondition and, after a
-crash mid-run, probe whether it happened.
+crash mid-run, probe whether it happened. Every change goes through the folders policy judged,
+held open, so a link swapped in after the check can't send it elsewhere (fs_at.py).
 """
 
 import datetime
 import hashlib
 import os
-import shutil
+import stat
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote, unquote
@@ -20,6 +21,7 @@ from mei.core.states import Disposition
 
 from .base import (LOCAL_UNDOABLE, ActionContext, ActionResult, Capability, CapabilityError, CheckResult, Effects,
                    Env, Resource)
+from .fs_at import backup, entry, folder, judged_path, move_at, open_file, rename_noreplace, temp_name, write_atomic
 from .fs_read import resolve_existing
 
 MAX_WRITE_CHARS = 1_000_000
@@ -40,37 +42,8 @@ def write_resource(env: Env, value: str, role: str) -> list[Resource]:
     return [Resource(kind="path", value=str(target(env, value)), access="write", role=role)]
 
 
-def make_dirs(folder: Path) -> list[str]:
-    """Create `folder` and any missing folders above it; returns those created, outermost first (for undo)."""
-    missing = []
-    while not folder.exists():
-        missing.append(folder)
-        folder = folder.parent
-    for created in reversed(missing):
-        created.mkdir()
-    return [str(f) for f in reversed(missing)]
-
-
-def atomic_write(path: Path, data: bytes, action_id: str) -> None:
-    temp = path.with_name(f".mei-tmp-{action_id}")
-    with open(temp, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    if path.exists():
-        shutil.copymode(path, temp)
-    os.replace(temp, path)
-
-
-def backup(ctx: ActionContext, path: Path) -> str:
-    ctx.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    copy = ctx.backup_dir / path.name
-    shutil.copy2(path, copy)
-    return str(copy)
-
-
 def _clean_temp(path: Path, action_id: str) -> None:
-    path.with_name(f".mei-tmp-{action_id}").unlink(missing_ok=True)
+    path.with_name(temp_name(action_id)).unlink(missing_ok=True)
 
 
 # ── fs.write_text ───────────────────────────────────────────────────────────
@@ -99,16 +72,26 @@ class FsWriteText(Capability):
 
     async def run(self, p: WriteParams, ctx: ActionContext) -> ActionResult:
         env = ctx.env
-        path = target(env, p.path)
-        if path.is_dir():
-            raise CapabilityError("invalid", f"{env.show(path)} is a folder")
-        saved = None
-        if path.exists():
-            if not p.overwrite:
-                raise CapabilityError("exists", f"{env.show(path)} already exists; set overwrite to replace it")
-            saved = backup(ctx, path)
-        created = make_dirs(path.parent)
-        atomic_write(path, p.text.encode(), ctx.action_id)
+        path = judged_path(ctx, "path", target(env, p.path))
+        exists = CapabilityError("exists", f"{env.show(path)} already exists; set overwrite to replace it")
+        with folder(env, path.parent, create=True) as parent:
+            st = entry(parent.fd, path.name)
+            if st is not None and stat.S_ISDIR(st.st_mode):
+                raise CapabilityError("invalid", f"{env.show(path)} is a folder")
+            saved = None
+            if st is not None:
+                if not p.overwrite:
+                    raise exists
+                file_fd = open_file(env, parent.fd, path.name, path)
+                try:
+                    saved = backup(ctx, file_fd, path.name)
+                finally:
+                    os.close(file_fd)
+            try:
+                write_atomic(parent.fd, path.name, p.text.encode(), ctx.action_id, replace=st is not None, mode_of=st)
+            except FileExistsError:
+                raise exists from None  # made meanwhile: still never replaced without asking
+            created = parent.created
         verb = "Replaced" if saved else "Created"
         return ActionResult(ok=True, observation=f"{verb} {env.show(path)} ({len(p.text)} characters)",
                             summary=f"{verb} {env.show(path)}",
@@ -153,14 +136,19 @@ class FsEdit(Capability):
 
     async def run(self, p: EditParams, ctx: ActionContext) -> ActionResult:
         env = ctx.env
-        path = resolve_existing(env, p.path, want_dir=False)
-        text = path.read_text(encoding="utf-8")
-        found = text.count(p.old)
-        if found != p.count:
-            raise CapabilityError("invalid", f"the text occurs {found} time{'s' if found != 1 else ''} in "
-                                             f"{env.show(path)}, not {p.count}")
-        saved = backup(ctx, path)
-        atomic_write(path, text.replace(p.old, p.new).encode(), ctx.action_id)
+        path = judged_path(ctx, "path", resolve_existing(env, p.path, want_dir=False))
+        with folder(env, path.parent) as parent:
+            file_fd = open_file(env, parent.fd, path.name, path)
+            with os.fdopen(file_fd, "rb") as f:
+                text = f.read().decode("utf-8")
+                found = text.count(p.old)
+                if found != p.count:
+                    raise CapabilityError("invalid", f"the text occurs {found} time{'s' if found != 1 else ''} in "
+                                                     f"{env.show(path)}, not {p.count}")
+                saved = backup(ctx, f.fileno(), path.name)  # exactly what was read, for undo
+                mode = os.fstat(f.fileno())
+            write_atomic(parent.fd, path.name, text.replace(p.old, p.new).encode(), ctx.action_id, replace=True,
+                         mode_of=mode)
         return ActionResult(ok=True, observation=f"Edited {env.show(path)} ({found} replacement{'s' if found != 1 else ''})",
                             summary=f"Edited {env.show(path)}", undo={"kind": "edit", "path": str(path), "backup": saved})
 
@@ -220,16 +208,24 @@ class FsMove(Capability):
 
     async def run(self, p: MoveParams, ctx: ActionContext) -> ActionResult:
         env = ctx.env
-        source = resolve_existing(env, p.source)
-        _source, dest = self._paths(p, env)
+        source = judged_path(ctx, "source", resolve_existing(env, p.source), follow=False)
+        dest = judged_path(ctx, "destination", self._paths(p, env)[1])
         if dest == source:
             raise CapabilityError("invalid", f"{env.show(source)} is already there")
+        exists = CapabilityError("exists", f"{env.show(dest)} already exists; choose another name")
         if dest.exists() or dest.is_symlink():
-            raise CapabilityError("exists", f"{env.show(dest)} already exists; choose another name")
+            raise exists
         if source in dest.parents:
             raise CapabilityError("invalid", "a folder can't be moved into itself")
-        created = make_dirs(dest.parent)
-        shutil.move(str(source), str(dest))
+        with folder(env, source.parent) as src:
+            if entry(src.fd, source.name) is None:
+                raise CapabilityError("not_found", f"{env.show(source)} doesn't exist")
+            with folder(env, dest.parent, create=True) as dst:
+                try:
+                    move_at(src, source.name, dst, dest.name)
+                except FileExistsError:
+                    raise exists from None
+                created = dst.created
         return ActionResult(ok=True, observation=f"Moved {env.show(source)} to {env.show(dest)}",
                             summary=f"Moved {source.name} to {env.show(dest.parent)}",
                             undo={"kind": "move", "from": str(dest), "to": str(source), "created_dirs": created})
@@ -275,13 +271,14 @@ class FsMakeDir(Capability):
 
     async def run(self, p: MakeDirParams, ctx: ActionContext) -> ActionResult:
         env = ctx.env
-        path = target(env, p.path)
-        if path.exists():
-            if not path.is_dir():
-                raise CapabilityError("exists", f"{env.show(path)} exists and is not a folder")
+        path = judged_path(ctx, "path", target(env, p.path))
+        if path.exists() and not path.is_dir():
+            raise CapabilityError("exists", f"{env.show(path)} exists and is not a folder")
+        with folder(env, path, create=True) as made:
+            created = made.created
+        if not created:
             return ActionResult(ok=True, observation=f"{env.show(path)} already exists", summary=f"{env.show(path)} exists",
                                 undo={"kind": "make_dir", "created": []})
-        created = make_dirs(path)
         return ActionResult(ok=True, observation=f"Created {env.show(path)}", summary=f"Created {env.show(path)}",
                             undo={"kind": "make_dir", "created": created})
 
@@ -312,7 +309,7 @@ class FsTrash(Capability):
 
     async def run(self, p: TrashParams, ctx: ActionContext) -> ActionResult:
         env = ctx.env
-        path = resolve_existing(env, p.path)
+        path = judged_path(ctx, "path", resolve_existing(env, p.path), follow=False)
         trashed, info = trash(env, path)
         return ActionResult(ok=True, observation=f"Moved {env.show(path)} to the trash",
                             summary=f"Trashed {path.name}",
@@ -332,32 +329,38 @@ class FsTrash(Capability):
 
 
 def trash(env: Env, path: Path) -> tuple[Path, Path]:
-    """Move `path` into the home trash (freedesktop Trash spec 1.0) and return (file, info)."""
-    files, info = env.trash_dir / "files", env.trash_dir / "info"
-    for folder in (env.trash_dir, files, info):
-        folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if os.lstat(path).st_dev != os.stat(files).st_dev:
-        raise CapabilityError("unavailable", f"{env.show(path)} is on another drive; Mei can only trash files on "
-                                             "the drive that holds your home folder")
+    """Move `path` (judged, without links) into the home trash (freedesktop Trash spec 1.0) and
+    return (file, info). The item, the trash's `files`, and its `info` are each reached through a
+    held folder."""
+    root = Path(os.path.realpath(env.trash_dir))
     stamp = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    for n in range(1, 10_000):
-        name = path.name if n == 1 else _numbered(path.name, n)
-        info_path = info / f"{name}.trashinfo"
-        try:
-            fd = os.open(info_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
-            continue
-        with os.fdopen(fd, "w") as f:
-            f.write(f"[Trash Info]\nPath={quote(str(path))}\nDeletionDate={stamp}\n")
-        if (files / name).exists():
-            info_path.unlink()
-            continue
-        try:
-            os.rename(path, files / name)
-        except OSError:
-            info_path.unlink()
-            raise
-        return files / name, info_path
+    with folder(env, path.parent) as src, folder(env, root / "files", create=True, mode=0o700) as files, \
+            folder(env, root / "info", create=True, mode=0o700) as info:
+        item = entry(src.fd, path.name)
+        if item is None:
+            raise CapabilityError("not_found", f"{env.show(path)} doesn't exist")
+        if item.st_dev != os.fstat(files.fd).st_dev:
+            raise CapabilityError("unavailable", f"{env.show(path)} is on another drive; Mei can only trash files on "
+                                                 "the drive that holds your home folder")
+        for n in range(1, 10_000):
+            name = path.name if n == 1 else _numbered(path.name, n)
+            record = f"{name}.trashinfo"
+            try:
+                fd = os.open(record, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
+                             dir_fd=info.fd)
+            except FileExistsError:
+                continue
+            with os.fdopen(fd, "w") as f:
+                f.write(f"[Trash Info]\nPath={quote(str(path))}\nDeletionDate={stamp}\n")
+            try:
+                rename_noreplace(src.fd, path.name, files.fd, name)
+            except FileExistsError:
+                os.unlink(record, dir_fd=info.fd)
+                continue
+            except OSError:
+                os.unlink(record, dir_fd=info.fd)
+                raise
+            return root / "files" / name, root / "info" / record
     raise CapabilityError("failed", "couldn't find a free name in the trash")
 
 

@@ -1248,7 +1248,7 @@ Progress (2026-10-21): **done**, except the CI and nightly eval jobs: the reposi
 
 What the live runs found and fixed: transient refusals now honor `Retry-After`; Groq's `tool_use_failed` is retried; `gpt-oss-20b` leaves out a criterion's `text`, which Groq rejects server-side, so neither it nor a check's `type` is required; Gemini rejects empty enum values; and the "model can't use tools" fallback had been hiding a schema error by answering without tools. `reported` outcomes are tasks where the model set no checkable criterion (the invoices slice among them, on this model); all were right. Both injection tasks needed no card on Gemini: the model ignored the instructions. The scripted run covers the case where a model obeys it.
 
-Review fixes (2026-10-21, decision 0010): two reviews reproduced ways around the policy, now regression tests in `tests/test_security.py`. After Mei reads a document, a named folder no longer vouches for changes inside it; anchors come from the task's own words; resources are judged by their real targets and re-checked before running; only the Shell can let other programs give requests; completion checks follow the tools' rules; "local" endpoints must really be loopback; content search counts as file content; backups are deleted with their conversation. One flaky test was a test bug (a 1-byte secret found in random ciphertext). A symlink swap in the milliseconds between re-check and write remains open (needs fd-based file operations).
+Review fixes (2026-10-21, decision 0010): two reviews reproduced ways around the policy, now regression tests in `tests/test_security.py`. After Mei reads a document, a named folder no longer vouches for changes inside it; anchors come from the task's own words; resources are judged by their real targets and re-checked before running; only the Shell can let other programs give requests; completion checks follow the tools' rules; "local" endpoints must really be loopback; content search counts as file content; backups are deleted with their conversation. One flaky test was a test bug (a 1-byte secret found in random ciphertext). A symlink swap in the milliseconds between re-check and write remained open; decision 0014 (2026-10-22) closed it for file changes.
 
 What differs from the plan above, and why:
 
@@ -1300,7 +1300,8 @@ What differs from the plan above, and why:
 - **Background tasks are interactive tasks the person isn't watching**, not a separate mode: the same approvals and grants apply, and what changes is how Mei tells them (0013). A quick answer still reopens the popup; anything longer notifies.
 - **Memory "toast + Undo"** is a card in the conversation ("Remembered … Undo"), next to what the task did, rather than a transient toast.
 - **"Ask about this" starts a new chat**, so the attachment never steers a task already running in the current one.
-- Not done: a summary line in the notification for tasks that end without a checked outcome (it names the conversation), and fd-based file operations for the symlink race noted in 0010.
+- Not done: a summary line in the notification for tasks that end without a checked outcome (it names the conversation).
+- After Stage 4 (2026-10-22, decision 0014): file changes go through the folders policy judged, held open, closing the symlink race 0010 left open. Reads and the sandbox's folder binds still go by path.
 
 - `shell.run` with bwrap and scopes; bounded head/tail output with artifact spill; `shell.run_host` with per-command approval.
 - ShellBridge: windows, clipboard, idle; MPRIS; `system.status`; "Ask about this" shortcut (§18.4).

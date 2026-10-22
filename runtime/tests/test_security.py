@@ -221,3 +221,182 @@ async def test_declining_the_read_keeps_the_contents_on_this_computer(tmp_path):
     h.approve(r["task_id"], decision="deny")
     assert await h.until(r["task_id"]) == S.COMPLETED
     assert all("LYRICS-77" not in t["content"] for req in h.requests() for t in req["turns"])
+
+
+# ── A link swapped in after the re-check (decision 0014) ────────────────────
+#
+# Policy judges where a path really leads and checks again just before the run. These swap a
+# folder on the way for a link to somewhere outside right after that last check: the action must
+# fail as "changed", and nothing outside may change.
+
+SWAPS = {
+    "write": (call("fs_write_text", path="~/Documents/proj/notes.txt", text="x"),
+              "write x into ~/Documents/proj/notes.txt", lambda out: not (out / "notes.txt").exists()),
+    "edit": (call("fs_edit", path="~/Documents/proj/todo.txt", old="milk", new="oat milk"),
+             "in ~/Documents/proj/todo.txt change milk to oat milk", lambda out: (out / "todo.txt").read_text() == "milk"),
+    "move": (call("fs_move", source="~/Downloads/a.txt", destination="~/Documents/proj/"),
+             "move ~/Downloads/a.txt into ~/Documents/proj", lambda out: not (out / "a.txt").exists()),
+    "trash": (call("fs_trash", path="~/Documents/proj/old.txt"),
+              "trash ~/Documents/proj/old.txt", lambda out: (out / "old.txt").read_text() == "outside"),
+    "make_dir": (call("fs_make_dir", path="~/Documents/proj/new"),
+                 "create the folder ~/Documents/proj/new", lambda out: not (out / "new").exists()),
+}
+
+
+def _swap_world(h: Harness, tmp_path):
+    put(h.env, "~/Documents/proj/todo.txt", "milk")
+    put(h.env, "~/Documents/proj/old.txt", "inside")
+    put(h.env, "~/Downloads/a.txt", "a")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "todo.txt").write_text("milk")
+    (outside / "old.txt").write_text("outside")
+    proj = h.env.path("~/Documents/proj")
+
+    def swap() -> None:
+        proj.rename(proj.with_name("proj-real"))
+        proj.symlink_to(outside)
+    return outside, swap
+
+
+@pytest.mark.parametrize("case", list(SWAPS))
+async def test_a_link_swapped_in_after_the_recheck_changes_nothing_outside(tmp_path, monkeypatch, case):
+    from mei.core.loop import TaskLoop
+    tool_call, request, untouched = SWAPS[case]
+    h = Harness(tmp_path, script=[turn(tool_call), {"text": "Done."}])
+    outside, swap = _swap_world(h, tmp_path)
+    recheck = TaskLoop._recheck
+
+    async def recheck_then_swap(self, task, action):
+        ok = await recheck(self, task, action)
+        swap()  # after the last check, before the run
+        return ok
+    monkeypatch.setattr(TaskLoop, "_recheck", recheck_then_swap)
+    r = h.submit(request)
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    [action] = h.actions(r["task_id"])
+    assert action["execution"] == E.FAILED and json.loads(action["result"])["error_class"] == "changed"
+    assert untouched(outside)
+    assert h.env.path("~/Downloads/a.txt").exists()
+
+
+async def test_a_swap_between_the_runs_own_check_and_its_walk_is_caught_too(tmp_path, monkeypatch):
+    """The run's path still matched what was judged, then a folder became a link: the walk refuses it."""
+    import mei.capabilities.fs_write as fs_write
+    h = Harness(tmp_path, script=[turn(SWAPS["write"][0]), {"text": "Done."}])
+    outside, swap = _swap_world(h, tmp_path)
+    judged = fs_write.judged_path
+
+    def judged_then_swap(ctx, role, given):
+        path = judged(ctx, role, given)
+        swap()
+        return path
+    monkeypatch.setattr(fs_write, "judged_path", judged_then_swap)
+    r = h.submit(SWAPS["write"][1])
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    [action] = h.actions(r["task_id"])
+    assert json.loads(action["result"])["error_class"] == "changed"
+    assert not (outside / "notes.txt").exists() and not h.env.path("~/Documents/proj-real/notes.txt").exists()
+
+
+async def test_without_a_swap_the_same_requests_still_work(tmp_path):
+    for case, (tool_call, request, _untouched) in SWAPS.items():
+        h = Harness(tmp_path / case, script=[turn(tool_call), {"text": "Done."}])
+        _swap_world(h, tmp_path / case)
+        r = h.submit(request)
+        assert await h.until(r["task_id"]) == S.COMPLETED
+        [action] = h.actions(r["task_id"])
+        assert action["execution"] == E.SUCCEEDED, (case, action["error"])
+
+
+def test_the_walk_refuses_a_link_anywhere_on_the_way(tmp_path):
+    from mei.capabilities.base import CapabilityError
+    from mei.capabilities.fs_at import folder
+    from agent_harness import make_world
+    env = make_world(tmp_path)
+    (tmp_path / "real" / "deep").mkdir(parents=True)
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    (tmp_path / "file").write_text("x")
+    with folder(env, tmp_path / "real" / "deep") as held:
+        assert held.created == []
+    for path, error in ((tmp_path / "link" / "deep", "changed"), (tmp_path / "link", "changed"),
+                        (tmp_path / "file" / "x", "invalid"), (tmp_path / "missing", "not_found")):
+        with pytest.raises(CapabilityError) as err:
+            with folder(env, path):
+                pass
+        assert err.value.error_class == error, path
+    with pytest.raises(CapabilityError):  # creating doesn't go through a link either
+        with folder(env, tmp_path / "link" / "new", create=True):
+            pass
+    assert not (tmp_path / "real" / "new").exists()
+    with folder(env, tmp_path / "a" / "b", create=True) as made:
+        assert made.created == [str(tmp_path / "a"), str(tmp_path / "a" / "b")]
+
+
+@pytest.mark.parametrize("native", [True, False])
+def test_renames_never_replace(tmp_path, monkeypatch, native):
+    import os
+    from mei.capabilities import fs_at
+    if not native:
+        monkeypatch.setattr(fs_at, "_renameat2", None)  # a libc without renameat2: checked, then renamed
+    (tmp_path / "a").write_text("a")
+    (tmp_path / "b").write_text("b")
+    fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(FileExistsError):
+            fs_at.rename_noreplace(fd, "a", fd, "b")
+        fs_at.rename_noreplace(fd, "a", fd, "c")
+    finally:
+        os.close(fd)
+    assert (tmp_path / "b").read_text() == "b" and (tmp_path / "c").read_text() == "a" and not (tmp_path / "a").exists()
+
+
+def test_a_move_across_drives_goes_through_the_held_folders(tmp_path, monkeypatch):
+    import errno
+    from mei.capabilities import fs_at
+    from agent_harness import make_world
+    env = make_world(tmp_path)
+    (tmp_path / "src" / "tree").mkdir(parents=True)
+    (tmp_path / "src" / "tree" / "f.txt").write_text("tree")
+    (tmp_path / "src" / "one.txt").write_text("one")
+    (tmp_path / "dst").mkdir()
+    (tmp_path / "outside").mkdir()
+
+    def cross_device(*_args):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+    monkeypatch.setattr(fs_at, "rename_noreplace", cross_device)
+    with fs_at.folder(env, tmp_path / "src") as src, fs_at.folder(env, tmp_path / "dst") as dst:
+        (tmp_path / "dst").rename(tmp_path / "dst-real")  # the destination is swapped after it was opened
+        (tmp_path / "dst").symlink_to(tmp_path / "outside")
+        fs_at.move_at(src, "one.txt", dst, "one.txt")
+        fs_at.move_at(src, "tree", dst, "tree")
+    assert (tmp_path / "dst-real" / "one.txt").read_text() == "one"
+    assert (tmp_path / "dst-real" / "tree" / "f.txt").read_text() == "tree"
+    assert not list((tmp_path / "outside").iterdir()) and not list((tmp_path / "src").iterdir())
+    (tmp_path / "src" / "again.txt").write_text("new")  # something already there is never replaced
+    (tmp_path / "dst-real" / "again.txt").write_text("kept")
+    with fs_at.folder(env, tmp_path / "src") as src, fs_at.folder(env, tmp_path / "dst-real") as dst:
+        with pytest.raises(FileExistsError):
+            fs_at.move_at(src, "again.txt", dst, "again.txt")
+    assert (tmp_path / "dst-real" / "again.txt").read_text() == "kept" and (tmp_path / "src" / "again.txt").exists()
+
+
+async def test_trashing_or_moving_a_link_acts_on_the_link_not_what_it_points_to(tmp_path):
+    import os
+    from mei.capabilities.base import ActionContext
+    from mei.capabilities.fs_write import FsMove, FsTrash, MoveParams, TrashParams
+    from agent_harness import make_world
+    env = make_world(tmp_path)
+    target = put(env, "~/Documents/x.pdf", "the real file")
+    for name in ("trash-me.pdf", "move-me.pdf"):
+        env.path(f"~/Downloads/{name}").symlink_to(target)
+    env.path("~/Documents/Links").mkdir()
+
+    def ctx(**judged):  # what policy recorded: every link followed
+        return ActionContext(env, "a1", "c1", "t1", {k: os.path.realpath(env.path(v)) for k, v in judged.items()})
+    result = await FsTrash().run(TrashParams(path="~/Downloads/trash-me.pdf"), ctx(path="~/Downloads/trash-me.pdf"))
+    assert os.path.islink(result.undo["trashed"]) and result.undo["original"] == str(env.path("~/Downloads/trash-me.pdf"))
+    await FsMove().run(MoveParams(source="~/Downloads/move-me.pdf", destination="~/Documents/Links/"),
+                       ctx(source="~/Downloads/move-me.pdf", destination="~/Documents/Links/move-me.pdf"))
+    assert env.path("~/Documents/Links/move-me.pdf").is_symlink()
+    assert target.read_text() == "the real file"

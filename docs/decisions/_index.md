@@ -9,7 +9,8 @@
 | 0007 | The agent loop keeps a durable action ledger; waiting is a state, and recovery is a table | accepted | 2026-10-21 | — |
 | 0008 | Authority lives outside the model: a policy engine with presets over a fixed floor | superseded in part by 0010 | 2026-10-21 | — |
 | 0009 | Outcomes are checked by the runtime; badges claim only what checks established | accepted | 2026-10-21 | — |
-| 0010 | A named folder stops vouching for changes once Mei has read a document; authority binds to real targets | accepted | 2026-10-21 | 0008 (in part) |
+| 0010 | A named folder stops vouching for changes once Mei has read a document; authority binds to real targets | accepted; first known limit closed by 0014 | 2026-10-21 | 0008 (in part) |
 | 0011 | Commands run in a per-conversation jail; a writable folder counts as possible data loss; host commands ask every time | accepted | 2026-10-21 | — |
 | 0012 | A memory is kept by whose words carry it; recall is data, and the person's own memories may name places | accepted | 2026-10-21 | — |
 | 0013 | The Shell notifies while attached and the runtime when it isn't; an attached selection is untrusted content | accepted | 2026-10-21 | — |
+| 0014 | File changes go through the folders policy judged, held open; a link can't redirect them after the check | accepted | 2026-10-22 | 0010 (in part: a known limit) |

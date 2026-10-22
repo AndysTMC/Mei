@@ -45,7 +45,8 @@ class Resource(msgspec.Struct, frozen=True, kw_only=True):
 
 
 DataClass = Literal["none", "metadata", "file_content", "clipboard", "settings", "memory"]
-ErrorClass = Literal["", "invalid", "not_found", "exists", "permission", "unavailable", "failed", "timeout"]
+# changed: what policy judged isn't what the path leads to any more (a folder on the way became a link).
+ErrorClass = Literal["", "invalid", "not_found", "exists", "permission", "unavailable", "failed", "timeout", "changed"]
 
 
 # A resource value standing for the conversation's workspace, which `resources()` can't name (it
@@ -265,6 +266,9 @@ class ActionContext:
     action_id: str
     conversation_id: str = "none"
     task_id: str = ""
+    # Each path resource's role → where policy judged it really leads, as re-checked just before the run.
+    # File capabilities act on exactly these (fs_at.py); empty when a capability runs outside the loop.
+    judged: dict[str, str] = field(default_factory=dict)
 
     @property
     def backup_dir(self) -> Path:
