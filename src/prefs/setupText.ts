@@ -4,10 +4,13 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import type { ApprovalPreset, CloudFiles, MemoryView, ModelsStep, ServiceStep, TestProviderReply } from '../runtime/protocol.js';
+import type {
+    ApprovalPreset, CloudFiles, MemoryView, MicLevelReply, ModelsStep, ServiceStep, SttChoice, TestProviderReply, TtsChoice,
+    VoiceModelView, VoiceStateName,
+} from '../runtime/protocol.js';
 
 export interface StepInfo {
-    id: 'service' | 'models' | 'approvals' | 'memory' | 'privacy' | 'shortcuts';
+    id: 'service' | 'models' | 'approvals' | 'memory' | 'voice' | 'privacy' | 'shortcuts';
     title: string;
     skippable: boolean;
 }
@@ -18,6 +21,7 @@ export const SETUP_STEPS: StepInfo[] = [
     { id: 'models', title: 'Models', skippable: true },
     { id: 'approvals', title: 'Approvals', skippable: true },
     { id: 'memory', title: 'Memory', skippable: true },
+    { id: 'voice', title: 'Voice', skippable: true },
     { id: 'privacy', title: 'Privacy', skippable: true },
     { id: 'shortcuts', title: 'Shortcuts', skippable: true },
 ];
@@ -133,4 +137,43 @@ export function memorySubtitle(memory: MemoryView): string {
     const used = memory.use_count ? `used ${memory.use_count} ${memory.use_count === 1 ? 'time' : 'times'}` : 'not used yet';
     const kept = [memory.pinned ? 'pinned' : '', memory.sensitivity === 'local_only' ? 'local only' : ''].filter(Boolean);
     return [MEMORY_SOURCE[memory.provenance] ?? '', used, ...kept].filter(Boolean).join(' · ');
+}
+
+/** Who writes down what the person says (§11.5: a cloud choice says where the voice goes). */
+export const STT_CHOICES: { id: SttChoice; label: string; description: string }[] = [
+    { id: 'local', label: 'On this computer', description: 'Your voice stays on this computer.' },
+    { id: 'openai', label: 'OpenAI', description: 'What you say is sent to OpenAI to be written down (uses your OpenAI key).' },
+    { id: 'groq', label: 'Groq', description: 'What you say is sent to Groq to be written down (uses your Groq key).' },
+];
+
+export const TTS_CHOICES: { id: TtsChoice; label: string; description: string }[] = [
+    { id: 'piper', label: 'Amy (quick)', description: 'On this computer; starts speaking at once.' },
+    { id: 'kokoro', label: 'Natural', description: 'On this computer; sounds more natural. Quick with an NVIDIA GPU, slower to start without one.' },
+    { id: 'openai', label: 'OpenAI', description: 'Mei’s answers are sent to OpenAI to be spoken (uses your OpenAI key).' },
+    { id: 'gemini', label: 'Gemini', description: 'Mei’s answers are sent to Google to be spoken (uses your Gemini key).' },
+];
+
+const VOICE_STATUS: Record<VoiceStateName, string> = {
+    off: 'Off', unavailable: 'Not ready', starting: 'Getting ready…', idle: 'Ready',
+    listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking', suspended: 'Paused while the screen is locked',
+};
+
+export function voiceStatusText(state: VoiceStateName, note: string): string {
+    const base = VOICE_STATUS[state] ?? state;
+    return note ? `${base}: ${note}` : base;
+}
+
+export function modelLine(m: VoiceModelView): string {
+    const size = `${Math.round(m.size / 1_000_000)} MB`;
+    if (m.error) return `${size} · couldn’t download: ${m.error}`;
+    if (m.have) return `${size} · downloaded`;
+    if (m.got !== undefined && m.total) return `${size} · downloading ${Math.floor((100 * m.got) / m.total)}%`;
+    return `${size} · ${m.needed ? 'needed' : 'not downloaded'}`;
+}
+
+export function micText(level: MicLevelReply): string {
+    if (level.overdriven) {
+        return `Too loud even in silence (${level.db.toFixed(0)} dB, ${level.clipped_pct.toFixed(1)}% clipped): Mei will mishear. Fix lowers the microphone’s level.`;
+    }
+    return `Sounds right (${level.db.toFixed(0)} dB in silence)`;
 }

@@ -121,3 +121,113 @@ async def test_only_the_shell_can_open_the_microphone(tmp_path):
         await service._voice_listen(":1.9", json.dumps({}))
     assert err.value.name == "AccessDenied"
     assert service._voice_status(":1.9", "") == {"state": "unavailable", "note": "voice isn't installed"}
+
+
+async def test_models_download_with_progress_then_voice_starts(tmp_path, monkeypatch):
+    import hashlib
+    from dataclasses import replace
+    import httpx
+    from mei.voice import controller as voice_controller
+    from mei.voice.models import SILERO
+    body = b"silero bytes"
+    fake = replace(SILERO, sha256=hashlib.sha256(body).hexdigest(), size=len(body))
+    monkeypatch.setitem(voice_controller.CATALOG, "silero", fake)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=body)))
+    h = Harness(tmp_path)
+    v = VoiceController(h.engine, lambda *_: None, lambda _s, _m: WORKER, tmp_path / "models", client=client)
+    before = {m["id"]: m for m in v.models()["models"]}
+    assert not before["silero"]["have"] and before["kokoro"]["size"] > 300_000_000
+    v.download(["silero"])
+    with pytest.raises(ProtocolError):
+        v.download(["silero"])  # one download at a time
+    await until(lambda: not v.models()["downloading"])
+    after = {m["id"]: m for m in v.models()["models"]}
+    assert after["silero"]["have"] and after["silero"]["got"] == len(body) and not after["silero"]["error"]
+    with pytest.raises(ProtocolError):
+        v.download(["not-a-model"])
+
+
+async def test_the_microphone_check_reports_numbers_and_spots_an_overdriven_input(tmp_path, models, monkeypatch):
+    from mei.voice import controller as voice_controller
+    h = Harness(tmp_path)
+    quiet = np.random.default_rng(1).standard_normal(16000 * 5).astype(np.float32) * 0.001
+    v, _seen = controller(h, models, tmp_path, quiet)
+    await v.apply(VoiceSettings(enabled=True))
+    await v.wait_ready()
+    level = await v.check_mic(seconds=1.0)
+    assert level["db"] < -50 and not level["overdriven"]
+    await v.stop()
+
+    loud = np.clip(np.random.default_rng(2).standard_normal(16000 * 5).astype(np.float32) * 0.8, -1, 1)
+    v, _seen = controller(h, models, tmp_path, loud)
+    await v.apply(VoiceSettings(enabled=True))
+    await v.wait_ready()
+    assert (await v.check_mic(seconds=1.0))["overdriven"]
+    set_to = []
+
+    class FakeWpctl:
+        def __init__(self, node):
+            assert node == "@DEFAULT_AUDIO_SOURCE@"
+
+        async def set(self, percent, muted):
+            set_to.append((percent, muted))
+    monkeypatch.setattr(voice_controller, "Wpctl", FakeWpctl)
+    await v.fix_mic()
+    assert set_to == [(50, False)]
+    await v.stop()
+
+
+def test_turning_on_the_wake_word_or_cloud_listening_is_announced():
+    from mei.core.engine import _loosened
+    from mei.protocol import Config
+    before = Config()
+    assert "listens for “Hey Mei” all the time" in _loosened(before, Config(voice=VoiceSettings(enabled=True, wake_word=True)))
+    assert "goes to Groq" in _loosened(before, Config(voice=VoiceSettings(stt="groq")))
+    assert _loosened(before, Config(voice=VoiceSettings(enabled=True, tts="kokoro"))) == ""
+
+
+async def test_a_spoken_yes_approves_only_what_a_voice_may(tmp_path, models, voice):
+    """§11.6: Mei reads a local, undoable action back and "yes, do it" approves it."""
+    from agent_harness import call, put, turn
+    h = Harness(tmp_path, script=[turn(call("fs_trash", path="~/Music/old.txt")), {"text": "Done."}])
+    put(h.env, "~/Music/old.txt", "old")
+    v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "Tidy up my downloads.", 2.5, "Yes, do it.", 4.0))
+    await v.apply(VoiceSettings(enabled=True))
+    await v.wait_ready()
+    await v.listen(None)
+    await until(lambda: not h.env.path("~/Music/old.txt").exists() and states(seen)[-1] == "idle", 60)
+    [approval] = h.store.read("SELECT state, decided_by FROM approvals")
+    assert (approval["state"], approval["decided_by"]) == ("allowed", "voice")
+    heard = [p["text"] for kind, p in seen if kind == "voice.partial" and p["final"]]
+    assert [t.lower() for t in heard[:2]] == ["tidy up my downloads", "yes, do it"]
+    await v.stop()
+
+
+async def test_a_spoken_yes_never_approves_a_command_on_the_computer(tmp_path, models, voice):
+    from agent_harness import call, turn
+    h = Harness(tmp_path, preset="hands_off", script=[turn(call("shell_run_host", command="echo hi", cwd="~")),
+                                                      {"text": "Okay."}])
+    v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "Run echo on my computer.", 2.5, "Yes, do it.", 4.0))
+    await v.apply(VoiceSettings(enabled=True))
+    await v.wait_ready()
+    await v.listen(None)
+    await until(lambda: h.store.read_one("SELECT count(*) AS n FROM approvals")["n"] == 1 and states(seen)[-1] == "idle", 60)
+    [conversation] = repo.list_conversations(h.store)
+    await v.listen(conversation["id"])  # the person presses the shortcut and says "yes, do it" anyway
+    await until(lambda: len([1 for kind, p in seen if kind == "voice.partial" and p["final"]]) >= 2, 30)
+    await asyncio.sleep(1.0)
+    states_ = {r["state"] for r in h.store.read("SELECT state FROM approvals")}
+    assert "allowed" not in states_  # their words joined the task; the card was never approved by voice
+    assert not any("hi" == (r["content"] or "").strip() for r in h.store.read(
+        "SELECT content FROM messages WHERE role = 'tool'"))
+    await v.stop()
+
+
+def test_which_effects_a_voice_may_approve():
+    from mei.voice.controller import spoken_ok
+    assert spoken_ok({"mutates": "local", "undo": "recorded", "visibility": "private", "disclosure": "none"})
+    for bad in ({"mutates": "unknown", "undo": "none", "loses_data": True}, {"mutates": "local", "undo": "none"},
+                {"mutates": "local", "undo": "recorded", "disclosure": "off_machine"},
+                {"mutates": "local", "undo": "recorded", "visibility": "others"},
+                {"mutates": "external", "undo": "recorded"}, {"mutates": "local", "undo": "recorded", "loses_data": True}):
+        assert not spoken_ok(bad), bad

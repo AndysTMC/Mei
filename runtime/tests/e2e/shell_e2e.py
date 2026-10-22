@@ -30,6 +30,7 @@ CHOOSE_PROVIDER_BUTTON = (842, 287)  # "Choose…" on the Models step
 BACK_BUTTON = (342, 135)  # the header's back arrow
 MODEL_PROVIDER_ROW = (460, 412)  # "Model provider" on Settings' main page
 MEMORY_ROW = (460, 463)  # "Memory", the row under it
+VOICE_ROW = (460, 514)  # "Voice", under Memory
 
 
 class MockProvider(BaseHTTPRequestHandler):
@@ -165,7 +166,7 @@ async def main() -> int:
                 and st["controller"]["setupOffered"], {"offered": setup["offered"]})
         await asyncio.sleep(2.0)  # let the window finish drawing
         await h.hook("Screenshot", os.path.join(OUT, "setup-1-service.png"))
-        for name in ("2-models", "3-approvals", "4-memory", "5-privacy", "6-shortcuts", "7-done"):
+        for name in ("2-models", "3-approvals", "4-memory", "5-voice", "6-privacy", "7-shortcuts", "8-done"):
             await h.click(*NEXT_BUTTON)
             await h.hook("Screenshot", os.path.join(OUT, f"setup-{name}.png"))
             if name == "2-models":  # "Choose…" opens the provider page on top of setup; Back returns
@@ -194,6 +195,10 @@ async def main() -> int:
         await h.click(*BACK_BUTTON)
         await h.click(*MEMORY_ROW)
         await h.hook("Screenshot", os.path.join(OUT, "memory-page.png"))
+        await h.click(*BACK_BUTTON)
+        await h.click(*VOICE_ROW)
+        await asyncio.sleep(0.5)
+        await h.hook("Screenshot", os.path.join(OUT, "voice-page.png"))
         await h.click(*BACK_BUTTON)
 
         # 1b. The default shortcut (Super+Alt+M) opens the popup from anywhere and closes it again.

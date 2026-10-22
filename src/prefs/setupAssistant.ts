@@ -15,6 +15,7 @@ import Gtk from 'gi://Gtk';
 import type { CallOptions } from '../runtime/client.js';
 import type { ModelsStep, ServiceStep, SetupStatusReply, TestProviderReply } from '../runtime/protocol.js';
 import type { RuntimeSettings } from '../runtime/settings.js';
+import { voiceBasics } from './voicePage.js';
 import { buildApprovalRow, buildCloudFilesRow, buildMemoryRows, buildRetentionRow, buildShortcutRow, type Row } from './rows.js';
 import { APPROVAL_FLOOR, doneText, keyringText, modelsText, SETUP_STEPS, storageText, testText } from './setupText.js';
 
@@ -136,7 +137,13 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
         memory.add(r.row);
     }
 
-    /* ── 5. Privacy ── */
+    /* ── 5. Voice ── */
+    const voiceStep = new Adw.PreferencesPage();
+    const voiceParts = voiceBasics(window, settings);
+    for (const group of voiceParts.groups) voiceStep.add(group);
+    stack.add_named(voiceStep, 'voice');
+
+    /* ── 6. Privacy ── */
     const privacy = step('privacy', 'Privacy',
         'Mei keeps everything until you delete it. You can have conversations you no longer use deleted automatically, '
         + 'and choose which file contents may go to a cloud model.');
@@ -146,7 +153,7 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
     privacy.add(retention.row);
     privacy.add(cloudFiles.row);
 
-    /* ── 6. Shortcuts ── */
+    /* ── 7. Shortcuts ── */
     const shortcuts = step('shortcuts', 'Shortcuts', 'Open Mei from anywhere, with the message box ready for typing, '
         + 'or ask about what you are looking at: the window and the text you selected go with your question.');
     const shortcut = buildShortcutRow(window, gsettings, 'open-shortcut', 'Open Mei');
@@ -264,6 +271,7 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
             destroyed = true;
             settings.disconnect(settingsSignal);
             rows.forEach(r => r.destroy());
+            voiceParts.destroy();
         },
     };
 }

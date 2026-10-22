@@ -458,6 +458,10 @@ def _loosened(before: Config, after: Config) -> str:
         changes.append("more file contents may now go to cloud models")
     if after.clients.external_input and not before.clients.external_input:
         changes.append("other programs may now give it requests")
+    if after.voice.enabled and after.voice.wake_word and not (before.voice.enabled and before.voice.wake_word):
+        changes.append("it now listens for “Hey Mei” all the time")
+    if after.voice.stt != "local" and after.voice.stt != before.voice.stt:
+        changes.append(f"what you say to it now goes to {after.voice.stt.capitalize()} to be written down")
     for provider_id, settings in after.providers.items():
         old_url = before.providers[provider_id].url if provider_id in before.providers else ""
         if settings.url.strip() and settings.url.strip() != old_url.strip():

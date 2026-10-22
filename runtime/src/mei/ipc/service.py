@@ -24,7 +24,8 @@ from mei.obs import RECENT
 from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, ForgetMemoryArgs,
                           GetLogsArgs, HelloArgs, ListModelsArgs, MemoriesArgs, ProtocolError, ResolveApprovalArgs,
                           RevokeGrantArgs, SetupApplyArgs, SubmitInputArgs, TaskCommandArgs, TestProviderArgs,
-                          UpdateConfigArgs, UpdateMemoryArgs, VoiceListenArgs, decode_args, encode)
+                          UpdateConfigArgs, UpdateMemoryArgs, VoiceDownloadArgs, VoiceListenArgs, decode_args,
+                          encode)
 from mei.providers.profiles import PROFILES
 from mei.setup import Setup
 from mei.store import repo
@@ -78,6 +79,8 @@ class RuntimeService:
             "ListGrants": self._list_grants, "RevokeGrant": self._revoke_grant,
             "Memories": self._memories, "UpdateMemory": self._update_memory, "ForgetMemory": self._forget_memory,
             "VoiceListen": self._voice_listen, "VoiceStop": self._voice_stop, "VoiceStatus": self._voice_status,
+            "VoiceModels": self._voice_models, "VoiceDownload": self._voice_download, "VoiceCheckMic": self._voice_check_mic,
+            "VoiceFixMic": self._voice_fix_mic, "VoiceTestSpeaker": self._voice_test_speaker,
         }
 
     async def start(self) -> None:
@@ -295,10 +298,9 @@ class RuntimeService:
     async def _voice_listen(self, sender: str, data: str) -> dict:
         args = decode_args(data, VoiceListenArgs)
         await self._shell_only(sender, "listen")  # it opens the microphone, and what is said is a request
-        if self._voice is None:
-            raise ProtocolError("Unavailable", "voice isn't installed")
-        await self._voice.listen(args.conversation_id)
-        return {"state": self._voice.state}
+        voice = self._voice_required()
+        await voice.listen(args.conversation_id)
+        return {"state": voice.state}
 
     async def _voice_stop(self, sender: str, _data: str) -> dict:
         await self._shell_only(sender, "stop voice")
@@ -310,6 +312,32 @@ class RuntimeService:
         if self._voice is None:
             return {"state": "unavailable", "note": "voice isn't installed"}
         return {"state": self._voice.state, "note": self._voice.note}
+
+    # Setup and Settings (not only the Shell): none of these hands anyone audio. The microphone check
+    # returns a level in dB; downloads come from pinned URLs.
+
+    def _voice_models(self, _sender: str, _data: str) -> dict:
+        return self._voice_required().models()
+
+    def _voice_download(self, _sender: str, data: str) -> dict:
+        args = decode_args(data, VoiceDownloadArgs)
+        self._voice_required().download(args.models)
+        return {}
+
+    async def _voice_check_mic(self, _sender: str, _data: str) -> dict:
+        return await self._voice_required().check_mic()
+
+    async def _voice_fix_mic(self, _sender: str, _data: str) -> dict:
+        return await self._voice_required().fix_mic()
+
+    async def _voice_test_speaker(self, _sender: str, _data: str) -> dict:
+        await self._voice_required().test_speaker()
+        return {}
+
+    def _voice_required(self):
+        if self._voice is None:
+            raise ProtocolError("Unavailable", "voice isn't installed")
+        return self._voice
 
     async def _shell_only(self, sender: str, what: str) -> None:
         if not await self._is_shell(sender):

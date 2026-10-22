@@ -237,6 +237,10 @@ class VoiceSettings(msgspec.Struct, kw_only=True):
     output: str = ""
 
 
+class VoiceDownloadArgs(msgspec.Struct):
+    models: list[str]  # ids from VoiceModels
+
+
 class VoiceListenArgs(msgspec.Struct):
     conversation_id: str | None = None  # the conversation the popup shows; None starts a new one
 

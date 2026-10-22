@@ -16,13 +16,13 @@ import { getProviderProfile, resolveProviderId } from '../providers/profiles.js'
 import type { ProviderId } from '../providers/types.js';
 import { Logger, Tag } from '../utils/logger.js';
 import type {
-    ApprovalPreset, CloudFiles, ConfigDoc, ConfigReply, GrantView, LogEntry, MemoriesReply, MemoryPatch, ModelsReply,
-    ProviderSettings,
+    ApprovalPreset, CloudFiles, ConfigDoc, ConfigReply, GrantView, LogEntry, MemoriesReply, MemoryPatch, MicLevelReply,
+    ModelsReply, ProviderSettings, VoiceModelsReply, VoiceSettingsDoc,
 } from './protocol.js';
 
 export type Call = <T>(method: string, args?: object) => Promise<T>;
 /** What changed, for `changed` and `changed::<key>`. */
-export type SettingsKey = 'active' | 'providers' | 'privacy' | 'approvals' | 'memory';
+export type SettingsKey = 'active' | 'providers' | 'privacy' | 'approvals' | 'memory' | 'voice';
 /** `detail` is the changed key for `changed`/`changed::<key>`, the error message for `save-failed`. */
 type Listener = (settings: RuntimeSettings, detail: string) => void;
 type Mutation = (doc: ConfigDoc) => void;
@@ -35,7 +35,7 @@ export interface ModelListResult {
     requiresApiKey: boolean;
 }
 
-const KEYS: SettingsKey[] = ['active', 'providers', 'privacy', 'approvals', 'memory'];
+const KEYS: SettingsKey[] = ['active', 'providers', 'privacy', 'approvals', 'memory', 'voice'];
 const MAX_CONFLICT_RETRIES = 3;
 
 export class RuntimeSettings {
@@ -119,6 +119,11 @@ export class RuntimeSettings {
         return this._doc.memory?.auto_save ?? true;
     }
 
+    /** Voice settings (§11), with the runtime's defaults for what isn't stored yet. */
+    get voice(): Readonly<VoiceSettingsDoc> {
+        return voiceOf(this._doc);
+    }
+
     // ── Writing ──────────────────────────────────────────────────────────────
 
     /** Choose the provider for new conversations. Refuses unknown and retired providers. */
@@ -176,7 +181,36 @@ export class RuntimeSettings {
         }, 'memory');
     }
 
+    setVoice<K extends 'enabled' | 'speak_replies' | 'stt' | 'tts' | 'voice' | 'barge_in' | 'wake_word'>(
+        field: K, value: VoiceSettingsDoc[K]): void {
+        if (!this._writable() || this.voice[field] === value) return;
+        this._mutate(doc => {
+            doc.voice = { ...voiceOf(doc), [field]: value };
+        }, 'voice');
+    }
+
     // ── Runtime calls that belong with settings ──────────────────────────────
+
+    async voiceModels(): Promise<VoiceModelsReply> {
+        return this._call<VoiceModelsReply>('VoiceModels');
+    }
+
+    async downloadVoiceModels(ids: string[]): Promise<void> {
+        await this._call('VoiceDownload', { models: ids });
+    }
+
+    /** Listens a few seconds in silence; returns only the level. */
+    async checkMic(): Promise<MicLevelReply> {
+        return this._call<MicLevelReply>('VoiceCheckMic');
+    }
+
+    async fixMic(): Promise<MicLevelReply> {
+        return this._call<MicLevelReply>('VoiceFixMic');
+    }
+
+    async testSpeaker(): Promise<void> {
+        await this._call('VoiceTestSpeaker');
+    }
 
     /** Memories matching `query` (all when empty), optionally only those with `status`. */
     async memories(query = '', status: '' | 'active' | 'pending_review' | 'archived' = ''): Promise<MemoriesReply> {
@@ -318,6 +352,14 @@ export class RuntimeSettings {
             if (listener.signal === signal) listener.fn(this, detail);
         }
     }
+}
+
+const VOICE_DEFAULTS: VoiceSettingsDoc = {
+    enabled: false, speak_replies: true, stt: 'local', tts: 'piper', voice: 'amy', barge_in: false, wake_word: false,
+};
+
+function voiceOf(doc: ConfigDoc): VoiceSettingsDoc {
+    return { ...VOICE_DEFAULTS, ...doc.voice };
 }
 
 function memoryOf(doc: ConfigDoc): NonNullable<ConfigDoc['memory']> {

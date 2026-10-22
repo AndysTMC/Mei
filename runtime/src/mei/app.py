@@ -193,7 +193,7 @@ def voice_controller(engine: Engine, service_ref: Callable[[], RuntimeService | 
                                       readable=(Path(source),) if extra else (),
                                       writable=(Path(sink).parent,) if extra else ())
 
-    return VoiceController(engine, emit, argv, load_extra=extra, cloud=CloudSpeech(client, key_for))
+    return VoiceController(engine, emit, argv, load_extra=extra, cloud=CloudSpeech(client, key_for), client=client)
 
 
 async def retention_loop(engine: Engine) -> None:

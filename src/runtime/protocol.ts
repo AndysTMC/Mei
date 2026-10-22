@@ -42,6 +42,45 @@ export interface Attachment {
 export type VoiceStateName =
     | 'off' | 'unavailable' | 'starting' | 'idle' | 'listening' | 'thinking' | 'speaking' | 'suspended';
 
+export type SttChoice = 'local' | 'openai' | 'groq';
+export type TtsChoice = 'piper' | 'kokoro' | 'openai' | 'gemini';
+
+export interface VoiceSettingsDoc {
+    enabled: boolean;
+    speak_replies: boolean;
+    stt: SttChoice;
+    tts: TtsChoice;
+    voice: string;
+    barge_in: boolean;
+    wake_word: boolean;
+    [field: string]: unknown;
+}
+
+export interface VoiceModelView {
+    id: string;
+    part: string;
+    size: number;
+    have: boolean;
+    needed: boolean;
+    got?: number;
+    total?: number;
+    error?: string;
+}
+
+export interface VoiceModelsReply {
+    state: VoiceStateName;
+    note: string;
+    models: VoiceModelView[];
+    downloading: boolean;
+}
+
+export interface MicLevelReply {
+    db: number;
+    peak_db: number;
+    clipped_pct: number;
+    overdriven: boolean;
+}
+
 export interface VoiceStatusReply {
     state: VoiceStateName;
     note: string;
@@ -290,6 +329,7 @@ export interface ConfigDoc {
     privacy: { conversation_retention_days: number | null; cloud_files?: CloudFiles; [field: string]: unknown };
     approvals?: { preset: ApprovalPreset; [field: string]: unknown };
     memory?: { enabled: boolean; auto_save: boolean; [field: string]: unknown };
+    voice?: VoiceSettingsDoc;
     /** Fields a newer runtime added; kept as they are when this client writes the config back. */
     [field: string]: unknown;
 }
@@ -355,12 +395,18 @@ export interface MemoryStep {
     auto_save: boolean;
 }
 
+export interface VoiceStep {
+    id: 'voice';
+    state: 'done';
+    enabled: boolean;
+}
+
 export interface SetupStatusReply {
     version: number;
     completed: boolean;
     offered: boolean;
     skipped: string[];
-    steps: (ServiceStep | ModelsStep | ApprovalsStep | MemoryStep | PrivacyStep)[];
+    steps: (ServiceStep | ModelsStep | ApprovalsStep | MemoryStep | VoiceStep | PrivacyStep)[];
 }
 
 export interface TestProviderReply {

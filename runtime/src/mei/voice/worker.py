@@ -19,9 +19,10 @@ import sys
 from pathlib import Path
 
 import msgspec
+import numpy as np
 
 from . import local, pipeline, remote, wire
-from .parts import SAMPLE_RATE, AudioSink, AudioSource, VoiceError
+from .parts import SAMPLE_RATE, AudioSink, AudioSource, VoiceError, level_db
 from .pipewire import PipeWireSink, PipeWireSource
 from .recorded import CaptureSink, RecordedSource
 
@@ -97,6 +98,9 @@ class Worker:
                 self.emit(diagnose())
             case wire.Transcript() | wire.Audio():
                 self._link.answer(cmd)
+            case wire.MeasureMic(seconds=seconds):
+                if self._ready() and not self._suspended:
+                    await self._take_mic("measure", self._measure(seconds))
             case wire.Quit():
                 await self._release_mic()
                 await self._speaker_stop()
@@ -115,11 +119,12 @@ class Worker:
             self._vad = local.SileroVad(root)
             stt = local.KrokoStt(root) if cfg.stt == "kroko" or local.have_kroko(root) else None
             if cfg.stt == "core":
-                stt = remote.CoreStt(self._link, partials=stt)
+                stt = remote.CoreStt(self._link, local=stt)
             if cfg.tts == "kokoro":
                 tts, device, note = local.kokoro(root, cfg.speaker, cfg.speed, cfg.device)
-            elif cfg.tts == "core":
-                tts, device, note = remote.CoreTts(self._link), "cloud", ""
+            elif cfg.tts == "core":  # Piper says what the cloud can't
+                fallback = local.piper(root, cfg.voice, cfg.speed) if local.have_piper(root, cfg.voice) else None
+                tts, device, note = remote.CoreTts(self._link, fallback), "cloud", ""
             else:
                 tts, device, note = local.piper(root, cfg.voice, cfg.speed), "cpu", ""
             self._wake = local.SherpaWake(root, Path("/tmp"), cfg.wake_threshold) if cfg.wake else None
@@ -151,6 +156,14 @@ class Worker:
         """Give the (possibly open) microphone to `work` without closing it."""
         self._mic_job = job
         self._mic_task = asyncio.ensure_future(work)
+        self._mic_task.add_done_callback(self._mic_done)
+
+    def _mic_done(self, task: asyncio.Task) -> None:
+        """A microphone job that crashed says so, rather than vanishing."""
+        if task.cancelled() or task.exception() is None:
+            return
+        log.error("voice: %s failed", task.get_name(), exc_info=task.exception())
+        self.emit(wire.Failed(part="voice", message=str(task.exception())[:300]))
 
     async def _release_mic(self) -> None:
         task, self._mic_task, self._mic_job = self._mic_task, None, ""
@@ -186,6 +199,27 @@ class Worker:
         finally:
             if self._mic_task is task:
                 self._mic_task, self._mic_job = None, ""
+        self._rearm()
+
+    async def _measure(self, seconds: float) -> None:
+        """The microphone's level in silence: an overdriven input (spike 0c: silence at −3 dB, a
+        fifth of it clipped) breaks voice detection. Only numbers leave; the audio is dropped."""
+        task = asyncio.current_task()
+        got, total = [], int(seconds * SAMPLE_RATE)
+        try:
+            await self._source.start()
+            async for chunk in self._source.chunks():
+                got.append(chunk)
+                if sum(len(c) for c in got) >= total:
+                    break
+        finally:
+            if self._mic_task is task:
+                self._mic_task, self._mic_job = None, ""
+            await self._source.stop()
+        audio = np.concatenate(got) if got else np.zeros(1, np.float32)
+        peak = float(np.max(np.abs(audio)))
+        self.emit(wire.MicLevel(db=round(level_db(audio), 1), peak_db=round(float(20 * np.log10(peak + 1e-9)), 1),
+                                clipped_pct=round(100 * float(np.mean(np.abs(audio) >= 0.99)), 2)))
         self._rearm()
 
     async def _wait_for_wake(self) -> None:

@@ -22,7 +22,7 @@ from mei.store.db import Store
 
 # Bump when a new step should be shown to everyone who finished an older setup.
 SETUP_VERSION = 2  # 2: Approvals, and the cloud-files choice under Privacy (Stage 3)
-STEPS = ("service", "models", "approvals", "memory", "privacy", "shortcuts")
+STEPS = ("service", "models", "approvals", "memory", "voice", "privacy", "shortcuts")
 
 
 class SetupState(msgspec.Struct, kw_only=True):
@@ -98,9 +98,11 @@ class Setup:
         # Memory is on with automatic saving by default; anything inferred from what Mei read waits for review.
         memory = {"id": "memory", "state": "done", "enabled": config.memory.enabled,
                   "auto_save": config.memory.auto_save}
+        # Voice is optional and off by default; the step offers it, with its models and checks.
+        voice = {"id": "voice", "state": "done", "enabled": config.voice.enabled}
         return {"version": SETUP_VERSION, "completed": state.completed_version >= SETUP_VERSION,
                 "offered": state.offered, "skipped": state.skipped,
-                "steps": [service, models, approvals, memory, privacy]}
+                "steps": [service, models, approvals, memory, voice, privacy]}
 
     async def apply(self, step: str, choices: dict) -> dict:
         state = load_state(self.store)

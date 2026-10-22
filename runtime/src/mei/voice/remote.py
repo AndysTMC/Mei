@@ -3,7 +3,9 @@ network and the keys, over the worker's pipe. They fit the same interfaces as th
 listening and speaking don't change.
 
 Speech to text by the core still shows live partials from a local recognizer when one is loaded;
-the utterance goes up once the person stops.
+the utterance goes up once the person stops. When the cloud can't answer (no key, offline, an HTTP
+error), the local backend does that utterance or sentence instead, so voice keeps working; the core
+says why in voice's note.
 """
 
 import asyncio
@@ -14,7 +16,7 @@ from collections.abc import Callable
 import numpy as np
 
 from . import wire
-from .parts import SAMPLE_RATE, Speech, SpeechToText, VoiceError
+from .parts import SAMPLE_RATE, Speech, SpeechToText, TextToSpeech, VoiceError
 
 TIMEOUT_S = 30.0
 
@@ -56,12 +58,12 @@ def samples(data: str) -> np.ndarray:
 class CoreStt:
     name = "cloud"
 
-    def __init__(self, link: CoreLink, partials: SpeechToText | None) -> None:
+    def __init__(self, link: CoreLink, local: SpeechToText | None) -> None:
         self._link = link
-        self._partials = partials
+        self._local = local  # live partials, and the final text when the cloud can't answer
 
     def open(self) -> "CoreTranscription":
-        return CoreTranscription(self._link, self._partials.open() if self._partials else None)
+        return CoreTranscription(self._link, self._local.open() if self._local else None)
 
 
 class CoreTranscription:
@@ -76,20 +78,31 @@ class CoreTranscription:
 
     async def finish(self) -> str:
         audio = np.concatenate(self._audio) if self._audio else np.zeros(0, np.float32)
-        reply = await self._link.ask(lambda i: wire.Transcribe(id=i, pcm=pcm(audio)))
-        if reply.error:
-            raise VoiceError("speech to text", reply.error)
+        try:
+            reply = await self._link.ask(lambda i: wire.Transcribe(id=i, pcm=pcm(audio)))
+            if reply.error:
+                raise VoiceError("speech to text", reply.error)
+        except VoiceError:
+            if self._local is None:
+                raise
+            return await self._local.finish()
         return reply.text.strip()
 
 
 class CoreTts:
     name = "cloud"
 
-    def __init__(self, link: CoreLink) -> None:
+    def __init__(self, link: CoreLink, local: TextToSpeech | None = None) -> None:
         self._link = link
+        self._local = local  # says the sentence when the cloud can't
 
     async def synthesize(self, text: str) -> Speech:
-        reply = await self._link.ask(lambda i: wire.Synthesize(id=i, text=text))
-        if reply.error:
-            raise VoiceError("speech", reply.error)
+        try:
+            reply = await self._link.ask(lambda i: wire.Synthesize(id=i, text=text))
+            if reply.error:
+                raise VoiceError("speech", reply.error)
+        except VoiceError:
+            if self._local is None:
+                raise
+            return await self._local.synthesize(text)
         return Speech(samples(reply.pcm), reply.rate or SAMPLE_RATE)

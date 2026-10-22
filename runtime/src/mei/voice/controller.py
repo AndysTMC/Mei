@@ -12,6 +12,7 @@ The controller sees the engine's events by being one of its publishers (core/fan
 """
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -19,32 +20,50 @@ from collections.abc import Callable
 from pathlib import Path
 
 from mei.core.states import TERMINAL
-from mei.protocol import Envelope, ProtocolError, SubmitInputArgs, TaskCommandArgs, VoiceSettings
+from mei.protocol import (Envelope, ProtocolError, ResolveApprovalArgs, SubmitInputArgs, TaskCommandArgs,
+                          VoiceSettings)
 from mei.store import repo
 from mei.store.db import new_id
 
-from . import remote, wire
+import httpx
+
+from mei.desktop.sound import SOURCE, Wpctl
+
+from . import download, remote, wire
 from .cloud import CloudSpeech
-from .models import KOKORO, KROKO, KWS, PIPER, SILERO, have, models_dir
+from .models import CATALOG, KOKORO, KROKO, KWS, PIPER, SILERO, have, models_dir
 from .parts import VoiceError
 from .speakable import Sentences
 
 log = logging.getLogger("mei.voice")
 STOP = re.compile(r"^\s*(stop|cancel|cancel (that|it)|never ?mind|forget it|stop (that|it)|that's enough)[.!]?\s*$", re.I)
+# Spoken approval (§11.6): only this explicit phrase, after Mei has read the action back.
+CONFIRM = re.compile(r"^\s*(yes|yeah|yep)[,.]?\s+(do it|go ahead)[.!]?\s*$", re.I)
+DECLINE = re.compile(r"^\s*(no|nope|don'?t|do not)([,.]?\s+(do it|don'?t|thanks|thank you))?[.!]?\s*$", re.I)
+_HOME_PATH = re.compile(r"~/(?:([^/\s]+)/)*([^/\s]+)")
 FOLLOW_UP_WINDOW_S = 300  # the wake word continues the last spoken conversation within this time
 RESTARTS = (1.0, 5.0, 30.0)  # back-off when the worker dies
+CLOUD_FALLBACK = {"hearing": "this computer wrote down what you said", "speaking": "Mei spoke with this computer's voice"}
+OVERDRIVEN_DB = -20.0  # silence louder than this, or any real clipping, breaks voice detection (spike 0c)
+OVERDRIVEN_CLIP_PCT = 0.5
+FIXED_LEVEL_PCT = 50  # spike 0c: the laptop mic was clean at 51 %
 
 States = ("off", "unavailable", "starting", "idle", "listening", "thinking", "speaking", "suspended")
 
 
 class VoiceController:
     def __init__(self, engine, emit: Callable[[str, dict], None], argv: Callable[[VoiceSettings, Path], list[str]],
-                 models: Path | None = None, load_extra: dict | None = None, cloud: CloudSpeech | None = None) -> None:
+                 models: Path | None = None, load_extra: dict | None = None, cloud: CloudSpeech | None = None,
+                 client: httpx.AsyncClient | None = None) -> None:
         """`emit(type, payload)` sends an ephemeral event to clients; `argv(settings, models)` is the
         command that starts the worker (in its jail). `cloud`: cloud speech, when chosen in Settings.
         `load_extra`: test backends (recorded audio)."""
         self._engine = engine
         self._cloud = cloud
+        self._client = client
+        self._downloads: dict[str, dict] = {}  # model id → progress, while (and after) fetching
+        self._fetching: asyncio.Task | None = None
+        self._mic_level: asyncio.Future | None = None
         self._emit = emit
         self._argv = argv
         self._models = models or models_dir()
@@ -54,6 +73,7 @@ class VoiceController:
         self._settings = VoiceSettings()
         self.state = "off"
         self.note = ""  # why voice is unavailable, or a fallback worth saying
+        self._cloud_note = ""  # the note while cloud speech fails and this computer stands in
         self._conversation: str | None = None
         self._last_spoken_at = 0.0
         self._task: str | None = None  # the request being answered out loud
@@ -61,6 +81,7 @@ class VoiceController:
         self._fed = 0  # characters of that message given to `_sentences`
         self._sentences = Sentences()
         self._follow_up = False
+        self._asking: str | None = None  # an approval Mei read out and waits on a spoken answer for
         self._locked = False
         self._stopping = False
         self._restarts = 0
@@ -88,9 +109,10 @@ class VoiceController:
 
     def needed(self):
         """The local models these settings use: voice detection and Kroko always (Kroko shows what
-        is heard live, even when a cloud provider does the final text)."""
+        is heard live, even when a cloud provider does the final text, and writes it down when the
+        cloud can't), and Piper unless Kokoro speaks (it speaks when cloud speech can't)."""
         s = self._settings
-        speech = {"piper": [PIPER.get(s.voice, PIPER["amy"])], "kokoro": [KOKORO]}.get(s.tts, [])
+        speech = [KOKORO] if s.tts == "kokoro" else [PIPER.get(s.voice, PIPER["amy"])]
         return (SILERO, KROKO, *speech, *([KWS] if s.wake_word else []))
 
     async def stop(self) -> None:
@@ -138,6 +160,68 @@ class VoiceController:
 
     async def wait_ready(self, timeout: float = 60.0) -> None:
         await asyncio.wait_for(self._ready.wait(), timeout)
+
+    # ── Models, the microphone, the speakers (setup and Settings) ────────────
+
+    def models(self) -> dict:
+        needed = {m.folder for m in self.needed()}
+        return {"state": self.state, "note": self.note,
+                "models": [{"id": key, "part": m.part, "size": m.size, "have": have(m, self._models),
+                            "needed": m.folder in needed, **self._downloads.get(key, {})} for key, m in CATALOG.items()],
+                "downloading": self._fetching is not None and not self._fetching.done()}
+
+    def download(self, ids: list[str]) -> None:
+        """Fetch these models in the background (progress in `models()`), then start voice if it is on."""
+        unknown = [i for i in ids if i not in CATALOG]
+        if unknown:
+            raise ProtocolError("InvalidArgument", f"no voice model {unknown[0]!r}")
+        if self._client is None:
+            raise ProtocolError("Unavailable", "downloads aren't available here")
+        if self._fetching is not None and not self._fetching.done():
+            raise ProtocolError("Busy", "a download is already running")
+        self._fetching = asyncio.ensure_future(self._fetch(ids))
+
+    async def _fetch(self, ids: list[str]) -> None:
+        for key in ids:
+            progress = self._downloads[key] = {"got": 0, "total": CATALOG[key].size, "error": ""}
+            try:
+                await download.fetch(self._client, CATALOG[key], self._models,
+                                     lambda got, total: progress.update(got=got, total=total))
+            except VoiceError as e:
+                progress["error"] = e.message
+                return
+            except Exception as e:  # noqa: BLE001  a disk or network failure: say it, don't crash the runtime
+                log.exception("downloading %s failed", key)
+                progress["error"] = str(e)[:200]
+                return
+        await self.apply(self._settings)
+
+    async def check_mic(self, seconds: float = 3.0) -> dict:
+        """The microphone's level in silence, and whether it is overdriven. Numbers only."""
+        if self.state not in ("idle", "speaking"):
+            raise ProtocolError("Unavailable", self.note or f"voice is {self.state}")
+        self._mic_level = asyncio.get_running_loop().create_future()
+        await self._send(wire.MeasureMic(seconds=seconds))
+        try:
+            level: wire.MicLevel = await asyncio.wait_for(self._mic_level, seconds + 10)
+        except TimeoutError:
+            raise ProtocolError("Unavailable", "the microphone didn't answer") from None
+        finally:
+            self._mic_level = None
+        return {"db": level.db, "peak_db": level.peak_db, "clipped_pct": level.clipped_pct,
+                "overdriven": level.db > OVERDRIVEN_DB or level.clipped_pct > OVERDRIVEN_CLIP_PCT}
+
+    async def fix_mic(self) -> dict:
+        """Lower an overdriven microphone's capture level, then measure again."""
+        try:
+            await Wpctl(node=SOURCE).set(FIXED_LEVEL_PCT, muted=False)
+        except Exception as e:  # noqa: BLE001  wpctl missing or refused
+            raise ProtocolError("Unavailable", f"couldn't change the microphone's level: {e}") from None
+        return await self.check_mic()
+
+    async def test_speaker(self) -> None:
+        await self._send(wire.Say(text="Hi, this is how I'll sound when I answer you."))
+        await self._send(wire.End())
 
     # ── What the person does ─────────────────────────────────────────────────
 
@@ -239,11 +323,11 @@ class VoiceController:
                 self._set("speaking")
             case wire.Spoken(stopped=stopped):
                 self._last_spoken_at = time.monotonic()
-                if stopped or not self._follow_up:
-                    self._set("idle")
-                else:  # a follow-up needs no shortcut: listen a few seconds more
-                    self._follow_up = False
+                if not stopped and (self._follow_up or self._asking):
+                    self._follow_up = False  # a follow-up (or the answer to a question) needs no shortcut
                     await self._send(wire.Listen())
+                else:
+                    self._set("idle")
             case wire.BargeIn():
                 self._task = None
             case wire.Woke():
@@ -253,10 +337,16 @@ class VoiceController:
                 self._set("suspended")
             case wire.Transcribe() | wire.Synthesize():
                 asyncio.ensure_future(self._cloud_answer(event))
+            case wire.MicLevel():
+                if self._mic_level is not None and not self._mic_level.done():
+                    self._mic_level.set_result(event)
 
     async def _cloud_answer(self, request: wire.Transcribe | wire.Synthesize) -> None:
-        """The worker asks for cloud speech (it has no network): answer it, or say what failed."""
+        """The worker asks for cloud speech (it has no network): answer it, or say what failed. The
+        worker then uses its local backend for that utterance or sentence, and the note says so
+        until the cloud answers again."""
         s = self._settings
+        hearing = isinstance(request, wire.Transcribe)
         try:
             if self._cloud is None:
                 raise VoiceError("cloud speech", "isn't available here")
@@ -266,14 +356,30 @@ class VoiceController:
             else:
                 speech = await self._cloud.synthesize(s.tts, request.text, s.cloud_voice)
                 reply = wire.Audio(id=request.id, rate=speech.rate, pcm=remote.pcm(speech.samples))
+            if self._cloud_note and self.note == self._cloud_note:
+                self._set(self.state, "")
+            self._cloud_note = ""
         except VoiceError as e:
-            self._set(self.state, e.message)
-            reply = (wire.Transcript(id=request.id, error=e.message) if isinstance(request, wire.Transcribe)
+            self._cloud_note = f"{e.message}, so {CLOUD_FALLBACK['hearing' if hearing else 'speaking']}"
+            self._set(self.state, self._cloud_note)
+            reply = (wire.Transcript(id=request.id, error=e.message) if hearing
                      else wire.Audio(id=request.id, error=e.message))
         await self._send_quietly(reply)
 
     async def _heard(self, text: str) -> None:
-        """A finished utterance: stop the task, or ask Mei."""
+        """A finished utterance: an answer to an approval Mei read out, stop the task, or ask Mei."""
+        if self._asking is not None and (CONFIRM.match(text) or DECLINE.match(text)):
+            approval, self._asking = self._asking, None
+            try:
+                self._engine.resolve_approval(ResolveApprovalArgs(
+                    command_id=new_id(), approval_id=approval, decision="allow" if CONFIRM.match(text) else "deny",
+                    scope="once"), decided_by="voice")
+            except ProtocolError as e:  # answered on screen meanwhile, or the action changed
+                self._set("idle", e.message)
+                return
+            self._set("thinking")
+            return
+        self._asking = None  # anything else: the card stays on screen, and these words join the task
         running = self._running_task()
         if STOP.match(text):
             if running is not None:
@@ -326,7 +432,9 @@ class VoiceController:
             self._say(self._sentences.feed(content[self._fed:] + "\n"))
             self._fed = len(content)
         elif event.type == "approval.requested":
-            self._say(["I need your OK for that. It's on screen."])
+            self._ask_aloud(p["approval"])
+        elif event.type == "approval.resolved" and p.get("approval_id") == self._asking:
+            self._asking = None
         elif event.type == "input.requested":
             self._say([p["request"]["spec"]["question"]])
         elif event.type == "task.finished":
@@ -337,6 +445,20 @@ class VoiceController:
             self._task = None
             self._follow_up = p.get("state") == "COMPLETED"
             asyncio.ensure_future(self._send_quietly(wire.End()))
+
+    def _ask_aloud(self, approval: dict) -> None:
+        """Read the action back and listen for "yes, do it", if a voice may approve it (§11.6):
+        local, undo recorded, private, nothing sent off this computer, no data lost. Otherwise the
+        card on screen is the only way."""
+        action = self._engine.store.read_one("SELECT effects FROM actions WHERE id = ?", (approval["action_id"],))
+        effects = json.loads(action["effects"] or "{}") if action is not None else {}
+        if spoken_ok(effects):
+            self._asking = approval["id"]
+            ask = [f"I'd like to {speakable_title(approval['card']['title'])}.", "Say yes, do it, or no."]
+        else:
+            ask = ["I need your OK for that. It's on screen."]
+        self._say(self._sentences.flush() + ask)
+        asyncio.ensure_future(self._send_quietly(wire.End()))  # this much is said; the task waits
 
     def _say(self, sentences: list[str]) -> None:
         for sentence in sentences:
@@ -355,3 +477,18 @@ class VoiceController:
             return
         self.state = state
         self._emit("voice.state", {"state": state, "note": self.note, "conversation_id": self._conversation})
+
+
+def spoken_ok(effects: dict) -> bool:
+    """May a voice approve an action with these effects? (§11.6: a voice in the room isn't verified.)"""
+    return (effects.get("mutates") == "local" and effects.get("undo") == "recorded"
+            and effects.get("visibility", "private") == "private" and effects.get("disclosure", "none") != "off_machine"
+            and not effects.get("loses_data", False))
+
+
+def speakable_title(title: str) -> str:
+    """A card title as it is said: "Move ~/Music/old.txt to the trash" → "move old.txt in Music to the trash"."""
+    def say_path(m: re.Match) -> str:
+        return f"{m.group(2)} in {m.group(1)}" if m.group(1) else f"{m.group(2)} in your home folder"
+    text = _HOME_PATH.sub(say_path, title)
+    return text[:1].lower() + text[1:]

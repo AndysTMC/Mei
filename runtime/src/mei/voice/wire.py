@@ -79,6 +79,11 @@ class Quit(Command, tag="quit"):
     pass
 
 
+class MeasureMic(Command, tag="measure_mic"):
+    """Listen `seconds` in silence and report the level (setup's microphone check). Numbers only."""
+    seconds: float = 3.0
+
+
 class Transcript(Command, tag="transcript"):
     """The core's answer to Transcribe."""
     id: str
@@ -95,7 +100,7 @@ class Audio(Command, tag="audio"):
 
 
 AnyCommand = (Load | Listen | DoneTalking | CancelListen | Say | End | StopSpeaking | Arm | Suspend | Resume
-              | Diagnose | Quit | Transcript | Audio)
+              | Diagnose | Quit | Transcript | Audio | MeasureMic)
 
 
 class Event(msgspec.Struct, tag_field="ev", kw_only=True):
@@ -155,6 +160,12 @@ class Suspended(Event, tag="suspended"):
     pass
 
 
+class MicLevel(Event, tag="mic_level"):
+    db: float  # RMS level of the whole measurement, dBFS
+    peak_db: float
+    clipped_pct: float  # samples at or near full scale
+
+
 class Transcribe(Event, tag="transcribe"):
     """Speech to text by the core: one utterance, mono float32 at 16 kHz, base64."""
     id: str
@@ -175,7 +186,7 @@ class Diagnosis(Event, tag="diagnosis"):
 
 
 AnyEvent = (Ready | Failed | Listening | SpeechStarted | Partial | Final | NoSpeech | Speaking | Spoken | BargeIn | Woke
-            | Suspended | Diagnosis | Transcribe | Synthesize)
+            | Suspended | Diagnosis | Transcribe | Synthesize | MicLevel)
 
 # One message per line; a line can carry audio (up to a 30 s utterance or a long sentence, base64).
 MAX_LINE = 8 << 20

@@ -28,6 +28,11 @@ def have_kroko(root: Path) -> bool:
     return (root / KROKO.folder).is_dir()
 
 
+def have_piper(root: Path, voice: str) -> bool:
+    model = PIPER.get(voice)
+    return model is not None and (root / model.folder).is_dir()
+
+
 def _need(path: Path, part: str) -> str:
     if not path.exists():
         raise VoiceError(part, f"the model isn't downloaded ({path.name})")

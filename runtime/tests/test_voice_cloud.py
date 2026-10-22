@@ -106,3 +106,39 @@ async def test_through_the_worker_the_core_hears_and_speaks_for_it(tmp_path):
     assert cloud.said == ["Sunny.", "Warm too."]
     assert len(np.fromfile(tmp_path / "played.f32", dtype=np.float32)) == 16000  # both sentences played
     await v.stop()
+
+
+async def test_when_the_cloud_fails_this_computer_hears_and_speaks_instead(tmp_path):
+    """No key, offline, or an HTTP error: Kroko writes the utterance down and Piper says the reply,
+    and voice's note says why, until the cloud answers again."""
+    pytest.importorskip("sherpa_onnx")
+    from test_voice import say
+    from test_voice_controller import controller, states, until
+    from agent_harness import Harness
+    from pathlib import Path
+    from mei.voice import local
+    from mei.store import repo
+    root = Path.home() / ".cache/mei-spikes/0c/models"
+    if not (root / "silero_vad.onnx").exists():
+        pytest.skip("voice models not downloaded")
+
+    class DownCloud:
+        async def transcribe(self, backend, audio):
+            raise VoiceError("cloud speech", "Groq can't be reached (ConnectError)")
+
+        async def synthesize(self, backend, text, voice=""):
+            raise VoiceError("cloud speech", "no OpenAI key: add one in Settings → Model provider")
+
+    h = Harness(tmp_path, script=[{"text": "Sunny and warm."}])
+    v, seen = controller(h, root, tmp_path, await say(local.piper(root), 0.3, "What's the weather like?", 8.0))
+    v._cloud = DownCloud()
+    await v.apply(VoiceSettings(enabled=True, stt="groq", tts="openai"))
+    await v.wait_ready()
+    await v.listen(None)
+    await until(lambda: "speaking" in states(seen) and states(seen)[-1] == "idle")
+    [conversation] = repo.list_conversations(h.store)
+    user = next(m for m in repo.history(h.store, conversation["id"]) if m["role"] == "user")
+    assert "weather" in user["content"].lower()  # written down by Kroko
+    assert len(np.fromfile(tmp_path / "played.f32", dtype=np.float32)) > 8000  # said by Piper
+    assert v.note.startswith("no OpenAI key") and v.note.endswith("Mei spoke with this computer's voice")
+    await v.stop()

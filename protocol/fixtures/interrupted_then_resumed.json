@@ -1,7 +1,7 @@
 {
  "description": "Mei restarts mid-reply (task INTERRUPTED with a draft), then the user resumes.",
  "attach": {
-  "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
+  "epoch": "bed05540-359d-449e-ab71-560100aeda66",
   "seq": 1,
   "mode": "snapshot",
   "snapshot": {
@@ -13,64 +13,64 @@
   {
    "v": 2,
    "type": "conversation.created",
-   "event_id": "f71c0ee5-8d7d-4e70-9ad0-51295ab23076",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.235Z",
+   "event_id": "7d9ce889-ad9f-4787-aaba-ead2ba9b10ba",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.421Z",
    "required": true,
    "seq": 2,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
    "task_id": null,
    "payload": {
     "conversation": {
-     "id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
+     "id": "875f47db-386e-42d2-b0a3-926097f53826",
      "title": "Survive a restart",
-     "created_at": 1792606919235,
-     "updated_at": 1792606919235
+     "created_at": 1792677472421,
+     "updated_at": 1792677472421
     }
    }
   },
   {
    "v": 2,
    "type": "message.completed",
-   "event_id": "716b7c2d-0bc0-477d-b4e7-26394ed616b2",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.235Z",
+   "event_id": "65e3efdd-4e0f-4eee-97ea-b4fce408efc4",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.421Z",
    "required": true,
    "seq": 3,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
    "task_id": null,
    "payload": {
     "message": {
-     "id": "98094d1a-1a26-4111-9f98-fa9aa0ecd921",
-     "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
+     "id": "15f36c05-2222-4c21-a137-33fd4c824071",
+     "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
      "task_id": null,
      "role": "user",
      "content": "Survive a restart",
      "thinking": null,
      "metadata": {},
-     "created_at": 1792606919235
+     "created_at": 1792677472421
     }
    }
   },
   {
    "v": 2,
    "type": "task.accepted",
-   "event_id": "2622ab9a-3ca1-4775-b46e-3f8b535a2b12",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.235Z",
+   "event_id": "bd3e5540-e084-4b33-a42f-6fa3c7bd7045",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.421Z",
    "required": true,
    "seq": 4,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
     "task": {
-     "id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
-     "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
+     "id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
+     "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
      "state": "ACCEPTED",
-     "input_message_id": "98094d1a-1a26-4111-9f98-fa9aa0ecd921",
+     "input_message_id": "15f36c05-2222-4c21-a137-33fd4c824071",
      "error": null,
-     "created_at": 1792606919235,
-     "updated_at": 1792606919235,
+     "created_at": 1792677472421,
+     "updated_at": 1792677472421,
      "mode": "INTERACTIVE",
      "plan": {},
      "outcome": null
@@ -80,15 +80,15 @@
   {
    "v": 2,
    "type": "task.state_changed",
-   "event_id": "3fbf96eb-ebde-45d9-a972-c53afbaa3f84",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.236Z",
+   "event_id": "75440172-0958-4f29-b71d-428856909d72",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.421Z",
    "required": true,
    "seq": 5,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+    "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
     "from": "ACCEPTED",
     "to": "RUNNING",
     "error": null
@@ -97,18 +97,18 @@
   {
    "v": 2,
    "type": "model.started",
-   "event_id": "f8d849f1-d8ec-41a3-a870-fd7844e5bad2",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.236Z",
+   "event_id": "5de5ec75-889c-4a8a-8baf-38355db15f9d",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.422Z",
    "required": true,
    "seq": 6,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
-    "turn_id": "7275f3e6-dc06-4239-93da-c7196b9c210b",
+    "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
+    "turn_id": "832e7c87-6d0a-4101-8e4e-bc2be6c59f08",
     "attempt": 1,
-    "message_id": "cc9c4d69-7d18-44b6-a799-0eacc312dea1",
+    "message_id": "8eb74e8a-f8ca-4250-8153-62911b529718",
     "provider": {
      "id": "fake",
      "label": "Fake",
@@ -119,15 +119,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "87ddac32-074d-4386-b438-5e35731affcd",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.290Z",
+   "event_id": "167277a4-1b6c-49d4-8951-6a59c06eebc4",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.476Z",
    "required": false,
    "seq": null,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "message_id": "cc9c4d69-7d18-44b6-a799-0eacc312dea1",
+    "message_id": "8eb74e8a-f8ca-4250-8153-62911b529718",
     "chunk": 1,
     "text": "",
     "thinking": "Let me thi"
@@ -136,15 +136,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "18a752f6-9fa3-4d92-aed8-23f8ec4f6201",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.332Z",
+   "event_id": "66875341-64fa-463a-a94a-12ea77892167",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.519Z",
    "required": false,
    "seq": null,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "message_id": "cc9c4d69-7d18-44b6-a799-0eacc312dea1",
+    "message_id": "8eb74e8a-f8ca-4250-8153-62911b529718",
     "chunk": 2,
     "text": "Mei k",
     "thinking": "nk."
@@ -153,15 +153,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "15c9df39-5313-49fb-b874-01e78b8520d7",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.373Z",
+   "event_id": "ad2fdea3-e96b-4761-83dd-86598bce4342",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.560Z",
    "required": false,
    "seq": null,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "message_id": "cc9c4d69-7d18-44b6-a799-0eacc312dea1",
+    "message_id": "8eb74e8a-f8ca-4250-8153-62911b529718",
     "chunk": 3,
     "text": "eeps every",
     "thinking": ""
@@ -170,15 +170,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "6711ef79-ea74-4dd6-9a8c-fdfb878609f8",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.415Z",
+   "event_id": "5e09f29d-0418-4252-bc04-7309f8245d2b",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.601Z",
    "required": false,
    "seq": null,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "message_id": "cc9c4d69-7d18-44b6-a799-0eacc312dea1",
+    "message_id": "8eb74e8a-f8ca-4250-8153-62911b529718",
     "chunk": 4,
     "text": " word, eve",
     "thinking": ""
@@ -187,15 +187,15 @@
   {
    "v": 2,
    "type": "task.state_changed",
-   "event_id": "370776f2-0f1e-49fa-bca1-4a254e770921",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.418Z",
+   "event_id": "dca26f12-2dad-4609-a57d-412d90bab04a",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.601Z",
    "required": true,
    "seq": 7,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+    "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
     "from": "RUNNING",
     "to": "INTERRUPTED",
     "error": "Mei was restarting"
@@ -204,15 +204,15 @@
   {
    "v": 2,
    "type": "task.finished",
-   "event_id": "48fcf42d-a93a-4d2a-a115-ea72220ef92e",
-   "epoch": "47a629c9-65fe-4546-aff7-9feadd1c25b8",
-   "at": "2026-10-21T18:21:59.418Z",
+   "event_id": "5411dd55-911c-450e-9edd-04a09eabf1c3",
+   "epoch": "bed05540-359d-449e-ab71-560100aeda66",
+   "at": "2026-10-22T13:57:52.601Z",
    "required": true,
    "seq": 8,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+    "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
     "state": "INTERRUPTED",
     "error": "Mei was restarting",
     "draft": {
@@ -224,15 +224,15 @@
   {
    "v": 2,
    "type": "task.state_changed",
-   "event_id": "5f806cb2-b1a7-4f12-bd17-c9a4d8bf06ee",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.420Z",
+   "event_id": "0e376807-042c-44a6-a0e1-12ac7e7beeef",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.603Z",
    "required": true,
    "seq": 9,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+    "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
     "from": "INTERRUPTED",
     "to": "RUNNING",
     "error": null
@@ -241,18 +241,18 @@
   {
    "v": 2,
    "type": "model.started",
-   "event_id": "1f2aaff3-954b-4475-a832-910fb1f15637",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.421Z",
+   "event_id": "8340c92a-a1ae-4a0e-9dac-e8bc4d6e9598",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.604Z",
    "required": true,
    "seq": 10,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
-    "turn_id": "39e26b0a-89b2-4dcd-a31b-17e716cc71e5",
+    "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
+    "turn_id": "e691782a-ab8e-4b7f-81e0-e20695ba6b95",
     "attempt": 2,
-    "message_id": "79433a54-8cbd-4480-98a4-7067da2fdb18",
+    "message_id": "6f62a900-2878-4176-8118-ba0f8f1a2e70",
     "provider": {
      "id": "fake",
      "label": "Fake",
@@ -263,15 +263,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "809d1199-b0c2-4f77-b12d-5dd10b5db01a",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.475Z",
+   "event_id": "157c10c1-6219-4449-8ed1-91ef97fd090c",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.658Z",
    "required": false,
    "seq": null,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "message_id": "79433a54-8cbd-4480-98a4-7067da2fdb18",
+    "message_id": "6f62a900-2878-4176-8118-ba0f8f1a2e70",
     "chunk": 1,
     "text": "",
     "thinking": "Let me thi"
@@ -280,15 +280,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "2f8ebc7f-707c-4fcf-8b6d-a7ed55895881",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.517Z",
+   "event_id": "e79f19d8-17bc-4e24-9c3c-e70d17a9de5c",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.699Z",
    "required": false,
    "seq": null,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "message_id": "79433a54-8cbd-4480-98a4-7067da2fdb18",
+    "message_id": "6f62a900-2878-4176-8118-ba0f8f1a2e70",
     "chunk": 2,
     "text": "Mei k",
     "thinking": "nk."
@@ -297,15 +297,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "8e900368-d4a6-484e-85c7-07de4707d121",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.559Z",
+   "event_id": "c5f1fffd-da0a-4fb4-ac13-b7b8d86c9377",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.741Z",
    "required": false,
    "seq": null,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "message_id": "79433a54-8cbd-4480-98a4-7067da2fdb18",
+    "message_id": "6f62a900-2878-4176-8118-ba0f8f1a2e70",
     "chunk": 3,
     "text": "eeps every",
     "thinking": ""
@@ -314,15 +314,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "7fb7ada2-1ece-4ab4-84e1-00f389909cd4",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.600Z",
+   "event_id": "b5681f21-32c8-4ae3-a6b4-65880645f52f",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.784Z",
    "required": false,
    "seq": null,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "message_id": "79433a54-8cbd-4480-98a4-7067da2fdb18",
+    "message_id": "6f62a900-2878-4176-8118-ba0f8f1a2e70",
     "chunk": 4,
     "text": " word, eve",
     "thinking": ""
@@ -331,15 +331,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "aafddcef-bd23-4a5d-92b6-700285bab1c1",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.641Z",
+   "event_id": "187a0a99-738c-420a-a67f-1a3befe09de9",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.825Z",
    "required": false,
    "seq": null,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "message_id": "79433a54-8cbd-4480-98a4-7067da2fdb18",
+    "message_id": "6f62a900-2878-4176-8118-ba0f8f1a2e70",
     "chunk": 5,
     "text": "n across r",
     "thinking": ""
@@ -348,15 +348,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "55659592-66b8-4dfb-8e83-2a8ec3db0893",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.669Z",
+   "event_id": "8129510d-6dc1-4d24-b85b-75d598955bb4",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.854Z",
    "required": false,
    "seq": null,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "message_id": "79433a54-8cbd-4480-98a4-7067da2fdb18",
+    "message_id": "6f62a900-2878-4176-8118-ba0f8f1a2e70",
     "chunk": 6,
     "text": "estarts.",
     "thinking": ""
@@ -365,18 +365,18 @@
   {
    "v": 2,
    "type": "message.completed",
-   "event_id": "7102539b-8b46-4a9b-9509-5f9186e42de3",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.669Z",
+   "event_id": "9cf61c78-78bb-4b86-b589-182744ca40cb",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.854Z",
    "required": true,
    "seq": 11,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
     "message": {
-     "id": "79433a54-8cbd-4480-98a4-7067da2fdb18",
-     "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-     "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+     "id": "6f62a900-2878-4176-8118-ba0f8f1a2e70",
+     "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+     "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
      "role": "assistant",
      "content": "Mei keeps every word, even across restarts.",
      "thinking": "Let me think.",
@@ -384,28 +384,28 @@
       "id": "fake",
       "label": "Fake",
       "model": "fake-1",
-      "duration_ms": 247,
+      "duration_ms": 249,
       "tokens": {
-       "input": 1963,
+       "input": 1962,
        "output": 43
       }
      },
-     "created_at": 1792606919669
+     "created_at": 1792677472854
     }
    }
   },
   {
    "v": 2,
    "type": "task.state_changed",
-   "event_id": "49d5fc76-62dc-42da-b086-15542fd57cf0",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.670Z",
+   "event_id": "1f8306ae-ef36-4d0d-bba6-b7013c9fca9a",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.854Z",
    "required": true,
    "seq": 12,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+    "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
     "from": "RUNNING",
     "to": "COMPLETED",
     "error": null
@@ -414,15 +414,15 @@
   {
    "v": 2,
    "type": "task.finished",
-   "event_id": "c0959e4c-e466-4b9c-a7fd-81c1584d5fa6",
-   "epoch": "8e7686c9-82ed-4f4e-b8e9-51bf151a18dc",
-   "at": "2026-10-21T18:21:59.670Z",
+   "event_id": "63554fde-8018-4ffd-b871-ad953e00cad8",
+   "epoch": "f5a8a2c3-c395-408a-bb59-d710da0add4d",
+   "at": "2026-10-22T13:57:52.855Z",
    "required": true,
    "seq": 13,
-   "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
-   "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+   "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
+   "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
    "payload": {
-    "task_id": "0ab1ee8e-2dcd-48ea-8150-28d38369fcaf",
+    "task_id": "58d3af3f-89f0-40a4-9b18-8daba2adb90b",
     "state": "COMPLETED",
     "error": null
    }
@@ -430,7 +430,7 @@
  ],
  "interrupted_at": 11,
  "expect": {
-  "conversation_id": "350cd4b7-ffcb-429e-b4e6-1e7f8dbcae8a",
+  "conversation_id": "875f47db-386e-42d2-b0a3-926097f53826",
   "reply": "Mei keeps every word, even across restarts.",
   "state": "COMPLETED"
  }

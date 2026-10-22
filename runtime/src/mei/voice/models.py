@@ -43,6 +43,8 @@ KOKORO = _release("tts-models", "kokoro-en-v0_19.tar.bz2", "natural voices",
 KWS = _release("kws-models", "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2", "wake word",
                "f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a", 17_626_723)
 BASIC = (SILERO, KROKO, PIPER["amy"])  # enough to talk to Mei: ~125 MB
+CATALOG = {"silero": SILERO, "kroko": KROKO, "piper-amy": PIPER["amy"], "piper-lessac": PIPER["lessac"],
+           "kokoro": KOKORO, "wake": KWS}
 
 # Kokoro v0.19's speakers, by speaker id.
 KOKORO_VOICES = ("af", "af_bella", "af_nicole", "af_sarah", "af_sky", "am_adam", "am_michael", "bf_emma",
