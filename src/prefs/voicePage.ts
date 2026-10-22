@@ -38,7 +38,8 @@ export function voiceBasics(window: Gtk.Window, settings: RuntimeSettings): { gr
         description: 'Voice runs on this computer. These are downloaded once, from the models’ publisher, and checked.' });
     const getAll = new Gtk.Button({ label: 'Download', valign: Gtk.Align.CENTER, css_classes: ['suggested-action'] });
     models.set_header_suffix(getAll);
-    const modelRows = new Map<string, Adw.ActionRow>();
+    // Each model's row, with Download (needed or offered) or Remove (not needed) on it.
+    const modelRows = new Map<string, { row: Adw.ActionRow; action: Gtk.Button; act: 'download' | 'remove' | '' }>();
 
     const checks = new Adw.PreferencesGroup({ title: 'Check' });
     const mic = new Adw.ActionRow({ title: 'Microphone', subtitle: 'Stay quiet for three seconds while Mei listens' });
@@ -58,17 +59,31 @@ export function voiceBasics(window: Gtk.Window, settings: RuntimeSettings): { gr
     const fail = (e: unknown) => window instanceof Adw.PreferencesWindow
         ? window.add_toast(new Adw.Toast({ title: e instanceof Error ? e.message : String(e) })) : undefined;
 
+    const modelRow = (id: string, part: string) => {
+        const row = new Adw.ActionRow({ title: part.charAt(0).toUpperCase() + part.slice(1) });
+        const action = new Gtk.Button({ valign: Gtk.Align.CENTER, visible: false });
+        row.add_suffix(action);
+        const entry = { row, action, act: '' as 'download' | 'remove' | '' };
+        action.connect('clicked', () => {
+            action.set_sensitive(false);
+            const done = entry.act === 'remove' ? settings.removeVoiceModels([id]) : settings.downloadVoiceModels([id]);
+            done.then(() => refresh()).catch(fail).finally(() => action.set_sensitive(true));
+        });
+        modelRows.set(id, entry);
+        models.add(row);
+        return entry;
+    };
+
     const show = (reply: VoiceModelsReply) => {
         status.set_subtitle(voiceStatusText(reply.state, reply.note));
         for (const m of reply.models) {
-            if (!m.needed && !m.have && !modelRows.has(m.id)) continue;
-            let row = modelRows.get(m.id);
-            if (!row) {
-                row = new Adw.ActionRow({ title: m.part.charAt(0).toUpperCase() + m.part.slice(1) });
-                modelRows.set(m.id, row);
-                models.add(row);
-            }
-            row.set_subtitle(modelLine(m));
+            const entry = modelRows.get(m.id) ?? (m.needed || m.have || m.offered ? modelRow(m.id, m.part) : null);
+            if (!entry) continue;
+            entry.row.set_visible(m.needed || m.have || m.offered);
+            entry.row.set_subtitle(modelLine(m));
+            entry.act = !m.have && !reply.downloading ? 'download' : m.have && !m.needed ? 'remove' : '';
+            entry.action.set_label(entry.act === 'remove' ? 'Remove' : 'Download');
+            entry.action.set_visible(entry.act !== '');
         }
         const missing = reply.models.filter(m => m.needed && !m.have).map(m => m.id);
         getAll.set_sensitive(missing.length > 0 && !reply.downloading);
@@ -161,7 +176,7 @@ export class VoicePage {
         const mic = listRow(settings, 'Microphone', () => deviceOptions(devices.mics, v().mic), () => v().mic,
             id => settings.setVoice('mic', id));
         const pause = numberRow(settings, 'Pause before Mei answers', 'Seconds of quiet that mean you’ve finished',
-            [0.3, 2.0, 0.1], () => v().end_silence_ms / 1000, s => settings.setVoice('end_silence_ms', Math.round(s * 1000)));
+            [0.3, 2.0, 0.1, 1], () => v().end_silence_ms / 1000, s => settings.setVoice('end_silence_ms', Math.round(s * 1000)));
         const wake = toggle(settings, 'Listen for “Hey Mei”',
             'The microphone stays on. Slower to react than the shortcut, and it can wake on similar words.', 'wake_word');
         const bargeIn = toggle(settings, 'Interrupt by talking',
@@ -178,11 +193,17 @@ export class VoicePage {
             (id: TtsChoice) => settings.setVoice('tts', id));
         const who = listRow(settings, 'Voice', () => voices[v().tts] ?? [], () => voiceIdOf(v()),
             id => chooseVoice(settings, id));
-        const speed = numberRow(settings, 'Speed', '1 is normal', [0.5, 2.0, 0.1], () => v().speed,
+        const speed = numberRow(settings, 'Speed', '1 is normal', [0.5, 2.0, 0.1, 1], () => v().speed,
             s => settings.setVoice('speed', s));
+        // The natural voice on the GPU, on demand (decision 0019): only with an NVIDIA GPU.
+        const gpu = switchRow(settings, 'changed::voice', 'Use the graphics card',
+            'Starts speaking about a second sooner. The card wakes while you talk to Mei and sleeps when it’s unused.',
+            () => v().device !== 'cpu', on => settings.setVoice('device', on ? 'auto' : 'cpu'));
+        const sleep = numberRow(settings, 'Let it sleep after', 'Minutes unused', [1, 60, 1, 0], () => v().gpu_idle_min,
+            m => settings.setVoice('gpu_idle_min', m));
         const output = listRow(settings, 'Speaker', () => deviceOptions(devices.outputs, v().output), () => v().output,
             id => settings.setVoice('output', id));
-        for (const r of [out, tts, who, speed, output]) {
+        for (const r of [out, tts, who, speed, gpu, sleep, output]) {
             speaking.add(r.row);
             this._parts.push(r);
         }
@@ -190,9 +211,19 @@ export class VoicePage {
         prefs.add(models);
         prefs.add(checks);
 
+        let hasGpu = false;
+        const showGpu = () => {
+            gpu.row.set_visible(hasGpu && v().tts === 'kokoro');
+            sleep.row.set_visible(hasGpu && v().tts === 'kokoro' && v().device !== 'cpu');
+        };
+        const gpuSignal = settings.connect('changed::voice', showGpu);
+        this._parts.push({ destroy: () => settings.disconnect(gpuSignal) });
+        showGpu();
         settings.voiceModels().then(reply => {
             voices = reply.voices;
+            hasGpu = reply.gpu;
             who.render();
+            showGpu();
         }).catch(e => who.row.set_subtitle(`Couldn’t list voices: ${e instanceof Error ? e.message : String(e)}`));
         settings.voiceDevices().then(reply => {
             devices = reply;
@@ -251,12 +282,13 @@ function listRow(settings: RuntimeSettings, title: string, options: () => VoiceO
 }
 
 /** A number, written back once it stops changing (each change reloads the voice worker). */
-function numberRow(settings: RuntimeSettings, title: string, subtitle: string, [min, max, step]: [number, number, number],
-    current: () => number, choose: (value: number) => void): Row<Adw.SpinRow> {
+function numberRow(settings: RuntimeSettings, title: string, subtitle: string,
+    [min, max, step, digits]: [number, number, number, number], current: () => number,
+    choose: (value: number) => void): Row<Adw.SpinRow> {
     const row = Adw.SpinRow.new_with_range(min, max, step);
     row.set_title(title);
     row.set_subtitle(subtitle);
-    row.set_digits(1);
+    row.set_digits(digits);
     let updating = false;
     let pending = 0;
     const render = () => {

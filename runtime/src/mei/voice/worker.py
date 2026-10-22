@@ -22,6 +22,7 @@ import msgspec
 import numpy as np
 
 from . import local, pipeline, remote, wire
+from .gpu_speaker import GpuKokoro
 from .parts import SAMPLE_RATE, AudioSink, AudioSource, VoiceError, level_db
 from .pipewire import PipeWireSink, PipeWireSource
 from .recorded import CaptureSink, RecordedSource
@@ -41,6 +42,8 @@ class Worker:
         self._wake: local.SherpaWake | None = None
         self._listener: pipeline.Listener | None = None
         self._speaker: pipeline.Speaker | None = None
+        self._tts = None  # what speaks: warmed when listening starts
+        self._gpu_note = ""
         self._config: wire.Load | None = None
         self._mic_task: asyncio.Task | None = None  # whatever holds the microphone now
         self._mic_job = ""  # "listen", "wake", or "barge" while _mic_task runs
@@ -104,8 +107,19 @@ class Worker:
             case wire.Quit():
                 await self._release_mic()
                 await self._speaker_stop()
+                await self._close_tts()
                 return False
         return True
+
+    def _note_gpu(self, message: str) -> None:
+        if message != self._gpu_note:  # once per cause, not once per sentence
+            self._gpu_note = message
+            self.emit(wire.Failed(part="speech", message=message))
+
+    async def _close_tts(self) -> None:
+        tts, self._tts = self._tts, None
+        if isinstance(tts, GpuKokoro):
+            await tts.close()
 
     def _ready(self) -> bool:
         if self._listener is None or self._speaker is None:
@@ -115,13 +129,17 @@ class Worker:
 
     async def _load(self, cfg: wire.Load) -> None:
         root = Path(cfg.models)
+        await self._close_tts()
         try:
             self._vad = local.SileroVad(root)
             stt = local.KrokoStt(root) if cfg.stt == "kroko" or local.have_kroko(root) else None
             if cfg.stt == "core":
                 stt = remote.CoreStt(self._link, local=stt)
             if cfg.tts == "kokoro":
-                tts, device, note = local.kokoro(root, cfg.speaker, cfg.speed, cfg.device)
+                tts, device, note = local.kokoro(root, cfg.speaker, cfg.speed, "cpu")
+                if cfg.gpu_engine and cfg.device != "cpu":  # the GPU when awake, this CPU voice meanwhile
+                    load = {"models": cfg.models, "speaker": cfg.speaker, "speed": cfg.speed}
+                    tts, device = GpuKokoro(tts, Path(cfg.gpu_engine), load, cfg.gpu_idle_s, self._note_gpu), "gpu"
             elif cfg.tts == "core":  # Piper says what the cloud can't
                 fallback = local.piper(root, cfg.voice, cfg.speed) if local.have_piper(root, cfg.voice) else None
                 tts, device, note = remote.CoreTts(self._link, fallback), "cloud", ""
@@ -141,7 +159,7 @@ class Worker:
         self._listener = pipeline.Listener(self._source, self._vad, stt, ep)
         self._speaker = pipeline.Speaker(tts, self._sink, on_start=self._spoke, on_done=self._spoken,
                                          on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)))
-        self._config = cfg
+        self._config, self._tts = cfg, tts
         self._armed = cfg.wake and self._wake is not None
         self.emit(wire.Ready(stt=stt.name, tts=tts.name, device=device, note=note, wake=self._wake is not None))
         self._rearm()
@@ -183,6 +201,8 @@ class Worker:
     async def _listen(self, preroll: list | None = None) -> None:
         task = asyncio.current_task()
         self.emit(wire.Listening())
+        if self._tts is not None:
+            self._tts.warm()  # wake the GPU while the person talks
         try:
             async for heard in self._listener.listen(preroll):
                 match heard:

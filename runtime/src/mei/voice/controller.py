@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import re
+import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -30,7 +31,7 @@ import httpx
 from mei.desktop.run import ToolFailed
 from mei.desktop.sound import SOURCE, Wpctl, audio_devices
 
-from . import download, remote, wire
+from . import download, gpu_engine, jail, remote, wire
 from .cloud import TTS, CloudSpeech
 from .models import CATALOG, KOKORO, KOKORO_VOICES, KROKO, KWS, PIPER, SILERO, have, kokoro_label, models_dir
 from .parts import VoiceError
@@ -44,6 +45,7 @@ DECLINE = re.compile(r"^\s*(no|nope|don'?t|do not)([,.]?\s+(do it|don'?t|thanks|
 _HOME_PATH = re.compile(r"~/(?:([^/\s]+)/)*([^/\s]+)")
 FOLLOW_UP_WINDOW_S = 300  # the wake word continues the last spoken conversation within this time
 RESTARTS = (1.0, 5.0, 30.0)  # back-off when the worker dies
+GPU_ENGINE = "gpu-engine"  # the GPU engine's id among the models (it is downloaded the same way)
 CLOUD_FALLBACK = {"hearing": "this computer wrote down what you said", "speaking": "Mei spoke with this computer's voice"}
 OVERDRIVEN_DB = -20.0  # silence louder than this, or any real clipping, breaks voice detection (spike 0c)
 OVERDRIVEN_CLIP_PCT = 0.5
@@ -53,13 +55,17 @@ States = ("off", "unavailable", "starting", "idle", "listening", "thinking", "sp
 
 
 class VoiceController:
-    def __init__(self, engine, emit: Callable[[str, dict], None], argv: Callable[[VoiceSettings, Path], list[str]],
-                 models: Path | None = None, load_extra: dict | None = None, cloud: CloudSpeech | None = None,
-                 client: httpx.AsyncClient | None = None) -> None:
-        """`emit(type, payload)` sends an ephemeral event to clients; `argv(settings, models)` is the
-        command that starts the worker (in its jail). `cloud`: cloud speech, when chosen in Settings.
-        `load_extra`: test backends (recorded audio)."""
+    def __init__(self, engine, emit: Callable[[str, dict], None],
+                 argv: Callable[[VoiceSettings, Path, Path | None], list[str]], models: Path | None = None,
+                 load_extra: dict | None = None, cloud: CloudSpeech | None = None,
+                 client: httpx.AsyncClient | None = None,
+                 gpu_engine_for: Callable[[str, str], Path | None] = jail.gpu_engine_for) -> None:
+        """`emit(type, payload)` sends an ephemeral event to clients; `argv(settings, models, gpu engine)`
+        is the command that starts the worker (in its jail, given the GPU engine when it may use it).
+        `cloud`: cloud speech, when chosen in Settings. `load_extra`: test backends (recorded audio)."""
         self._engine = engine
+        self._gpu_engine_for = gpu_engine_for
+        self._gpu_engine: Path | None = None  # what the running worker's jail was given
         self._cloud = cloud
         self._client = client
         self._downloads: dict[str, dict] = {}  # model id → progress, while (and after) fetching
@@ -105,6 +111,9 @@ class VoiceController:
             return
         if self._proc is None:
             await self._spawn()
+        elif self._gpu_engine_for(settings.tts, settings.device) != self._gpu_engine:
+            await self.stop()  # the jail itself changes: the GPU joins or leaves it
+            await self._spawn()
         elif changed:
             await self._load()
 
@@ -138,7 +147,8 @@ class VoiceController:
     async def _spawn(self) -> None:
         self._set("starting")
         self._ready.clear()
-        argv = self._argv(self._settings, self._models)
+        self._gpu_engine = self._gpu_engine_for(self._settings.tts, self._settings.device)
+        argv = self._argv(self._settings, self._models, self._gpu_engine)
         try:
             self._proc = await asyncio.create_subprocess_exec(*argv, stdin=asyncio.subprocess.PIPE,
                                                               stdout=asyncio.subprocess.PIPE,
@@ -157,6 +167,7 @@ class VoiceController:
         await self._send(wire.Load(models=str(self._models), stt=stt, tts=tts, voice=s.voice, speaker=s.kokoro_speaker,
                                    speed=s.speed, device=s.device, wake=s.wake_word, barge_in=s.barge_in,
                                    end_silence_s=s.end_silence_ms / 1000, mic=s.mic, output=s.output,
+                                   gpu_engine=str(self._gpu_engine or ""), gpu_idle_s=s.gpu_idle_min * 60,
                                    **self._load_extra))
 
     async def wait_ready(self, timeout: float = 60.0) -> None:
@@ -165,30 +176,66 @@ class VoiceController:
     # ── Models, the microphone, the speakers (setup and Settings) ────────────
 
     def models(self) -> dict:
+        """The models, and with an NVIDIA GPU the GPU engine: never needed, offered when the
+        natural voice may use the GPU."""
         needed = {m.folder for m in self.needed()}
-        return {"state": self.state, "note": self.note,
-                "models": [{"id": key, "part": m.part, "size": m.size, "have": have(m, self._models),
-                            "needed": m.folder in needed, **self._downloads.get(key, {})} for key, m in CATALOG.items()],
-                "downloading": self._fetching is not None and not self._fetching.done(),
-                "voices": voice_choices()}
+        s, gpu = self._settings, gpu_engine.gpu_present()
+        rows = [{"id": key, "part": m.part, "size": m.size, "have": have(m, self._models), "needed": m.folder in needed,
+                 "offered": False, **self._downloads.get(key, {})} for key, m in CATALOG.items()]
+        if gpu:
+            rows.append({"id": GPU_ENGINE, "part": gpu_engine.PART, "size": gpu_engine.size(),
+                         "have": gpu_engine.installed(gpu_engine.engine_dir()), "needed": False,
+                         "offered": s.tts == "kokoro" and s.device != "cpu", **self._downloads.get(GPU_ENGINE, {})})
+        return {"state": self.state, "note": self.note, "models": rows, "gpu": gpu,
+                "downloading": self._busy(), "voices": voice_choices()}
+
+    def _busy(self) -> bool:
+        return self._fetching is not None and not self._fetching.done()
 
     def download(self, ids: list[str]) -> None:
         """Fetch these models in the background (progress in `models()`), then start voice if it is on."""
-        unknown = [i for i in ids if i not in CATALOG]
+        unknown = [i for i in ids if i not in CATALOG and i != GPU_ENGINE]
         if unknown:
             raise ProtocolError("InvalidArgument", f"no voice model {unknown[0]!r}")
         if self._client is None:
             raise ProtocolError("Unavailable", "downloads aren't available here")
-        if self._fetching is not None and not self._fetching.done():
+        if self._busy():
             raise ProtocolError("Busy", "a download is already running")
         self._fetching = asyncio.ensure_future(self._fetch(ids))
 
+    async def remove(self, ids: list[str]) -> None:
+        """Delete downloaded models (or the GPU engine); voice then carries on without them."""
+        unknown = [i for i in ids if i not in CATALOG and i != GPU_ENGINE]
+        if unknown:
+            raise ProtocolError("InvalidArgument", f"no voice model {unknown[0]!r}")
+        if self._busy():
+            raise ProtocolError("Busy", "a download is running")
+        if GPU_ENGINE in ids and self._gpu_engine is not None:
+            await self.stop()  # nothing may run from the engine while it is deleted
+        for key in ids:
+            self._downloads.pop(key, None)
+            if key == GPU_ENGINE:
+                gpu_engine.remove(gpu_engine.engine_dir())
+                continue
+            path = self._models / CATALOG[key].folder
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+        await self.apply(self._settings)
+
     async def _fetch(self, ids: list[str]) -> None:
         for key in ids:
-            progress = self._downloads[key] = {"got": 0, "total": CATALOG[key].size, "error": ""}
+            total = gpu_engine.size() if key == GPU_ENGINE else CATALOG[key].size
+            progress = self._downloads[key] = {"got": 0, "total": total, "error": ""}
+
+            def report(got: int, total: int, progress: dict = progress) -> None:
+                progress.update(got=got, total=total)
             try:
-                await download.fetch(self._client, CATALOG[key], self._models,
-                                     lambda got, total: progress.update(got=got, total=total))
+                if key == GPU_ENGINE:
+                    await gpu_engine.fetch(self._client, gpu_engine.engine_dir(), report)
+                else:
+                    await download.fetch(self._client, CATALOG[key], self._models, report)
             except VoiceError as e:
                 progress["error"] = e.message
                 return

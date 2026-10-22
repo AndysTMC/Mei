@@ -7,7 +7,8 @@ Models come from MEI_VOICE_MODELS, else the spike's cache. Prints a Markdown rep
 - end of speech → final text: endpointing plus the recognizer's last pass, per utterance;
 - first sentence synthesized: Piper and Kokoro (on the device Kokoro picks);
 - barge-in: speech onset over Mei's answer → playback stopped;
-- stopping a real output stream (silence, so inaudible): what PipeWire adds after the stop.
+- stopping a real output stream (silence, so inaudible): what PipeWire adds after the stop;
+- with `--only gpu`: waking the GPU voice, and its first sentence once awake.
 
 The model's own time to a first sentence is per provider: `MEI_LIVE_CHAT=1 npm run smoke:providers`.
 """
@@ -119,6 +120,23 @@ async def barge_in_latency(models: Path, tmp: Path, voice, trials: int) -> list[
     return out
 
 
+async def gpu_latency(models: Path, trials: int) -> tuple[list[float], list[float]]:
+    """The GPU voice (decision 0019): waking it (start to ready), then a first sentence once awake."""
+    from mei.voice import gpu_engine
+    from mei.voice.gpu_speaker import GpuSpeaker
+    engine = gpu_engine.engine_dir()
+    wake, say = [], []
+    for _ in range(trials):
+        t0 = time.monotonic()
+        speaker = await GpuSpeaker.start(engine, {"models": str(models), "speaker": 0, "speed": 1.0})
+        wake.append(time.monotonic() - t0)
+        t0 = time.monotonic()
+        await speaker.say(FIRST_SENTENCE)
+        say.append(time.monotonic() - t0)
+        await speaker.stop()
+    return wake, say
+
+
 async def stream_stop(trials: int) -> list[float]:
     """A real output stream playing silence, stopped: how long the stop takes."""
     out = []
@@ -143,7 +161,7 @@ async def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--trials", type=int, default=20)
     parser.add_argument("--no-stream", action="store_true", help="skip stopping a real (silent) output stream")
-    parser.add_argument("--only", choices=("final", "speech", "barge-in"), help="just this measure")
+    parser.add_argument("--only", choices=("final", "speech", "barge-in", "gpu"), help="just this measure")
     args = parser.parse_args()
     models = Path(os.environ.get("MEI_VOICE_MODELS") or Path.home() / ".cache/mei-spikes/0c/models")
     if not (models / "silero_vad.onnx").exists():
@@ -158,6 +176,10 @@ async def main() -> int:
         kokoro, device, note = local.kokoro(models)
         rows.append(row("First sentence, Piper (CPU)", await synth_latency(piper, args.trials)))
         rows.append(row(f"First sentence, Kokoro ({device.upper()})", await synth_latency(kokoro, max(5, args.trials // 4))))
+    if args.only == "gpu":  # needs an NVIDIA GPU and the GPU engine (MEI_GPU_ENGINE, or downloaded)
+        wake, say = await gpu_latency(models, max(3, args.trials // 4))
+        rows.append(row("GPU voice: woken to ready", wake))
+        rows.append(row("GPU voice: first sentence once awake", say))
     if args.only in (None, "barge-in"):
         barge = await barge_in_latency(models, tmp, piper, args.trials)
         rows.append(row("Barge-in: onset → playback stopped", barge, 0.35))

@@ -44,7 +44,8 @@ export type VoiceStateName =
 
 export type SttChoice = 'local' | 'openai' | 'groq';
 export type TtsChoice = 'piper' | 'kokoro' | 'openai' | 'gemini';
-/** Where Kokoro runs: the GPU when one works (auto), or always the processor. */
+/** Where the natural voice runs: the GPU on demand when there is one with its engine (auto), or
+ * always the processor (decision 0019). */
 export type VoiceDevice = 'auto' | 'cpu' | 'gpu';
 
 export interface VoiceSettingsDoc {
@@ -57,6 +58,7 @@ export interface VoiceSettingsDoc {
     kokoro_speaker: number;
     speed: number;
     device: VoiceDevice;
+    gpu_idle_min: number; // let the GPU go after this long unused
     barge_in: boolean;
     wake_word: boolean;
     end_silence_ms: number;
@@ -87,6 +89,8 @@ export interface VoiceModelView {
     size: number;
     have: boolean;
     needed: boolean;
+    /** Not needed, but offered for what is chosen (the GPU engine for the natural voice). */
+    offered: boolean;
     got?: number;
     total?: number;
     error?: string;
@@ -98,6 +102,8 @@ export interface VoiceModelsReply {
     models: VoiceModelView[];
     downloading: boolean;
     voices: Record<TtsChoice, VoiceOption[]>;
+    /** An NVIDIA GPU is present. */
+    gpu: boolean;
 }
 
 export interface MicLevelReply {

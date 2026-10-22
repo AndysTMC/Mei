@@ -1333,11 +1333,11 @@ Progress (2026-10-22): **built; four criteria open** (decision 0018 has the deta
 | False-wake rate on 8 h of recorded audio | **Open**: needs the owner's room audio (`spikes/0c/`). |
 | Mic stream closed while locked | `test_suspending_ends_the_real_capture_stream` (the recorder process ends, so `pw-dump` has no capture stream to show), `test_the_microphone_is_closed_while_the_screen_is_locked`. Not yet checked with `pw-dump` on the real microphone with the owner. |
 | No audio files written | Mei never records (§11.5's opt-in isn't built); `test_the_jail_has_nowhere_to_keep_audio`: the worker's only writable places are PipeWire's socket and a private tmpfs. |
-| The Voice setup step reruns cleanly; every choice is in Settings | Nested-Shell e2e through setup's Voice step and Settings → Voice (screenshots of the whole page); every voice choice has a row (`device` stays in the config unused: voice never uses the GPU, 0018). |
+| The Voice setup step reruns cleanly; every choice is in Settings | Nested-Shell e2e through setup's Voice step and Settings → Voice (screenshots of the whole page); every voice choice has a row. |
 | The worker has no network | `test_in_its_jail_the_worker_loads_but_reaches_nothing`. |
 | A spoken "yes" can't approve outside §11.6 | `test_a_spoken_yes_approves_only_what_a_voice_may`, `test_a_spoken_yes_never_approves_a_command_on_the_computer`, `test_which_effects_a_voice_may_approve`. |
 
-What differs from the plan above, and why (0018): push to talk is the way in and the wake word is off by default; no echo cancellation, so barge-in needs earphones; cloud speech falls back to this computer per utterance and sentence; the voice engine installs with Mei, CPU only (a GPU kept awake for Kokoro isn't worth it).
+What differs from the plan above, and why (0018): push to talk is the way in and the wake word is off by default; no echo cancellation, so barge-in needs earphones; cloud speech falls back to this computer per utterance and sentence; the voice engine installs with Mei; the natural voice can use the GPU on demand, woken while you talk and let go when idle (0019).
 
 ### Stage 6 — Computer use (L) — after 0b
 

@@ -95,6 +95,9 @@ class SpeechToText(Protocol):
 class TextToSpeech(Protocol):
     name: str
 
+    def warm(self) -> None:
+        """The person started talking to Mei: get ready to answer (wake a GPU), without waiting."""
+        ...
     async def synthesize(self, text: str) -> Speech: ...
 
 

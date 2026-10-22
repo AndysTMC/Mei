@@ -4,7 +4,7 @@ Status: accepted
 Date: 2026-10-22
 Deciders: owner (delegated)
 Supersedes: —
-Superseded-by: —
+Superseded-by: 0019 (in part: the GPU)
 
 ## Context
 
@@ -25,7 +25,7 @@ The owner asked for voice that feels like an everyday phone assistant: press, ta
 - **No echo cancellation yet, so barge-in is off by default.** §11.4's echo-cancel source isn't loaded. Talking over Mei is reliable with earphones, and Settings says so. With speakers, the shortcut stops Mei. Barge-in itself is as §11.4 says: 0.2 s of speech after a 0.3 s grace window, the last 0.8 s handed to listening. The 0.2 s counts from when the speech began, in the detector's 32 ms windows; stacking it on Silero's own 0.15 s cost ~100 ms and missed the target. Playback stops by ending the output stream, not by a ramp.
 - **Mei never records.** §11.5's "Keep voice recordings" isn't built. Audio lives in memory only, and the worker's jail has nowhere to write but a private tmpfs.
 - **Models** come from k2-fsa's sherpa-onnx releases at pinned URLs and sha256 digests. The core downloads them (the worker has no network) over HTTPS only, checks size and digest before unpacking, extracts with tarfile's `data` filter, and moves them into place atomically.
-- **The engine installs with Mei.** `install.sh` installs `mei-runtime[voice]`: sherpa-onnx, its onnxruntime, and numpy, ~35 MB. Where the engine has no build, Mei installs without voice and says so. Mei doesn't offer the CUDA build for Kokoro, so voice never uses the GPU. To be quick, Kokoro would have to stay loaded on it, and an open CUDA context keeps a laptop's NVIDIA GPU powered for as long as voice is on. Loading it only to speak costs the second it would save. The owner doesn't want that trade, so 0017's optional GPU download is dropped.
+- **The engine installs with Mei.** `install.sh` installs `mei-runtime[voice]`: sherpa-onnx, its onnxruntime, and numpy, ~35 MB. Where the engine has no build, Mei installs without voice and says so. The GPU build is an optional download, used on demand (superseded by 0019).
 - **Devices are chosen by PipeWire node name,** which stays the same across sessions, unlike node ids. The list comes from `pw-dump`, which opens no audio. A chosen device that isn't plugged in stays chosen and is marked "not connected" rather than silently switching.
 - **The microphone check** measures 3 s of silence and reports only numbers: level, peak, and clipping. Fix sets the chosen microphone's capture level to 50 % with `wpctl`, then measures again.
 

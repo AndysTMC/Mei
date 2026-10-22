@@ -135,8 +135,15 @@ class SherpaTts:
         self._speaker = speaker
         self._speed = speed
 
+    def warm(self) -> None:
+        pass  # always loaded
+
     async def synthesize(self, text: str) -> Speech:
-        audio = await asyncio.to_thread(self._tts.generate, text, sid=self._speaker, speed=self._speed)
+        return await asyncio.to_thread(self.synthesize_now, text)
+
+    def synthesize_now(self, text: str) -> Speech:
+        """In this thread (the GPU process has nothing else to do meanwhile)."""
+        audio = self._tts.generate(text, sid=self._speaker, speed=self._speed)
         return Speech(np.asarray(audio.samples, dtype=np.float32), audio.sample_rate)
 
 

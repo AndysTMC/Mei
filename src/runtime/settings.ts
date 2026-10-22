@@ -198,6 +198,10 @@ export class RuntimeSettings {
         await this._call('VoiceDownload', { models: ids });
     }
 
+    async removeVoiceModels(ids: string[]): Promise<void> {
+        await this._call('VoiceRemove', { models: ids });
+    }
+
     /** Listens a few seconds in silence; returns only the level. */
     async checkMic(): Promise<MicLevelReply> {
         return this._call<MicLevelReply>('VoiceCheckMic');
@@ -359,11 +363,11 @@ export class RuntimeSettings {
 }
 
 export type VoiceField = 'enabled' | 'speak_replies' | 'stt' | 'tts' | 'voice' | 'cloud_voice' | 'kokoro_speaker'
-    | 'speed' | 'device' | 'barge_in' | 'wake_word' | 'end_silence_ms' | 'mic' | 'output';
+    | 'speed' | 'device' | 'gpu_idle_min' | 'barge_in' | 'wake_word' | 'end_silence_ms' | 'mic' | 'output';
 
 const VOICE_DEFAULTS: VoiceSettingsDoc = {
     enabled: false, speak_replies: true, stt: 'local', tts: 'piper', voice: 'amy', cloud_voice: '', kokoro_speaker: 0,
-    speed: 1.0, device: 'auto', barge_in: false, wake_word: false, end_silence_ms: 500, mic: '', output: '',
+    speed: 1.0, device: 'auto', gpu_idle_min: 5, barge_in: false, wake_word: false, end_silence_ms: 500, mic: '', output: '',
 };
 
 function voiceOf(doc: ConfigDoc): VoiceSettingsDoc {

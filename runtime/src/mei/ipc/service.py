@@ -81,7 +81,7 @@ class RuntimeService:
             "VoiceListen": self._voice_listen, "VoiceStop": self._voice_stop, "VoiceStatus": self._voice_status,
             "VoiceModels": self._voice_models, "VoiceDownload": self._voice_download, "VoiceCheckMic": self._voice_check_mic,
             "VoiceFixMic": self._voice_fix_mic, "VoiceTestSpeaker": self._voice_test_speaker,
-            "VoiceDevices": self._voice_devices,
+            "VoiceDevices": self._voice_devices, "VoiceRemove": self._voice_remove,
         }
 
     async def start(self) -> None:
@@ -337,6 +337,10 @@ class RuntimeService:
 
     async def _voice_devices(self, _sender: str, _data: str) -> dict:
         return await self._voice_required().devices()
+
+    async def _voice_remove(self, _sender: str, data: str) -> dict:
+        await self._voice_required().remove(decode_args(data, VoiceDownloadArgs).models)
+        return {}
 
     def _voice_required(self):
         if self._voice is None:

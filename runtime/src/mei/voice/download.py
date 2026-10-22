@@ -11,6 +11,7 @@ import shutil
 import tarfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -23,13 +24,22 @@ MAX_REDIRECTS = 5
 Progress = Callable[[int, int], None]  # (bytes so far, total)
 
 
+class Pinned(Protocol):
+    """A file at a fixed https URL, with its exact size and sha256."""
+
+    part: str  # what it is, as people read it
+    url: str
+    sha256: str
+    size: int
+
+
 async def fetch(client: httpx.AsyncClient, model: Model, root: Path, progress: Progress | None = None) -> None:
     if have(model, root):
         return
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     part = root / f".{model.folder}.download"
     try:
-        await _download(client, model, part, progress)
+        await download_checked(client, model, part, progress)
         if model.archive:
             _unpack(model, part, root)
         else:
@@ -40,7 +50,8 @@ async def fetch(client: httpx.AsyncClient, model: Model, root: Path, progress: P
     log.info("downloaded %s (%s)", model.part, model.folder)
 
 
-async def _download(client: httpx.AsyncClient, model: Model, part: Path, progress: Progress | None) -> None:
+async def download_checked(client: httpx.AsyncClient, model: Pinned, part: Path, progress: Progress | None) -> None:
+    """Download to `part`, refusing anything but https, and raise unless size and sha256 match."""
     url = model.url
     for _ in range(MAX_REDIRECTS + 1):
         if urlsplit(url).scheme != "https":

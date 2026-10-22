@@ -23,6 +23,10 @@ class Load(Command, tag="load"):
     speaker: int = 0  # Kokoro speaker id
     speed: float = 1.0
     device: Device = "auto"
+    # Kokoro on the GPU, on demand (decision 0019): the engine folder, when the jail has the GPU
+    # and the engine, and how long it may sit unused before the GPU is let go.
+    gpu_engine: str = ""
+    gpu_idle_s: float = 300.0
     wake: bool = False
     wake_threshold: float = 0.25
     barge_in: bool = False  # interrupt by talking: only with earphones (spike 0c)

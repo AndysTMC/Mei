@@ -188,9 +188,8 @@ def voice_controller(engine: Engine, service_ref: Callable[[], RuntimeService | 
     source, sink = os.environ.get("MEI_VOICE_SOURCE_FILE", ""), os.environ.get("MEI_VOICE_SINK_FILE", "")
     extra = {"source_file": source, "source_realtime": True, "sink_file": sink} if source and sink else {}
 
-    def argv(settings, models: Path) -> list[str]:
-        return voice_jail.worker_argv(models, gpu=voice_jail.wants_gpu(settings.tts, settings.device),
-                                      readable=(Path(source),) if extra else (),
+    def argv(settings, models: Path, gpu_engine: Path | None) -> list[str]:
+        return voice_jail.worker_argv(models, gpu_engine=gpu_engine, readable=(Path(source),) if extra else (),
                                       writable=(Path(sink).parent,) if extra else ())
 
     return VoiceController(engine, emit, argv, load_extra=extra, cloud=CloudSpeech(client, key_for), client=client)

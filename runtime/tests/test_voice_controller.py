@@ -25,9 +25,10 @@ WORKER = [sys.executable, "-m", "mei.voice.worker"]
 def controller(h: Harness, models_root, tmp_path, mic: np.ndarray):
     seen: list[tuple[str, dict]] = []
     (tmp_path / "mic.f32").write_bytes(mic.astype(np.float32).tobytes())
-    v = VoiceController(h.engine, lambda kind, payload: seen.append((kind, payload)), lambda _s, _m: WORKER,
+    v = VoiceController(h.engine, lambda kind, payload: seen.append((kind, payload)), lambda *_: WORKER,
                         models_root, load_extra={"source_file": str(tmp_path / "mic.f32"), "source_realtime": False,
-                                                 "sink_file": str(tmp_path / "played.f32")})
+                                                 "sink_file": str(tmp_path / "played.f32")},
+                        gpu_engine_for=lambda *_: None)
     h.engine.publisher = Fanout(h.rec, v)
     return v, seen
 
@@ -96,7 +97,7 @@ async def test_the_microphone_is_closed_while_the_screen_is_locked(tmp_path, mod
 async def test_without_the_models_voice_says_what_to_download(tmp_path):
     h = Harness(tmp_path)
     seen = []
-    v = VoiceController(h.engine, lambda kind, payload: seen.append(payload), lambda _s, _m: WORKER, tmp_path / "none")
+    v = VoiceController(h.engine, lambda kind, payload: seen.append(payload), lambda *_: WORKER, tmp_path / "none")
     await v.apply(VoiceSettings(enabled=True))
     assert v.state == "unavailable" and "download the voice models" in v.note and "speech to text" in v.note
     await v.apply(VoiceSettings(enabled=False))
@@ -134,7 +135,8 @@ async def test_models_download_with_progress_then_voice_starts(tmp_path, monkeyp
     monkeypatch.setitem(voice_controller.CATALOG, "silero", fake)
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=body)))
     h = Harness(tmp_path)
-    v = VoiceController(h.engine, lambda *_: None, lambda _s, _m: WORKER, tmp_path / "models", client=client)
+    v = VoiceController(h.engine, lambda *_: None, lambda *_: WORKER, tmp_path / "models", client=client,
+                        gpu_engine_for=lambda *_: None)
     before = {m["id"]: m for m in v.models()["models"]}
     assert not before["silero"]["have"] and before["kokoro"]["size"] > 300_000_000
     v.download(["silero"])
@@ -174,6 +176,45 @@ async def test_the_microphone_check_reports_numbers_and_spots_an_overdriven_inpu
     monkeypatch.setattr(voice_controller, "Wpctl", FakeWpctl)
     await v.fix_mic()
     assert set_to == [(50, False)]
+    await v.stop()
+
+
+async def test_the_gpu_engine_is_offered_for_the_natural_voice_and_can_be_removed(tmp_path, monkeypatch):
+    from mei.voice import gpu_engine
+    monkeypatch.setattr(gpu_engine, "gpu_present", lambda: True)
+    monkeypatch.setenv("MEI_GPU_ENGINE", str(tmp_path / "engine"))
+    v = VoiceController(Harness(tmp_path).engine, lambda *_: None, lambda *_: WORKER, tmp_path / "models",
+                        gpu_engine_for=lambda *_: None)
+    def rows():
+        return {m["id"]: m for m in v.models()["models"]}
+    await v.apply(VoiceSettings(tts="kokoro"))
+    assert v.models()["gpu"] and rows()["gpu-engine"]["offered"] and not rows()["gpu-engine"]["needed"]
+    assert 1_800_000_000 < rows()["gpu-engine"]["size"] < 2_000_000_000
+    await v.apply(VoiceSettings(tts="kokoro", device="cpu"))
+    assert not rows()["gpu-engine"]["offered"]  # the person said never the GPU
+    (gpu_engine.site(tmp_path / "engine")).mkdir(parents=True)
+    (gpu_engine.site(tmp_path / "engine") / ".mei-gpu-engine").write_text(gpu_engine.VERSION)
+    assert rows()["gpu-engine"]["have"]
+    await v.remove(["gpu-engine"])
+    assert not rows()["gpu-engine"]["have"] and not (tmp_path / "engine" / "site").exists()
+    monkeypatch.setattr(gpu_engine, "gpu_present", lambda: False)
+    assert not v.models()["gpu"] and "gpu-engine" not in rows()  # never offered without an NVIDIA GPU
+
+
+async def test_the_worker_restarts_when_the_gpu_joins_or_leaves_its_jail(tmp_path, models, voice):
+    jailed: list = []
+    engine = {"path": None}
+    v = VoiceController(Harness(tmp_path).engine, lambda *_: None, lambda _s, _m, gpu: jailed.append(gpu) or WORKER,
+                        models, load_extra={"source_file": "", "sink_file": str(tmp_path / "played.f32")},
+                        gpu_engine_for=lambda *_: engine["path"])
+    await v.apply(VoiceSettings(enabled=True))
+    await v.wait_ready()
+    engine["path"] = tmp_path / "engine"  # the GPU engine was downloaded
+    await v.apply(VoiceSettings(enabled=True))
+    await v.wait_ready()
+    await v.apply(VoiceSettings(enabled=True, speed=1.1))  # an ordinary change: reloaded, not restarted
+    await v.wait_ready()
+    assert jailed == [None, tmp_path / "engine"]
     await v.stop()
 
 

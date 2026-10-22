@@ -229,7 +229,10 @@ class VoiceSettings(msgspec.Struct, kw_only=True):
     cloud_voice: str = ""  # the provider's voice name; "" = its default
     kokoro_speaker: int = 0
     speed: Annotated[float, msgspec.Meta(ge=0.5, le=2.0)] = 1.0
-    device: Literal["auto", "cpu", "gpu"] = "auto"  # for Kokoro: the GPU when one works
+    # For Kokoro (decision 0019): "auto"/"gpu", the GPU on demand when there is one and its engine is
+    # downloaded, woken while the person talks, let go after gpu_idle_min unused; "cpu", never.
+    device: Literal["auto", "cpu", "gpu"] = "auto"
+    gpu_idle_min: Annotated[int, msgspec.Meta(ge=1, le=60)] = 5
     barge_in: bool = False  # interrupt by talking over Mei: reliable with earphones only (spike 0c)
     wake_word: bool = False  # "Hey Mei": off by default, it misses the latency target (decision 0017)
     end_silence_ms: Annotated[int, msgspec.Meta(ge=300, le=2000)] = 500
@@ -238,7 +241,7 @@ class VoiceSettings(msgspec.Struct, kw_only=True):
 
 
 class VoiceDownloadArgs(msgspec.Struct):
-    models: list[str]  # ids from VoiceModels
+    models: list[str]  # ids from VoiceModels (VoiceDownload and VoiceRemove)
 
 
 class VoiceListenArgs(msgspec.Struct):

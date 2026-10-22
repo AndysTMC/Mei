@@ -86,11 +86,13 @@ test('voice: cloud choices say where the voice goes, and models and the micropho
     assert.equal(STT_CHOICES[0].id, 'local');
     for (const c of STT_CHOICES.slice(1)) assert.match(c.description, /What you say is sent to/);
     for (const c of TTS_CHOICES.filter(t => t.id === 'openai' || t.id === 'gemini')) assert.match(c.description, /sent to/);
-    const m = { id: 'kroko', part: 'speech to text', size: 57_267_600, have: false, needed: true };
+    const m = { id: 'kroko', part: 'speech to text', size: 57_267_600, have: false, needed: true, offered: false };
     assert.equal(modelLine(m), '57 MB · needed');
     assert.equal(modelLine({ ...m, got: 28_633_800, total: 57_267_600 }), '57 MB · downloading 50%');
     assert.equal(modelLine({ ...m, have: true }), '57 MB · downloaded');
     assert.match(modelLine({ ...m, error: 'checksum' }), /couldn’t download: checksum/);
+    const gpu = { ...m, id: 'gpu-engine', part: 'graphics card engine', size: 1_883_526_067, needed: false, offered: true };
+    assert.equal(modelLine(gpu), '1.9 GB · optional');
     assert.match(micText({ db: -3.4, peak_db: 0, clipped_pct: 19.5, overdriven: true }), /^Too loud even in silence \(-3 dB, 19.5% clipped\)/);
     assert.equal(micText({ db: -29.5, peak_db: -12, clipped_pct: 0, overdriven: false }), 'Sounds right (-30 dB in silence)');
     assert.equal(voiceStatusText('unavailable', 'download the voice models first'), 'Not ready: download the voice models first');

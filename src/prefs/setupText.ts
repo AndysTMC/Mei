@@ -179,11 +179,11 @@ export function voiceStatusText(state: VoiceStateName, note: string): string {
 }
 
 export function modelLine(m: VoiceModelView): string {
-    const size = `${Math.round(m.size / 1_000_000)} MB`;
+    const size = m.size >= 1_000_000_000 ? `${(m.size / 1_000_000_000).toFixed(1)} GB` : `${Math.round(m.size / 1_000_000)} MB`;
     if (m.error) return `${size} · couldn’t download: ${m.error}`;
     if (m.have) return `${size} · downloaded`;
     if (m.got !== undefined && m.total) return `${size} · downloading ${Math.floor((100 * m.got) / m.total)}%`;
-    return `${size} · ${m.needed ? 'needed' : 'not downloaded'}`;
+    return `${size} · ${m.needed ? 'needed' : m.offered ? 'optional' : 'not downloaded'}`;
 }
 
 export function micText(level: MicLevelReply): string {

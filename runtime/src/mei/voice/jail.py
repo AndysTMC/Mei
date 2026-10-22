@@ -1,6 +1,7 @@
 """The voice worker's jail (§5.4, spike 0c): models read-only, no network, no session bus, none of
-the person's files, and of the runtime directory only PipeWire's socket. With the GPU in use, the
-NVIDIA device nodes too (they reach the GPU, not the network or files).
+the person's files, and of the runtime directory only PipeWire's socket. With the natural voice on
+the GPU (decision 0019), also the NVIDIA device nodes (they reach the GPU, not the network or files)
+and the downloaded GPU engine, read-only.
 """
 
 import importlib.util
@@ -23,15 +24,18 @@ def engine_installed() -> bool:
     return importlib.util.find_spec("sherpa_onnx") is not None
 
 
-def wants_gpu(tts: str, device: str) -> bool:
-    """Only Kokoro gains from a GPU (spike 0c); give the jail the GPU only when it may use one."""
-    if tts != "kokoro" or device == "cpu" or not os.path.exists("/dev/nvidiactl"):
-        return False
-    spec = importlib.util.find_spec("sherpa_onnx")
-    return bool(spec and spec.origin and (Path(spec.origin).parent / "lib" / "libonnxruntime_providers_cuda.so").exists())
+def gpu_engine_for(tts: str, device: str) -> Path | None:
+    """The GPU engine's folder when these settings may use the GPU: only Kokoro gains from one
+    (spike 0c), and only with an NVIDIA GPU and the engine downloaded. Else None."""
+    from . import gpu_engine  # here, not at import: the core loads this module without the voice engine
+    if tts != "kokoro" or device == "cpu" or not gpu_engine.gpu_present():
+        return None
+    root = gpu_engine.engine_dir()
+    return root if gpu_engine.installed(root) else None
 
 
-def worker_argv(models: Path, *, gpu: bool = False, readable: tuple[Path, ...] = (), writable: tuple[Path, ...] = ()) -> list[str]:
+def worker_argv(models: Path, *, gpu_engine: Path | None = None, readable: tuple[Path, ...] = (),
+                writable: tuple[Path, ...] = ()) -> list[str]:
     """The command that starts the worker in its jail. `readable`/`writable`: extra paths, for
     tests and setup checks that play or capture audio files."""
     runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
@@ -54,19 +58,9 @@ def worker_argv(models: Path, *, gpu: bool = False, readable: tuple[Path, ...] =
         args += ["--ro-bind", str(path), str(path)]
     for path in writable:
         args += ["--bind", str(path), str(path)]
-    if gpu:
+    if gpu_engine is not None:
         for device in NVIDIA_DEVICES:
             if os.path.exists(device):
                 args += ["--dev-bind", device, device]
-        libs = _cuda_libraries()
-        if libs:
-            args += ["--setenv", "LD_LIBRARY_PATH", ":".join(libs)]
+        args += ["--ro-bind", str(gpu_engine), str(gpu_engine)]
     return args + [sys.executable, "-m", "mei.voice.worker"]
-
-
-def _cuda_libraries() -> list[str]:
-    """CUDA runtime and cuDNN from NVIDIA's pip packages, when the GPU build installed them (decision
-    0017): the system's CUDA runtime can be too old for the engine."""
-    root = Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "nvidia"
-    return [str(root / name / "lib") for name in ("cuda_runtime", "cudnn", "cublas", "cuda_nvrtc")
-            if (root / name / "lib").is_dir()]

@@ -96,6 +96,9 @@ class CoreTts:
         self._link = link
         self._local = local  # says the sentence when the cloud can't
 
+    def warm(self) -> None:
+        pass  # the cloud is always up
+
     async def synthesize(self, text: str) -> Speech:
         try:
             reply = await self._link.ask(lambda i: wire.Synthesize(id=i, text=text))
