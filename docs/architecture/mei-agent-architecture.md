@@ -1328,7 +1328,7 @@ Progress (2026-10-22): **built; four criteria open** (decision 0018 has the deta
 
 | Criterion | Evidence |
 |---|---|
-| Latency targets in §4, measured and reported | `runtime/tests/voice_bench.py` (20 trials each). End of speech → final text 678 ms median; Piper's first sentence 149 ms. End of speech → first audio ≈ 0.83 s plus the model's first sentence: ~1.24 s with Groq (met), ~2.6 s with Gemini flash-lite, ~10.7 s with OpenRouter's free router (missed). Wake word → listening: ~0.6 s (spike 0c), **missed**; wake word is off by default. |
+| Latency targets in §4, measured and reported | `runtime/tests/voice_bench.py` (20 trials each). End of speech → final text 678 ms median; Piper's first sentence 149 ms. End of speech → first audio ≈ 0.83 s plus the model's first sentence: ~1.24 s with Groq (met), ~2.6 s with Gemini flash-lite, ~10.7 s with OpenRouter's free router (missed). Wake word → listening: ~0.6 s (spike 0c), **missed**; wake word is off by default. Listening for it costs 0.45 % of one core in a quiet room (the spotter runs only while someone talks), 2.9 % while people talk. |
 | Barge-in onset → silence <350 ms in 20/20 | 20/20, median 286 ms, max 302 ms, plus ≤20 ms of PipeWire buffer. With earphones only: **no echo cancellation yet**, so barge-in is off by default. |
 | False-wake rate on 8 h of recorded audio | **Open**: needs the owner's room audio (`spikes/0c/`). |
 | Mic stream closed while locked | `test_suspending_ends_the_real_capture_stream` (the recorder process ends, so `pw-dump` has no capture stream to show), `test_the_microphone_is_closed_while_the_screen_is_locked`. Not yet checked with `pw-dump` on the real microphone with the owner. |

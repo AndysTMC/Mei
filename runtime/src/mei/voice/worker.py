@@ -243,7 +243,7 @@ class Worker:
         self._rearm()
 
     async def _wait_for_wake(self) -> None:
-        heard = await self._watch(self._wake.heard)
+        heard = await self._watch(pipeline.WakeGate(self._vad, self._wake).heard)
         if heard is not None:
             self._wake.reset()
             self.emit(wire.Woke())

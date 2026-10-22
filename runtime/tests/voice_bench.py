@@ -8,7 +8,8 @@ Models come from MEI_VOICE_MODELS, else the spike's cache. Prints a Markdown rep
 - first sentence synthesized: Piper and Kokoro (on the device Kokoro picks);
 - barge-in: speech onset over Mei's answer → playback stopped;
 - stopping a real output stream (silence, so inaudible): what PipeWire adds after the stop;
-- with `--only gpu`: waking the GPU voice, and its first sentence once awake.
+- with `--only gpu`: waking the GPU voice, and its first sentence once awake;
+- with `--only wake`: the CPU listening for "Hey Mei" costs, in silence and in speech.
 
 The model's own time to a first sentence is per provider: `MEI_LIVE_CHAT=1 npm run smoke:providers`.
 """
@@ -137,6 +138,23 @@ async def gpu_latency(models: Path, trials: int) -> tuple[list[float], list[floa
     return wake, say
 
 
+def wake_cpu(models: Path, tmp: Path, speech: np.ndarray) -> dict[str, float]:
+    """CPU per second of audio (% of one core) listening for the wake word: the spotter on
+    everything, against WakeGate (voice detection on everything, the spotter only during speech)."""
+    from mei.voice.pipeline import WakeGate
+    silence = np.zeros(SAMPLE_RATE * 60, np.float32)
+    out = {}
+    for name, audio in (("silence", silence), ("speech", speech)):
+        for how, make in (("spotter always", lambda: local.SherpaWake(models, tmp).heard),
+                          ("voice-gated", lambda: WakeGate(local.SileroVad(models), local.SherpaWake(models, tmp)).heard)):
+            heard = make()
+            t0 = time.process_time()
+            for i in range(0, len(audio), SAMPLE_RATE // 10):
+                heard(audio[i:i + SAMPLE_RATE // 10])
+            out[f"{how}, {name}"] = 100 * (time.process_time() - t0) / (len(audio) / SAMPLE_RATE)
+    return out
+
+
 async def stream_stop(trials: int) -> list[float]:
     """A real output stream playing silence, stopped: how long the stop takes."""
     out = []
@@ -161,7 +179,7 @@ async def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--trials", type=int, default=20)
     parser.add_argument("--no-stream", action="store_true", help="skip stopping a real (silent) output stream")
-    parser.add_argument("--only", choices=("final", "speech", "barge-in", "gpu"), help="just this measure")
+    parser.add_argument("--only", choices=("final", "speech", "barge-in", "gpu", "wake"), help="just this measure")
     args = parser.parse_args()
     models = Path(os.environ.get("MEI_VOICE_MODELS") or Path.home() / ".cache/mei-spikes/0c/models")
     if not (models / "silero_vad.onnx").exists():
@@ -176,10 +194,16 @@ async def main() -> int:
         kokoro, device, note = local.kokoro(models)
         rows.append(row("First sentence, Piper (CPU)", await synth_latency(piper, args.trials)))
         rows.append(row(f"First sentence, Kokoro ({device.upper()})", await synth_latency(kokoro, max(5, args.trials // 4))))
+    if args.only == "wake":  # CPU, not latency: its own table
+        speech = await say(piper, *(u for u in UTTERANCES for _ in (0, 1)))
+        print("| Listening for the wake word | % of one core |\n|---|---|")
+        for name, pct in wake_cpu(models, tmp, speech).items():
+            print(f"| {name} | {pct:.2f} |")
+        return 0
     if args.only == "gpu":  # needs an NVIDIA GPU and the GPU engine (MEI_GPU_ENGINE, or downloaded)
-        wake, say = await gpu_latency(models, max(3, args.trials // 4))
-        rows.append(row("GPU voice: woken to ready", wake))
-        rows.append(row("GPU voice: first sentence once awake", say))
+        woken, first = await gpu_latency(models, max(3, args.trials // 4))
+        rows.append(row("GPU voice: woken to ready", woken))
+        rows.append(row("GPU voice: first sentence once awake", first))
     if args.only in (None, "barge-in"):
         barge = await barge_in_latency(models, tmp, piper, args.trials)
         rows.append(row("Barge-in: onset → playback stopped", barge, 0.35))

@@ -7,13 +7,14 @@ ahead of the one playing, and stops at once on barge-in.
 """
 
 import asyncio
+import collections
 import contextlib
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 
 import numpy as np
 
-from .parts import SAMPLE_RATE, AudioSink, AudioSource, SpeechToText, TextToSpeech, Vad, VoiceError
+from .parts import SAMPLE_RATE, AudioSink, AudioSource, SpeechToText, TextToSpeech, Vad, VoiceError, WakeWord
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,38 @@ class Endpointing:
     tail_s: float = 1.2
     no_speech_s: float = 6.0
     max_s: float = 30.0
+
+
+class WakeGate:
+    """Listening for the wake word cheaply: voice detection runs on everything (~0.45 % of a core),
+    the keyword spotter (~2.2 %) only while someone is talking. When a voice starts, the spotter
+    first hears the second before it was noticed, so the start of "Hey" isn't lost; it keeps going
+    for a second after the voice stops."""
+
+    LOOKBACK_CHUNKS = 10  # ~1 s of 100 ms chunks
+    HANGOVER_S = 1.0
+
+    def __init__(self, vad: Vad, wake: WakeWord) -> None:
+        self._vad = vad
+        self._wake = wake
+        self._recent: collections.deque = collections.deque(maxlen=self.LOOKBACK_CHUNKS)
+        self._spotting = False
+        vad.reset()
+
+    def heard(self, chunk: np.ndarray) -> bool:
+        voice = self._vad.is_speech(chunk)
+        if self._spotting and self._vad.quiet_for() > self.HANGOVER_S:
+            self._spotting = False
+        if self._spotting:
+            return self._wake.heard(chunk)
+        self._recent.append(chunk)
+        if not voice:
+            return False
+        self._spotting = True
+        self._wake.reset()
+        hit = any([self._wake.heard(c) for c in self._recent])  # every chunk in order, even after a hit
+        self._recent.clear()
+        return hit
 
 
 class Listener:

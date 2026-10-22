@@ -33,3 +33,50 @@ def test_code_and_tables_are_left_out_with_one_note():
     reply = "Here it is:\n```bash\nls -la\nrm -rf /tmp/x\n```\n| a | b |\n|---|---|\n| 1 | 2 |\nThat's all."
     assert spoken(reply) == ["Here it is:", "That's all.", ON_SCREEN]
     assert spoken("Just words.") == ["Just words."]
+
+
+def test_the_wake_gate_spots_only_while_someone_talks_and_hears_the_start():
+    """WakeGate: no spotting in silence; when a voice starts, the spotter hears the second before it
+    in order; it stops a second after the voice does."""
+    import numpy as np
+    from mei.voice.pipeline import WakeGate
+
+    class Vad:
+        def __init__(self) -> None:
+            self.voice, self.quiet = False, 0.0
+
+        def is_speech(self, chunk) -> bool:
+            self.quiet = 0.0 if self.voice else self.quiet + 0.1
+            return self.voice
+
+        def quiet_for(self) -> float:
+            return self.quiet
+
+        def reset(self) -> None:
+            self.quiet = 0.0
+
+    class Spotter:
+        def __init__(self) -> None:
+            self.fed: list[float] = []
+
+        def heard(self, chunk) -> bool:
+            self.fed.append(float(chunk[0]))
+            return float(chunk[0]) == 99
+
+        def reset(self) -> None:
+            self.fed.append(-1)
+
+    vad, spotter = Vad(), Spotter()
+    gate = WakeGate(vad, spotter)
+    chunk = lambda n: np.full(1600, n, np.float32)  # noqa: E731
+    assert not any(gate.heard(chunk(n)) for n in range(20))  # 2 s of silence: the spotter never ran
+    assert spotter.fed == []
+    vad.voice = True
+    assert not gate.heard(chunk(20))
+    assert spotter.fed == [-1, *range(11, 21)]  # fresh, then the last second before the voice and now
+    vad.voice = False
+    for n in range(21, 40):
+        gate.heard(chunk(n))
+    assert spotter.fed[-1] < 39  # stopped a second after the voice did
+    vad.voice = True
+    assert gate.heard(chunk(99))  # the keyword, when it comes, is heard
