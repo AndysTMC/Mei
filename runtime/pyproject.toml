@@ -13,6 +13,11 @@ dependencies = [
     "msgspec>=0.19,<1",
 ]
 
+[project.optional-dependencies]
+# Local voice (decision 0017): wake word, VAD, speech to text, and text to speech on onnxruntime.
+# The GPU build of sherpa-onnx is a separate, optional download (setup offers it with an NVIDIA GPU).
+voice = ["sherpa-onnx==1.13.8", "sherpa-onnx-core==1.13.8", "numpy>=2,<3"]  # -core: the native library, which the lock otherwise misses
+
 [project.scripts]
 mei-runtime = "mei.__main__:main"
 
