@@ -6,7 +6,7 @@
 
 import type {
     ApprovalPreset, AudioDevice, CloudFiles, MemoryView, MicLevelReply, ModelsStep, ServiceStep, SttChoice, TestProviderReply,
-    TtsChoice, VoiceDevice, VoiceModelView, VoiceOption, VoiceSettingsDoc, VoiceStateName,
+    TtsChoice, VoiceModelView, VoiceOption, VoiceSettingsDoc, VoiceStateName,
 } from '../runtime/protocol.js';
 
 export interface StepInfo {
@@ -148,16 +148,9 @@ export const STT_CHOICES: { id: SttChoice; label: string; description: string }[
 
 export const TTS_CHOICES: { id: TtsChoice; label: string; description: string }[] = [
     { id: 'piper', label: 'Quick', description: 'On this computer; starts speaking at once.' },
-    { id: 'kokoro', label: 'Natural', description: 'On this computer; sounds more natural. Quick with an NVIDIA GPU, slower to start without one.' },
+    { id: 'kokoro', label: 'Natural', description: 'On this computer; sounds more natural, but takes about a second longer to start speaking.' },
     { id: 'openai', label: 'OpenAI', description: 'Mei’s answers are sent to OpenAI to be spoken (uses your OpenAI key).' },
     { id: 'gemini', label: 'Gemini', description: 'Mei’s answers are sent to Google to be spoken (uses your Gemini key).' },
-];
-
-/** Where the natural voice runs (only it gains from a GPU, decision 0017). */
-export const DEVICE_CHOICES: { id: VoiceDevice; label: string; description: string }[] = [
-    { id: 'auto', label: 'Automatic', description: 'The NVIDIA GPU when it works, else the processor.' },
-    { id: 'cpu', label: 'Processor', description: 'Never the GPU; slower to start speaking.' },
-    { id: 'gpu', label: 'GPU', description: 'The NVIDIA GPU; if it doesn’t work, the processor, and Mei says why.' },
 ];
 
 /** A microphone or speaker list: the system default first, and a chosen one that isn't plugged in

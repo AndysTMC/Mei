@@ -14,11 +14,11 @@ import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
 
 import type {
-    SttChoice, TtsChoice, VoiceDevice, VoiceDevicesReply, VoiceModelsReply, VoiceOption,
+    SttChoice, TtsChoice, VoiceDevicesReply, VoiceModelsReply, VoiceOption,
 } from '../runtime/protocol.js';
 import type { RuntimeSettings } from '../runtime/settings.js';
 import {
-    deviceOptions, DEVICE_CHOICES, micText, modelLine, STT_CHOICES, TTS_CHOICES, voiceIdOf, voiceStatusText,
+    deviceOptions, micText, modelLine, STT_CHOICES, TTS_CHOICES, voiceIdOf, voiceStatusText,
 } from './setupText.js';
 import { choiceRow, switchRow, type Row } from './rows.js';
 
@@ -180,11 +180,9 @@ export class VoicePage {
             id => chooseVoice(settings, id));
         const speed = numberRow(settings, 'Speed', '1 is normal', [0.5, 2.0, 0.1], () => v().speed,
             s => settings.setVoice('speed', s));
-        const device = choiceRow(settings, 'changed::voice', 'Runs on', DEVICE_CHOICES, () => v().device,
-            (id: VoiceDevice) => settings.setVoice('device', id));
         const output = listRow(settings, 'Speaker', () => deviceOptions(devices.outputs, v().output), () => v().output,
             id => settings.setVoice('output', id));
-        for (const r of [out, tts, who, speed, device, output]) {
+        for (const r of [out, tts, who, speed, output]) {
             speaking.add(r.row);
             this._parts.push(r);
         }
@@ -192,10 +190,6 @@ export class VoicePage {
         prefs.add(models);
         prefs.add(checks);
 
-        const showDevice = () => device.row.set_visible(v().tts === 'kokoro');
-        const signal = settings.connect('changed::voice', showDevice);
-        this._parts.push({ destroy: () => settings.disconnect(signal) });
-        showDevice();
         settings.voiceModels().then(reply => {
             voices = reply.voices;
             who.render();
