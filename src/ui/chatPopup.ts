@@ -436,6 +436,9 @@ export class ChatPopup {
             copyBtn: this._header.copyButton,
         });
         const isDark = this._theme.isDark;
+        // The stylesheet's one emphasis, a primary button in the text's color, needs the mode.
+        this._container.remove_style_class_name(isDark ? 'mei-light' : 'mei-dark');
+        this._container.add_style_class_name(isDark ? 'mei-dark' : 'mei-light');
         this._header.applyTheme(isDark);
         this._history.applyTheme(isDark);
         this._error.applyTheme(isDark);

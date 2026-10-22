@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { Projection } from '../src/runtime/projection.js';
 import type { ActionView, AttachReply, Envelope, Outcome } from '../src/runtime/protocol.js';
-import { activityRow, buildTimeline, outcomeBadge } from '../src/runtime/timeline.js';
+import { activityRow, buildTimeline, outcomeLine } from '../src/runtime/timeline.js';
 
 interface Fixture {
     attach: AttachReply;
@@ -44,13 +44,14 @@ test('an agent task: actions, the approval card while it waits, and the outcome 
     assert.deepEqual(finished.actions?.map(a => [a.capability, a.execution]),
         [['plan.update', 'SUCCEEDED'], ['fs.trash', 'SUCCEEDED'], ['task.finish', 'SUCCEEDED']]);
     const items = buildTimeline(done.loaded.get(id)!);
-    assert.deepEqual(items.map(i => i.kind), ['message', 'plan', 'message', 'activity', 'message', 'outcome']);
+    // Done: the plan gives way to one outcome line (no second "message" restating it).
+    assert.deepEqual(items.map(i => i.kind), ['message', 'message', 'activity', 'message', 'outcome']);
     const activity = items.find(i => i.kind === 'activity');
     assert.ok(activity?.kind === 'activity');
     assert.deepEqual(activity.rows.map(r => [r.text, r.state]), [['Trashed old.txt', 'done']]);
-    const plan = items.find(i => i.kind === 'plan');
-    assert.ok(plan?.kind === 'plan');
-    assert.equal(plan.plan.criteria?.[0].status, 'passed');
+    const outcome = items.find(i => i.kind === 'outcome');
+    assert.ok(outcome?.kind === 'outcome');
+    assert.equal(outcomeLine(outcome.outcome).tone, 'checked');
 });
 
 function action(over: Partial<ActionView>): ActionView {
@@ -74,13 +75,20 @@ test('activity rows say what happened, never more', () => {
     assert.equal(activityRow(action({ execution: 'SUPERSEDED' })).state, 'skipped');
 });
 
-test('outcome badges claim only what checks established', () => {
+test('the outcome line claims only what checks established, in one quiet line', () => {
     const base: Outcome = { kind: 'reported', summary: '', criteria: [], open_issues: [], note: '' };
-    const criteria = [{ index: 0, text: 'filed', check: 'dir_contains', status: 'passed', detail: '' },
-        { index: 1, text: 'renamed', check: null, status: 'reported', detail: '' }];
-    assert.equal(outcomeBadge({ ...base, kind: 'outcome_verified', criteria: criteria.slice(0, 1) }).title, 'Verified by Mei');
-    const partial = outcomeBadge({ ...base, kind: 'partially_verified', criteria, open_issues: ['one left'] });
-    assert.deepEqual(partial.lines, ['✓ filed', '• renamed', 'Open: one left']);
-    assert.equal(outcomeBadge({ ...base, note: "the model didn't report" }).title,
-        "Reported, not checked: the model didn't report");
+    const criteria = [{ index: 0, text: 'Dark mode is on', check: 'setting_equals', status: 'passed', detail: '' },
+        { index: 1, text: 'Files is open', check: 'window_present', status: 'passed', detail: '' },
+        { index: 2, text: 'Renamed', check: null, status: 'reported', detail: '' },
+        { index: 3, text: 'Filed', check: 'dir_contains', status: 'failed', detail: 'not in Taxes' }];
+    assert.deepEqual(outcomeLine({ ...base, kind: 'outcome_verified', criteria: criteria.slice(0, 2) }),
+        { tone: 'checked', text: 'Checked: Dark mode is on · Files is open' });
+    assert.deepEqual(outcomeLine({ ...base, kind: 'partially_verified', criteria: criteria.slice(0, 3) }),
+        { tone: 'unchecked', text: 'Checked: Dark mode is on · Files is open. Not checked: Renamed' });
+    assert.deepEqual(outcomeLine({ ...base, kind: 'partially_verified', criteria, open_issues: ['one left'] }), {
+        tone: 'problem',
+        text: 'Checked: Dark mode is on · Files is open. Didn’t work: Filed (not in Taxes). Not checked: Renamed. Still open: one left',
+    });
+    assert.deepEqual(outcomeLine({ ...base, note: "the model didn't report" }),
+        { tone: 'unchecked', text: "Not checked by Mei: the model didn't report" });
 });

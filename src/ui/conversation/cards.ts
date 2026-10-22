@@ -1,7 +1,8 @@
 /**
  * The agent's cards in the conversation (§12.5, §13.3): what Mei did, its plan, an approval it
- * needs, a question for the person, and the outcome. A closed set of St widgets: no HTML, no
- * model-chosen styling. Text from the model and from files is shown as plain text.
+ * needs, a question for the person, and one line for the outcome. A closed set of St widgets: no
+ * HTML, no model-chosen styling. Text from the model and from files is shown as plain text. Marks
+ * are the system's symbolic icons, in the text's own color.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -13,7 +14,7 @@ import St from 'gi://St';
 import type {
     ApprovalScope, ApprovalView, FormField, InputRequestView, MemoryView, Outcome, Plan, Provenance,
 } from '../../runtime/protocol.js';
-import { outcomeBadge, type ActivityRow, type ActivityState } from '../../runtime/timeline.js';
+import { outcomeLine as outcomeText, type ActivityRow, type ActivityState } from '../../runtime/timeline.js';
 import { addClickScale, wrapLabel } from '../effects.js';
 
 export type Answer = string | Record<string, string | boolean>;
@@ -28,11 +29,18 @@ export interface CardActions {
     onForgetMemory(memoryId: string): void;
 }
 
+const DONE = 'object-select-symbolic';
+const PENDING = 'radio-symbolic';
+const WORKING = 'content-loading-symbolic';
 const ACTIVITY_MARK: Record<ActivityState, string> = {
-    done: '✓', running: '…', waiting: '?', failed: '✗', refused: '⊘', skipped: '–', unclear: '!',
+    done: DONE, running: WORKING, waiting: 'dialog-question-symbolic', failed: 'window-close-symbolic',
+    refused: 'action-unavailable-symbolic', skipped: 'list-remove-symbolic', unclear: 'dialog-warning-symbolic',
 };
-const STEP_MARK: Record<string, string> = { pending: '○', in_progress: '◐', done: '✓', skipped: '–' };
-const CRITERION_MARK: Record<string, string> = { pending: '○', passed: '✓', failed: '✗', unverifiable: '?', reported: '•' };
+const STEP_MARK: Record<string, string> = { pending: PENDING, in_progress: WORKING, done: DONE, skipped: 'list-remove-symbolic' };
+const CRITERION_MARK: Record<string, string> = {
+    pending: PENDING, passed: DONE, failed: 'window-close-symbolic', unverifiable: 'dialog-question-symbolic', reported: PENDING,
+};
+const OUTCOME_MARK: Record<string, string> = { checked: DONE, problem: 'dialog-warning-symbolic', unchecked: PENDING };
 const PROVENANCE: Record<Provenance, string> = {
     user: 'you named this', untrusted: 'suggested by a file or page', model: 'Mei chose this',
 };
@@ -42,7 +50,7 @@ export function activityBlock(rows: ActivityRow[]): St.BoxLayout {
     const box = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'mei-activity' });
     for (const row of rows) {
         const line = new St.BoxLayout({ x_expand: true, style_class: `mei-activity-row ${row.state}` });
-        line.add_child(new St.Label({ text: ACTIVITY_MARK[row.state], style_class: 'mei-activity-mark' }));
+        line.add_child(mark(ACTIVITY_MARK[row.state]));
         const text = new St.BoxLayout({ vertical: true, x_expand: true });
         text.add_child(wrapLabel(new St.Label({ text: row.text, x_expand: true, style_class: 'mei-activity-text' })));
         if (row.detail) text.add_child(wrapLabel(new St.Label({ text: row.detail, style_class: 'mei-card-muted' })));
@@ -56,24 +64,25 @@ export function planCard(plan: Plan): St.BoxLayout {
     const card = cardBox('mei-plan-card');
     if (plan.steps?.length) {
         card.add_child(title('Plan'));
-        for (const step of plan.steps) card.add_child(markedLine(STEP_MARK[step.status] ?? '○', step.text));
+        for (const step of plan.steps) card.add_child(markedLine(STEP_MARK[step.status] ?? PENDING, step.text));
     }
     if (plan.criteria?.length) {
         card.add_child(title('Done when'));
         for (const c of plan.criteria) {
             const checked = c.check ? '' : ' (Mei can’t check this)';
-            card.add_child(markedLine(CRITERION_MARK[c.status] ?? '○', `${c.text}${checked}`));
+            card.add_child(markedLine(CRITERION_MARK[c.status] ?? PENDING, `${c.text}${checked}`));
         }
     }
     return card;
 }
 
-export function outcomeCard(outcome: Outcome): St.BoxLayout {
-    const badge = outcomeBadge(outcome);
-    const card = cardBox(`mei-outcome-card ${badge.tone}`);
-    card.add_child(title(badge.title));
-    for (const line of badge.lines) card.add_child(wrapLabel(new St.Label({ text: line, style_class: 'mei-card-text' })));
-    return card;
+/** How the task ended, as one quiet line under the reply: not a second message. */
+export function outcomeLine(outcome: Outcome): St.BoxLayout {
+    const { tone, text } = outcomeText(outcome);
+    const line = new St.BoxLayout({ x_expand: true, style_class: `mei-outcome-line ${tone}` });
+    line.add_child(mark(OUTCOME_MARK[tone]));
+    line.add_child(wrapLabel(new St.Label({ text, x_expand: true, style_class: 'mei-outcome-text' })));
+    return line;
 }
 
 export function approvalCard(approval: ApprovalView, actions: CardActions): St.BoxLayout {
@@ -82,13 +91,15 @@ export function approvalCard(approval: ApprovalView, actions: CardActions): St.B
     card.accessible_role = Atk.Role.DIALOG;
     card.add_child(title(`Mei wants to: ${c.title}`));
     if (c.reason_text) card.add_child(muted(`Asking because ${c.reason_text}.`));
-    if (c.resources.length) {
-        for (const r of c.resources) {
-            const label = r.role && r.role !== 'path' ? `${r.role}: ${r.value}` : r.value;
-            card.add_child(markedLine('•', `${label} — ${PROVENANCE[r.provenance] ?? r.provenance}`));
-        }
+    for (const r of c.resources) {
+        const label = r.role && r.role !== 'path' ? `${r.role}: ${r.value}` : r.value;
+        const line = new St.BoxLayout({ x_expand: true, style_class: 'mei-card-line' });
+        line.add_child(wrapLabel(new St.Label({ text: label, style_class: 'mei-card-text' })));
+        line.add_child(wrapLabel(new St.Label({ text: PROVENANCE[r.provenance] ?? r.provenance, x_expand: true,
+            y_align: Clutter.ActorAlign.END, style_class: 'mei-card-muted' })));
+        card.add_child(line);
     }
-    for (const effect of c.effects) card.add_child(markedLine('→', effect));
+    for (const effect of c.effects) card.add_child(wrapLabel(new St.Label({ text: effect, style_class: 'mei-card-text' })));
     if (c.why?.trim()) card.add_child(muted(`Mei's reason (from the model): “${c.why.trim()}”`));
     if (c.read_from?.length) card.add_child(muted(`Proposed after reading ${c.read_from.join(', ')}`));
 
@@ -185,9 +196,9 @@ export function memoryCard(memory: MemoryView, actions: CardActions): St.BoxLayo
 function formField(card: St.BoxLayout, field: FormField): () => [string, string | boolean] {
     card.add_child(new St.Label({ text: field.label, style_class: 'mei-card-muted' }));
     if (field.kind === 'checkbox') {
-        const toggle = new St.Button({ label: '☐ No', toggle_mode: true, style_class: 'mei-card-btn', can_focus: true,
+        const toggle = new St.Button({ label: 'No', toggle_mode: true, style_class: 'mei-card-btn', can_focus: true,
             accessible_name: field.label, x_align: Clutter.ActorAlign.START });
-        toggle.connect('notify::checked', () => toggle.set_label(toggle.checked ? '☑ Yes' : '☐ No'));
+        toggle.connect('notify::checked', () => toggle.set_label(toggle.checked ? 'Yes' : 'No'));
         card.add_child(toggle);
         return () => [field.name, toggle.checked];
     }
@@ -225,11 +236,15 @@ function muted(text: string): St.Label {
     return wrapLabel(new St.Label({ text, style_class: 'mei-card-muted' }));
 }
 
-function markedLine(mark: string, text: string): St.BoxLayout {
+function markedLine(icon: string, text: string): St.BoxLayout {
     const line = new St.BoxLayout({ x_expand: true, style_class: 'mei-card-line' });
-    line.add_child(new St.Label({ text: mark, style_class: 'mei-activity-mark' }));
+    line.add_child(mark(icon));
     line.add_child(wrapLabel(new St.Label({ text, x_expand: true, style_class: 'mei-card-text' })));
     return line;
+}
+
+function mark(icon: string): St.Icon {
+    return new St.Icon({ icon_name: icon, style_class: 'mei-mark', y_align: Clutter.ActorAlign.START });
 }
 
 function cardButton(label: string, accessibleName: string, extra = ''): St.Button {

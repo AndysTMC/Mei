@@ -244,9 +244,7 @@ export class MessageList {
         const reload = actionButton(actionIcon('view-refresh-symbolic'), 'Regenerate response');
         reload.connect('clicked', () => this._host.onReload(index));
         bar.add_child(reload);
-        const infoGlyph = new St.Label({ text: 'i', style_class: 'mei-info-glyph', x_align: Clutter.ActorAlign.CENTER,
-            y_align: Clutter.ActorAlign.CENTER });
-        const infoToggle = actionButton(infoGlyph, 'Show response information', 'mei-info-btn');
+        const infoToggle = actionButton(actionIcon('dialog-information-symbolic'), 'Show response information', 'mei-info-btn');
         infoToggle.connect('clicked', () => {
             if (info) this._toggleInfo(info, infoToggle);
         });

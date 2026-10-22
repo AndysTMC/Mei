@@ -79,7 +79,7 @@ export class RuntimeChatController {
         this._client.onStatus = (status, detail) => {
             this._status = status;
             this._statusDetail = detail ?? '';
-            if (status === 'incompatible') this._popup.showError(`⚠ ${detail}`);
+            if (status === 'incompatible') this._popup.showError(detail ?? 'This Mei runtime doesn’t match the extension; update Mei.');
             this.onStateChanged?.();
         };
     }
@@ -157,11 +157,11 @@ export class RuntimeChatController {
         this._popup.hideError();
         const unusable = this._providerProblem();
         if (unusable) {
-            this._popup.showError(`⚠ ${unusable}`);
+            this._popup.showError(unusable);
             return;
         }
         if (this._status === 'unavailable' || this._status === 'incompatible') {
-            this._popup.showError(`⚠ Mei's runtime isn't reachable. ${this._statusDetail}`);
+            this._popup.showError(`Mei's runtime isn't reachable. ${this._statusDetail}`);
             return;
         }
         if (!this._popup.isExpanded) this._popup.close();
@@ -301,7 +301,7 @@ export class RuntimeChatController {
                 .catch((e: RuntimeError) => this._showFailure(e));
             return;
         }
-        this._popup.showError('⚠ Regenerating a reply isn’t available with the Mei runtime yet.');
+        this._popup.showError('Regenerating a reply isn’t available with the Mei runtime yet.');
     }
 
     toggleExpand(isExpanded: boolean): void {
@@ -425,9 +425,9 @@ export class RuntimeChatController {
         const error = event.payload.error as string | null;
         this._render();
         if (state === 'FAILED') {
-            this._popup.showError(`⚠ ${error ?? 'Mei could not answer.'}`);
+            this._popup.showError(`${error ?? 'Mei could not answer.'}`);
         } else if (state === 'INTERRUPTED') {
-            this._popup.showError('⚠ Mei restarted while answering. Use ↻ on the partial reply to continue.');
+            this._popup.showError('Mei restarted while answering. Regenerate the partial reply to continue.');
         } else if (state === 'COMPLETED' && !this._popup.isExpanded) {
             this._popup.showMessage('assistant', this._lastAssistant());
         }
@@ -467,7 +467,7 @@ export class RuntimeChatController {
             items.push({
                 kind: 'message', draft: true, message: {
                     id: `draft-${interrupted.id}`, conversation_id: this._current, task_id: interrupted.id,
-                    role: 'assistant', content: `${interrupted.draft.text}\n\n*(interrupted — ↻ to continue)*`,
+                    role: 'assistant', content: `${interrupted.draft.text}\n\n*(interrupted: regenerate to continue)*`,
                     thinking: interrupted.draft.thinking || null, metadata: {}, created_at: interrupted.updated_at,
                 },
             });
@@ -506,7 +506,7 @@ export class RuntimeChatController {
     private _showFailure(error: RuntimeError): void {
         const message = error.code === 'Busy' ? 'Mei is still answering. Stop it first, or wait.' : error.message;
         this._popup.setLoading(false);
-        this._popup.showError(`⚠ ${message}`);
+        this._popup.showError(`${message}`);
         this._popup.open();
     }
 

@@ -54,7 +54,7 @@ export class PopupHeader {
         this._newChatBtn.connect('clicked', () => actions.onNewChat());
         this._historyBtn = iconButton('document-open-recent-symbolic', 'Show chat history');
         this._historyBtn.connect('clicked', () => actions.onHistory());
-        this._expandBtn = iconButton('chat-symbolic', 'Expand chat');
+        this._expandBtn = iconButton('view-fullscreen-symbolic', 'Expand chat');
         this._expandBtn.connect('clicked', () => actions.onToggleExpand());
         this._settingsBtn = iconButton('emblem-system-symbolic', 'Open Mei settings');
         this._settingsBtn.connect('clicked', () => actions.onSettings());
@@ -72,7 +72,7 @@ export class PopupHeader {
 
     /** The expand button's icon and name, updated once the content has faded out. */
     showExpandState(expanded: boolean): void {
-        (this._expandBtn.child as St.Icon).icon_name = expanded ? 'bolt-symbolic' : 'chat-symbolic';
+        (this._expandBtn.child as St.Icon).icon_name = expanded ? 'view-restore-symbolic' : 'view-fullscreen-symbolic';
         this._expandBtn.accessible_name = expanded ? 'Collapse chat' : 'Expand chat';
     }
 

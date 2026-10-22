@@ -1,7 +1,8 @@
 /**
- * What a conversation shows, in order (§18.2): each task's request, its plan in the header, the
- * replies with the actions they took under them, any card waiting on the person, and the outcome
- * badge. Pure: built from the projection, rendered by ui/conversation; no GJS here.
+ * What a conversation shows, in order (§18.2): each task's request, its plan while it runs, the
+ * replies with the actions they took under them, any card waiting on the person, and, once done, one
+ * quiet line saying what Mei checked. Pure: built from the projection, rendered by ui/conversation;
+ * no GJS here.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -64,7 +65,8 @@ export function buildTimeline(conv: LoadedConversation): TimelineItem[] {
         }
         const actions = actionsByMessage.get(message.id) ?? [];
         if (message.content.trim() || message.role === 'user') items.push({ kind: 'message', message });
-        if (starts && hasPlan(starts.plan)) items.push({ kind: 'plan', taskId: starts.id, plan: starts.plan! });
+        // The plan is progress: once there's an outcome, the outcome line says how it ended.
+        if (starts && hasPlan(starts.plan) && !starts.outcome) items.push({ kind: 'plan', taskId: starts.id, plan: starts.plan! });
         if (actions.length) {
             actions.sort((a, b) => a.created_at - b.created_at || a.position - b.position);
             items.push({ kind: 'activity', taskId: actions[0].task_id, rows: actions.map(activityRow) });
@@ -109,21 +111,31 @@ export function activityRow(action: ActionView): ActivityRow {
     }
 }
 
-export interface OutcomeBadge {
-    tone: 'verified' | 'partial' | 'reported';
-    title: string;
-    lines: string[];
+export interface OutcomeLine {
+    /** checked: everything Mei checked passed; problem: something didn't work or is still open;
+     * unchecked: Mei couldn't check (some of) it. */
+    tone: 'checked' | 'problem' | 'unchecked';
+    text: string;
 }
 
-/** The outcome in words; it claims only what Mei's own checks established (§8.5). */
-export function outcomeBadge(outcome: Outcome): OutcomeBadge {
-    const marks: Record<string, string> = { passed: '✓', failed: '✗', unverifiable: '?', reported: '•' };
-    const lines = outcome.criteria.map(c => `${marks[c.status] ?? '•'} ${c.text}${c.status === 'failed' && c.detail ? ` (${c.detail})` : ''}`);
-    for (const issue of outcome.open_issues) lines.push(`Open: ${issue}`);
-    if (outcome.kind === 'outcome_verified') return { tone: 'verified', title: 'Verified by Mei', lines };
-    if (outcome.kind === 'partially_verified') return { tone: 'partial', title: 'Partly verified', lines };
-    const title = outcome.note ? `Reported, not checked: ${outcome.note}` : 'Reported, not checked';
-    return { tone: 'reported', title, lines };
+/** How a task ended, in one line under the reply. It claims only what Mei's own checks established
+ * (§8.5): "Checked" lists only criteria whose check passed. */
+export function outcomeLine(outcome: Outcome): OutcomeLine {
+    const named = (status: string) => outcome.criteria.filter(c => c.status === status);
+    const passed = named('passed').map(c => c.text);
+    const failed = named('failed').map(c => (c.detail ? `${c.text} (${c.detail})` : c.text));
+    const unverifiable = named('unverifiable').map(c => c.text);
+    const reported = named('reported').map(c => c.text);
+    const parts: string[] = [];
+    if (passed.length) parts.push(`Checked: ${passed.join(' · ')}`);
+    if (failed.length) parts.push(`Didn’t work: ${failed.join(' · ')}`);
+    if (unverifiable.length) parts.push(`Couldn’t check: ${unverifiable.join(' · ')}`);
+    if (reported.length) parts.push(`Not checked: ${reported.join(' · ')}`);
+    if (outcome.open_issues.length) parts.push(`Still open: ${outcome.open_issues.join(' · ')}`);
+    if (!parts.length) parts.push(outcome.kind === 'outcome_verified' ? 'Checked' : outcome.note ? `Not checked by Mei: ${outcome.note}` : 'Not checked by Mei');
+    const tone = failed.length || outcome.open_issues.length ? 'problem'
+        : outcome.kind === 'outcome_verified' ? 'checked' : 'unchecked';
+    return { tone, text: parts.join('. ') };
 }
 
 function isMeta(action: ActionView): boolean {

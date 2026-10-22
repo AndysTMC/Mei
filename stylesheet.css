@@ -37,12 +37,8 @@
 }
 
 .mei-panel-label {
-    font-family: 'Lobster', cursive;
-    font-size: 16px;
-    font-weight: normal;
     min-width: 34px;
     text-align: center;
-    color: white;
 }
 
 /* ── Popup ───────────────────────────────────────── */
@@ -166,8 +162,13 @@
     background-color: rgba(128, 128, 128, 0.32);
 }
 
-.mei-mic-btn.listening {
-    background-color: rgba(220, 70, 70, 0.85);
+.mei-dark .mei-mic-btn.listening {
+    background-color: rgba(255, 255, 255, 0.92);
+    color: black;
+}
+
+.mei-light .mei-mic-btn.listening {
+    background-color: rgba(0, 0, 0, 0.85);
     color: white;
 }
 
@@ -180,7 +181,7 @@
 }
 
 .mei-voice-bar.listening .mei-voice-icon {
-    color: rgb(230, 80, 80);
+    opacity: 255;
 }
 
 .mei-voice-status {
@@ -194,11 +195,11 @@
 }
 
 .mei-panel-button.voice-listening {
-    box-shadow: inset 0 -2px 0 0 rgb(230, 80, 80);
+    box-shadow: inset 0 -2px 0 0 rgba(255, 255, 255, 0.9);
 }
 
 .mei-panel-button.voice-speaking {
-    box-shadow: inset 0 -2px 0 0 rgb(120, 170, 240);
+    box-shadow: inset 0 -2px 0 0 rgba(255, 255, 255, 0.45);
 }
 
 /* ── Copy button ────────────────────────────────── */
@@ -406,11 +407,6 @@
     background-color: rgba(128, 128, 128, 0.22);
 }
 
-.mei-info-glyph {
-    font-size: 12px;
-    font-weight: bold;
-}
-
 .mei-message-info-panel {
     border-radius: 8px;
     padding: 8px 10px;
@@ -538,15 +534,15 @@
 
 .mei-history-delete-btn.selected {
     opacity: 255;
-    background-color: rgba(220, 80, 80, 0.28) !important;
+    background-color: rgba(128, 128, 128, 0.35) !important;
 }
 
 .mei-memory-card {
-    border-left: 3px solid rgba(120, 160, 230, 0.7);
+    border-left: 3px solid rgba(128, 128, 128, 0.45);
 }
 
 .mei-memory-card.pending {
-    border-left-color: rgba(230, 180, 80, 0.8);
+    border-left-color: rgba(128, 128, 128, 0.8);
 }
 
 .mei-attachment-chip {
@@ -632,15 +628,21 @@
     opacity: 160;
 }
 
-.mei-activity-row.failed .mei-activity-mark,
-.mei-outcome-card.partial .mei-card-title {
-    color: #e5a50a;
+.mei-activity-row.failed .mei-activity-text {
+    font-weight: bold;
 }
 
-.mei-activity-mark {
-    font-size: 12px;
+/* Marks: the system's symbolic icons, in the text's color, never colored by meaning. */
+.mei-mark {
+    icon-size: 12px;
     min-width: 14px;
-    opacity: 200;
+    margin-top: 2px;
+    opacity: 190;
+}
+
+.mei-activity-row.failed .mei-mark,
+.mei-outcome-line.problem .mei-mark {
+    opacity: 255;
 }
 
 .mei-activity-text,
@@ -657,16 +659,22 @@
 
 .mei-approval-card,
 .mei-question-card {
-    background-color: rgba(53, 132, 228, 0.14);
-    border: 1px solid rgba(53, 132, 228, 0.45);
+    border: 1px solid rgba(128, 128, 128, 0.32);
 }
 
-.mei-outcome-card.verified {
-    background-color: rgba(46, 194, 126, 0.14);
+/* How a task ended: a quiet line under the reply, not a card. */
+.mei-outcome-line {
+    spacing: 6px;
+    padding: 0 2px 4px 2px;
 }
 
-.mei-outcome-card.verified .mei-card-title {
-    color: #2ec27e;
+.mei-outcome-text {
+    font-size: 11px;
+    opacity: 170;
+}
+
+.mei-outcome-line.problem .mei-outcome-text {
+    opacity: 255;
 }
 
 .mei-card-title {
@@ -701,14 +709,17 @@
     background-color: rgba(128, 128, 128, 0.32);
 }
 
-.mei-card-btn.suggested,
-.mei-card-btn:checked {
-    background-color: rgba(53, 132, 228, 0.55);
-    color: white;
+/* The one emphasis: the suggested choice in the text's own color, inverted. */
+.mei-dark .mei-card-btn.suggested,
+.mei-dark .mei-card-btn:checked {
+    background-color: rgba(255, 255, 255, 0.92);
+    color: black;
 }
 
-.mei-card-btn.deny:hover {
-    background-color: rgba(224, 27, 36, 0.45);
+.mei-light .mei-card-btn.suggested,
+.mei-light .mei-card-btn:checked {
+    background-color: rgba(0, 0, 0, 0.85);
+    color: white;
 }
 
 .mei-card-entry {

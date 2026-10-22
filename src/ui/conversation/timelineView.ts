@@ -10,7 +10,7 @@ import type St from 'gi://St';
 import type { MessageView } from '../../runtime/protocol.js';
 import type { TimelineItem } from '../../runtime/timeline.js';
 import type { ChatMessageMetadata, ProviderId } from '../../providers/types.js';
-import { activityBlock, approvalCard, memoryCard, outcomeCard, planCard, questionCard, type CardActions } from './cards.js';
+import { activityBlock, approvalCard, memoryCard, outcomeLine, planCard, questionCard, type CardActions } from './cards.js';
 import { attachmentLabel, attachmentOf } from '../../runtime/attachment.js';
 import type { ListedMessage } from './messageList.js';
 
@@ -43,7 +43,7 @@ function cardFor(item: Exclude<TimelineItem, { kind: 'message' }>, actions: Card
     case 'question':
         return questionCard(item.request, actions);
     case 'outcome':
-        return outcomeCard(item.outcome);
+        return outcomeLine(item.outcome);
     case 'memory':
         return memoryCard(item.memory, actions);
     }
