@@ -44,16 +44,41 @@ export type VoiceStateName =
 
 export type SttChoice = 'local' | 'openai' | 'groq';
 export type TtsChoice = 'piper' | 'kokoro' | 'openai' | 'gemini';
+/** Where Kokoro runs: the GPU when one works (auto), or always the processor. */
+export type VoiceDevice = 'auto' | 'cpu' | 'gpu';
 
 export interface VoiceSettingsDoc {
     enabled: boolean;
     speak_replies: boolean;
     stt: SttChoice;
     tts: TtsChoice;
-    voice: string;
+    voice: string; // Piper's
+    cloud_voice: string; // the cloud provider's; '' = its default
+    kokoro_speaker: number;
+    speed: number;
+    device: VoiceDevice;
     barge_in: boolean;
     wake_word: boolean;
+    end_silence_ms: number;
+    mic: string; // a PipeWire node name; '' = the system default
+    output: string;
     [field: string]: unknown;
+}
+
+/** Who can speak for each speech choice, by the id the settings keep. */
+export interface VoiceOption {
+    id: string;
+    label: string;
+}
+
+export interface AudioDevice {
+    name: string;
+    label: string;
+}
+
+export interface VoiceDevicesReply {
+    mics: AudioDevice[];
+    outputs: AudioDevice[];
 }
 
 export interface VoiceModelView {
@@ -72,6 +97,7 @@ export interface VoiceModelsReply {
     note: string;
     models: VoiceModelView[];
     downloading: boolean;
+    voices: Record<TtsChoice, VoiceOption[]>;
 }
 
 export interface MicLevelReply {

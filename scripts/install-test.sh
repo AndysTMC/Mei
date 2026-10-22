@@ -91,6 +91,8 @@ inside() {
     echo "$out" > "$work/install-1.log"
     bin=$(uv tool dir --bin)
     check "mei-runtime is installed as a uv tool" '[ -x "$bin/mei-runtime" ]'
+    check "voice's engine is installed with it" \
+        '"$(uv tool dir)/mei-runtime/bin/python" -c "import sherpa_onnx, numpy" && ! grep -q "without voice" "$work/install-1.log"'
     points_at_tool() {  # ExecStart= quotes the program and doubles any % (a systemd specifier)
         local python
         python="$(uv tool dir)/mei-runtime/bin/python"

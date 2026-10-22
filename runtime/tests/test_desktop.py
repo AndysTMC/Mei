@@ -200,3 +200,25 @@ async def test_settings_tools_are_hidden_without_gsettings(env):
     names = {s.name for s in default_registry().specs(env)}
     assert "settings_set" not in names and "apps_launch" not in names and "fs_move" in names
     put(env, "~/x")
+
+
+async def test_audio_devices_come_from_the_graph_by_node_name(tmp_path):
+    """Microphones and speakers from `pw-dump`; other nodes (apps' streams, video) are left out."""
+    import json
+    from mei.desktop.sound import audio_devices
+    graph = [
+        {"id": 31, "type": "PipeWire:Interface:Node", "info": {"props": {
+            "media.class": "Audio/Source", "node.name": "alsa_input.usb-mic", "node.description": "USB Microphone"}}},
+        {"id": 32, "type": "PipeWire:Interface:Node", "info": {"props": {
+            "media.class": "Audio/Sink", "node.name": "alsa_output.speakers", "node.nick": "Speakers"}}},
+        {"id": 40, "type": "PipeWire:Interface:Node", "info": {"props": {
+            "media.class": "Stream/Output/Audio", "node.name": "Firefox"}}},
+        {"id": 41, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "cam"}}},
+        {"id": 50, "type": "PipeWire:Interface:Port", "info": {"props": {"media.class": "Audio/Sink", "node.name": "x"}}},
+    ]
+    fake = tmp_path / "pw-dump"
+    fake.write_text(f"#!/bin/sh\ncat <<'END'\n{json.dumps(graph)}\nEND\n")
+    fake.chmod(0o755)
+    assert await audio_devices(str(fake)) == {
+        "mics": [{"id": 31, "name": "alsa_input.usb-mic", "label": "USB Microphone"}],
+        "outputs": [{"id": 32, "name": "alsa_output.speakers", "label": "Speakers"}]}

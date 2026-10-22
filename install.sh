@@ -188,7 +188,12 @@ install_runtime() {
             return 1
         fi
     fi
-    "$(uv_cmd)" tool install --quiet --force --reinstall-package mei-runtime --python '>=3.12' "$file"
+    # With voice's engine (the `voice` extra, ~35 MB); where it has no build, Mei installs without voice.
+    if ! "$(uv_cmd)" tool install --quiet --force --reinstall-package mei-runtime --python '>=3.12' \
+        "mei-runtime[voice] @ file://$file"; then
+        echo "Voice's engine couldn't be installed here; installing Mei without voice." >&2
+        "$(uv_cmd)" tool install --quiet --force --reinstall-package mei-runtime --python '>=3.12' "$file"
+    fi
 }
 
 uninstall_mei() {

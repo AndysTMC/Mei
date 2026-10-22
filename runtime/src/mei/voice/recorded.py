@@ -22,17 +22,22 @@ class RecordedSource:
         self._realtime = realtime
         self._pos = 0
         self.open = False
+        self.opened_at = 0.0  # loop time when the file's first sample "was said"
 
     async def start(self) -> None:
-        self.open = True
+        if not self.open:
+            self.open = True
+            self.opened_at = asyncio.get_running_loop().time() - self._pos / SAMPLE_RATE
 
     async def chunks(self) -> AsyncIterator[np.ndarray]:
+        loop = asyncio.get_running_loop()
         while self.open:
             chunk = self._audio[self._pos:self._pos + CHUNK]
             self._pos += CHUNK
             if len(chunk) < CHUNK:
                 chunk = np.concatenate([chunk, np.zeros(CHUNK - len(chunk), np.float32)])
-            await asyncio.sleep(CHUNK / SAMPLE_RATE if self._realtime else 0)
+            # Like a microphone: a chunk exists once its last sample has been said.
+            await asyncio.sleep(max(0.0, self.opened_at + self._pos / SAMPLE_RATE - loop.time()) if self._realtime else 0)
             yield chunk
 
     async def stop(self) -> None:

@@ -57,6 +57,12 @@ async def test_openai_and_gemini_speech_come_back_as_samples():
     assert str(gemini.url) == TTS["gemini"].url and gemini.headers["x-goog-api-key"] == "gm-test"
     assert json.loads(gemini.content)["generationConfig"]["responseModalities"] == ["AUDIO"]
 
+    # A voice chosen for one provider, after switching to the other: that provider's default.
+    await cloud.synthesize("gemini", "Hi.", "nova")
+    await cloud.synthesize("openai", "Hi.", "nova")
+    gemini_voice = json.loads(seen[2].content)["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]
+    assert gemini_voice["voiceName"] == "Kore" and json.loads(seen[3].content)["voice"] == "nova"
+
 
 async def test_missing_keys_and_errors_say_what_is_wrong():
     cloud = speech([], lambda r: httpx.Response(429))

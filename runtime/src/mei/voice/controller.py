@@ -27,11 +27,12 @@ from mei.store.db import new_id
 
 import httpx
 
-from mei.desktop.sound import SOURCE, Wpctl
+from mei.desktop.run import ToolFailed
+from mei.desktop.sound import SOURCE, Wpctl, audio_devices
 
 from . import download, remote, wire
-from .cloud import CloudSpeech
-from .models import CATALOG, KOKORO, KROKO, KWS, PIPER, SILERO, have, models_dir
+from .cloud import TTS, CloudSpeech
+from .models import CATALOG, KOKORO, KOKORO_VOICES, KROKO, KWS, PIPER, SILERO, have, kokoro_label, models_dir
 from .parts import VoiceError
 from .speakable import Sentences
 
@@ -168,7 +169,8 @@ class VoiceController:
         return {"state": self.state, "note": self.note,
                 "models": [{"id": key, "part": m.part, "size": m.size, "have": have(m, self._models),
                             "needed": m.folder in needed, **self._downloads.get(key, {})} for key, m in CATALOG.items()],
-                "downloading": self._fetching is not None and not self._fetching.done()}
+                "downloading": self._fetching is not None and not self._fetching.done(),
+                "voices": voice_choices()}
 
     def download(self, ids: list[str]) -> None:
         """Fetch these models in the background (progress in `models()`), then start voice if it is on."""
@@ -212,12 +214,25 @@ class VoiceController:
                 "overdriven": level.db > OVERDRIVEN_DB or level.clipped_pct > OVERDRIVEN_CLIP_PCT}
 
     async def fix_mic(self) -> dict:
-        """Lower an overdriven microphone's capture level, then measure again."""
+        """Lower an overdriven microphone's capture level (the chosen one, or the default), then
+        measure again."""
         try:
-            await Wpctl(node=SOURCE).set(FIXED_LEVEL_PCT, muted=False)
+            node = SOURCE
+            if self._settings.mic:
+                mics = (await audio_devices())["mics"]
+                node = next((str(d["id"]) for d in mics if d["name"] == self._settings.mic), SOURCE)
+            await Wpctl(node=node).set(FIXED_LEVEL_PCT, muted=False)
         except Exception as e:  # noqa: BLE001  wpctl missing or refused
             raise ProtocolError("Unavailable", f"couldn't change the microphone's level: {e}") from None
         return await self.check_mic()
+
+    async def devices(self) -> dict:
+        """The microphones and speakers to choose from, by node name and label."""
+        try:
+            found = await audio_devices()
+        except ToolFailed as e:
+            raise ProtocolError("Unavailable", f"couldn't list audio devices: {e}") from None
+        return {key: [{"name": d["name"], "label": d["label"]} for d in found[key]] for key in ("mics", "outputs")}
 
     async def test_speaker(self) -> None:
         await self._send(wire.Say(text="Hi, this is how I'll sound when I answer you."))
@@ -477,6 +492,17 @@ class VoiceController:
             return
         self.state = state
         self._emit("voice.state", {"state": state, "note": self.note, "conversation_id": self._conversation})
+
+
+def voice_choices() -> dict[str, list[dict]]:
+    """Who can speak, per speech choice, by the id the settings keep: Piper's voice, Kokoro's speaker
+    number, a cloud provider's voice name ("" for its default)."""
+    choices = {"piper": [{"id": key, "label": m.part.removeprefix("voice: ")} for key, m in PIPER.items()],
+               "kokoro": [{"id": str(i), "label": kokoro_label(v)} for i, v in enumerate(KOKORO_VOICES)]}
+    for key, end in TTS.items():
+        choices[key] = [{"id": "", "label": f"{end.voice.capitalize()} (default)"}] + [
+            {"id": v, "label": v.capitalize()} for v in end.voices]
+    return choices
 
 
 def spoken_ok(effects: dict) -> bool:

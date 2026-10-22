@@ -95,3 +95,14 @@ test('voice: cloud choices say where the voice goes, and models and the micropho
     assert.equal(micText({ db: -29.5, peak_db: -12, clipped_pct: 0, overdriven: false }), 'Sounds right (-30 dB in silence)');
     assert.equal(voiceStatusText('unavailable', 'download the voice models first'), 'Not ready: download the voice models first');
 });
+
+test('voice: devices list the system default first and keep a chosen one that is unplugged', async () => {
+    const { deviceOptions, voiceIdOf } = await import('../src/prefs/setupText.js');
+    const mics = [{ name: 'alsa_input.usb', label: 'USB Microphone' }];
+    assert.deepEqual(deviceOptions(mics, ''), [{ id: '', label: 'System default' }, { id: 'alsa_input.usb', label: 'USB Microphone' }]);
+    assert.deepEqual(deviceOptions(mics, 'bluez_input.headset').at(-1), { id: 'bluez_input.headset', label: 'bluez_input.headset (not connected)' });
+    const v = { tts: 'piper' as const, voice: 'lessac', kokoro_speaker: 7, cloud_voice: 'nova' };
+    assert.equal(voiceIdOf(v), 'lessac');
+    assert.equal(voiceIdOf({ ...v, tts: 'kokoro' }), '7');
+    assert.equal(voiceIdOf({ ...v, tts: 'openai' }), 'nova');
+});

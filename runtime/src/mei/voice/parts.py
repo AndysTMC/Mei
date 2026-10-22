@@ -56,9 +56,17 @@ class AudioSink(Protocol):
 
 
 class Vad(Protocol):
-    """Voice activity: is someone speaking in this chunk?"""
+    """Voice activity: is someone speaking in this chunk, and for how long have they been?"""
 
     def is_speech(self, chunk: np.ndarray) -> bool: ...
+    def speaking_for(self) -> float:
+        """Seconds the speech going on at the end of the last chunk has lasted (0 in silence),
+        counted from when it began, not from when it was detected."""
+        ...
+    def quiet_for(self) -> float:
+        """Seconds of quiet at the end of the last chunk (0 while speaking), counted from when the
+        speech ended, not from when that was detected."""
+        ...
     def reset(self) -> None: ...
 
 

@@ -1324,6 +1324,21 @@ What differs from the plan above, and why:
 
 **Accept when:** latency targets in §4 met on this machine and reported; barge-in onset-to-silence <350 ms in 20/20 trials; false-wake rate measured on 8 h of recorded audio and within target; mic stream closed while locked (verified via `pw-dump`); no audio files written while recording is off; the Voice setup step reruns cleanly and every choice is in Settings; the voice worker has no network (test); a spoken "yes" cannot approve an action outside §11.6's rule.
 
+Progress (2026-10-22): **built; four criteria open** (decision 0018 has the details and numbers).
+
+| Criterion | Evidence |
+|---|---|
+| Latency targets in §4, measured and reported | `runtime/tests/voice_bench.py` (20 trials each). End of speech → final text 678 ms median; Piper's first sentence 149 ms. End of speech → first audio ≈ 0.83 s plus the model's first sentence: ~1.24 s with Groq (met), ~2.6 s with Gemini flash-lite, ~10.7 s with OpenRouter's free router (missed). Wake word → listening: ~0.6 s (spike 0c), **missed**; wake word is off by default. |
+| Barge-in onset → silence <350 ms in 20/20 | 20/20, median 286 ms, max 302 ms, plus ≤20 ms of PipeWire buffer. With earphones only: **no echo cancellation yet**, so barge-in is off by default. |
+| False-wake rate on 8 h of recorded audio | **Open**: needs the owner's room audio (`spikes/0c/`). |
+| Mic stream closed while locked | `test_suspending_ends_the_real_capture_stream` (the recorder process ends, so `pw-dump` has no capture stream to show), `test_the_microphone_is_closed_while_the_screen_is_locked`. Not yet checked with `pw-dump` on the real microphone with the owner. |
+| No audio files written | Mei never records (§11.5's opt-in isn't built); `test_the_jail_has_nowhere_to_keep_audio`: the worker's only writable places are PipeWire's socket and a private tmpfs. |
+| The Voice setup step reruns cleanly; every choice is in Settings | Nested-Shell e2e through setup's Voice step and Settings → Voice (screenshots of the whole page); every field of the voice config has a row. |
+| The worker has no network | `test_in_its_jail_the_worker_loads_but_reaches_nothing`. |
+| A spoken "yes" can't approve outside §11.6 | `test_a_spoken_yes_approves_only_what_a_voice_may`, `test_a_spoken_yes_never_approves_a_command_on_the_computer`, `test_which_effects_a_voice_may_approve`. |
+
+What differs from the plan above, and why (0018): push to talk is the way in and the wake word is off by default; no echo cancellation, so barge-in needs earphones; cloud speech falls back to this computer per utterance and sentence; the voice engine installs with Mei, but its GPU build doesn't yet.
+
 ### Stage 6 — Computer use (L) — after 0b
 
 - Desktop worker under its profile; `desktop.observe` with AT-SPI and optional screenshot; `desktop.act` AT-SPI first, portal input fallback; geometry module; input lease with control tokens; overlay; kill switch with the direct Shell path; user-activity pause; secrets hand-off; setup "Using the computer" step (accessibility, one-time portal consent with restore token).

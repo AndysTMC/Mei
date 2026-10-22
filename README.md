@@ -8,6 +8,7 @@ Mei is a modern GNOME Shell extension powered by LLMs that understands your inte
 - **Remembers what you tell it**: "Remember that my invoices go in Documents/Invoices", and later tasks use it without being reminded. Settings → Memory shows everything Mei remembers, to search, pin, keep local, or delete. Anything a file or web page tried to make it remember waits for your review.
 - **Works in the background**: close the popup and Mei keeps going. When a task finishes or needs you, a notification says so; clicking it opens the conversation. Tasks in progress are listed first in the history.
 - **Ask about this**: press `Super+Alt+A` to ask about the window you're in, with the text you selected attached.
+- **Talk to it**: press `Super+Alt+Space` (or the mic in the popup) and speak; Mei shows what it hears as you talk and answers out loud, then listens a moment more for a follow-up. Say "stop" to stop it. Speech runs on your computer by default; OpenAI, Groq, or Gemini can do it instead, and if they can't be reached, your computer takes over. Turn voice on in setup or Settings → Voice.
 - **Dual Layouts**: Toggle between a compact quick-query popup and an expanded view with full chat history management.
 - **Native Markdown Rendering**: Responses are beautifully formatted with native GNOME widgets for code blocks, tables, lists, and syntax formatting.
 - **Deep System Integration**: Automatic GNOME dark/light mode syncing and responsive viewport constraints.
@@ -53,8 +54,8 @@ its sha256 before installing anything.
 ## Configuration & Usage
 
 Setup walks through the Mei service, your model provider and key, when Mei asks before acting,
-memory, privacy, and the shortcuts (by default `Super+Alt+M` opens Mei and `Super+Alt+A` asks about
-the current window). Every choice can be changed later in Settings, opened from the ⚙
+memory, voice, privacy, and the shortcuts (by default `Super+Alt+M` opens Mei, `Super+Alt+A` asks
+about the current window, and `Super+Alt+Space` talks to Mei). Every choice can be changed later in Settings, opened from the ⚙
 (gear) icon in the chat popup or with:
 
 ```sh
@@ -85,6 +86,14 @@ gnome-extensions prefs mei@andystmc.com
   ([ADR 0011](docs/decisions/0011-commands-in-a-jail.md)).
 - Text you attach with "Ask about this" is treated like a document Mei read: it can't ask Mei to do
   anything on your behalf ([ADR 0013](docs/decisions/0013-background-notices-and-attachments.md)).
+- Voice is off until you turn it on. Its models (~125 MB) download once, from the sherpa-onnx
+  project's releases, and are checked against pinned checksums. Mei never records: audio stays in
+  memory, the speech process has no network and can't see your files, and the microphone closes
+  while the screen is locked. If you choose a cloud provider for speech, what you say (or Mei's
+  answers) goes to that provider, and Settings says so where you choose it
+  ([ADR 0018](docs/decisions/0018-voice-as-built.md)).
+- Saying "yes, do it" approves only small, undoable, private actions that Mei has read back to
+  you, since anyone in the room could say it. Anything else needs a click on the card.
 - The runtime logs to the journal (`journalctl --user -u mei-runtime`); Settings → Logs shows
   recent entries. Logs are redacted and don't record request or response bodies.
 

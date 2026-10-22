@@ -231,14 +231,13 @@ class Worker:
 
     async def _watch_barge_in(self) -> None:
         loop = asyncio.get_running_loop()
-        run = [0.0]
 
         def talking_over(chunk) -> bool:
             if loop.time() - self._speaker.started_at < BARGE_GRACE_S:
-                run[0] = 0.0
+                self._vad.reset()  # speech (or Mei's echo) in the grace window doesn't count
                 return False
-            run[0] = run[0] + len(chunk) / SAMPLE_RATE if self._vad.is_speech(chunk) else 0.0
-            return run[0] >= BARGE_SPEECH_S
+            self._vad.is_speech(chunk)
+            return self._vad.speaking_for() >= BARGE_SPEECH_S
 
         self._vad.reset()
         heard = await self._watch(talking_over)

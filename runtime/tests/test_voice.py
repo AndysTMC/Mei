@@ -5,6 +5,7 @@ jail. Skipped where the models aren't downloaded (MEI_VOICE_MODELS, or the spike
 import asyncio
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -92,14 +93,17 @@ async def test_silence_is_no_speech_and_pressing_again_ends_the_utterance(tmp_pa
     w, events, _ = await worker(tmp_path, models, np.zeros(16000 * 10, np.float32), source_realtime=False)
     await w.handle(wire.Listen())
     await events.until(wire.NoSpeech)
-    w, events, _ = await worker(tmp_path, models, await say(voice, 0.3, "Pause the music.", 0.15, "And then tell me the weather."))
+    # The press comes in a 1 s gap that is too short to end the utterance by itself (1.5 s here).
+    w, events, _ = await worker(tmp_path, models, await say(voice, 0.3, "Pause the music.", 1.0, "And then tell me the weather."),
+                                end_silence_s=1.5)
     await w.handle(wire.Listen())
     await events.until(wire.Partial)
-    while "music" not in next(e.text for e in reversed(events.got) if isinstance(e, wire.Partial)).lower():
-        await asyncio.sleep(0.05)
+    async with asyncio.timeout(20):
+        while "music" not in next(e.text for e in reversed(events.got) if isinstance(e, wire.Partial)).lower():
+            await asyncio.sleep(0.05)
     await w.handle(wire.DoneTalking())  # pressed the shortcut again: done talking
     final = await events.until(wire.Final)
-    assert "pause the music" in final.text.lower() and "weather" not in final.text.lower()
+    assert "music" in final.text.lower() and "tell me" not in final.text.lower()
 
 
 async def test_speaking_plays_each_sentence_then_says_it_is_done(tmp_path, models):
@@ -132,7 +136,7 @@ async def test_talking_over_mei_stops_it_and_what_was_said_is_heard(tmp_path, mo
     await w.handle(wire.End())
     await events.until(wire.BargeIn, timeout=30)
     final = await events.until(wire.Final, timeout=30)
-    assert "pause the music" in final.text.lower()
+    assert "the music" in final.text.lower()  # Kroko sometimes hears Piper's "pause" as "cause"
     kinds = events.kinds()
     assert kinds.index("Speaking") < kinds.index("BargeIn") < kinds.index("Listening")
     assert len(np.fromfile(played, dtype=np.float32)) / 16000 < 3.0  # cut off, not played to the end
@@ -149,7 +153,7 @@ async def test_the_wake_word_starts_listening(tmp_path, models, voice):
     w, events, _ = await worker(tmp_path, models, audio, wake=True, source_realtime=False)
     await events.until(wire.Woke)
     final = await events.until(wire.Final)
-    assert "pause the music" in final.text.lower()
+    assert "the music" in final.text.lower()  # as above: "pause" can come out as "cause"
 
 
 async def test_suspending_closes_the_microphone(tmp_path, models, voice):
@@ -162,6 +166,44 @@ async def test_suspending_closes_the_microphone(tmp_path, models, voice):
     await w.handle(wire.Listen())  # nothing listens while suspended
     await asyncio.sleep(0.3)
     assert not w._source.open
+
+
+async def test_suspending_ends_the_real_capture_stream(tmp_path, models, monkeypatch):
+    """With PipeWire's own recorder (a stand-in that streams silence): suspending ends the process,
+    so no capture stream is left for `pw-dump` to show, and listening while suspended starts none."""
+    from mei.voice import pipewire
+    fake = tmp_path / "pw-record"
+    fake.write_text(f"#!{sys.executable}\nimport sys, time\n"  # one process, like pw-record
+                    "while True:\n    sys.stdout.buffer.write(bytes(6400)); sys.stdout.flush(); time.sleep(0.1)\n")
+    fake.chmod(0o755)
+    monkeypatch.setattr(pipewire, "PW_RECORD", str(fake))
+    events = Events()
+    w = Worker(out=events)
+    await w.handle(wire.Load(models=str(models)))
+    await events.until(wire.Ready)
+    try:
+        await w.handle(wire.Listen())
+        async with asyncio.timeout(10):
+            while w._source._proc is None:  # the recorder starts just after "listening" is announced
+                await asyncio.sleep(0.02)
+        proc = w._source._proc
+        assert proc.returncode is None
+        await w.handle(wire.Suspend())
+        await events.until(wire.Suspended)
+        assert proc.returncode is not None and w._source._proc is None
+        await w.handle(wire.Listen())
+        await asyncio.sleep(0.3)
+        assert w._source._proc is None
+    finally:
+        await w.handle(wire.Quit())
+
+
+def test_the_jail_has_nowhere_to_keep_audio(tmp_path):
+    """Read-only binds, a private tmpfs, and PipeWire's socket: nothing the worker hears can be saved."""
+    argv = jail.worker_argv(tmp_path)
+    writable = [argv[i + 2] for i, a in enumerate(argv) if a in ("--bind", "--bind-try", "--dev-bind")]
+    assert all(path.endswith("/pipewire-0") for path in writable), writable
+    assert argv[argv.index("--tmpfs") + 1] == "/tmp" and "--unshare-all" in argv
 
 
 def test_malformed_commands_are_refused():

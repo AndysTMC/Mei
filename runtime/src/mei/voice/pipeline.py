@@ -68,7 +68,7 @@ class Listener:
         self._vad.reset()
         text = self._stt.open()
         heard = False
-        silence = total = 0.0
+        total = 0.0
         await self._source.start()
         try:
             chunks = self._source.chunks()
@@ -79,18 +79,13 @@ class Listener:
             if heard:
                 yield SpeechStarted()
             async for chunk in chunks:
-                seconds = len(chunk) / SAMPLE_RATE
-                total += seconds
-                if self._vad.is_speech(chunk):
-                    if not heard:
-                        heard = True
-                        yield SpeechStarted()
-                    silence = 0.0
-                else:
-                    silence += seconds
+                total += len(chunk) / SAMPLE_RATE
+                if self._vad.is_speech(chunk) and not heard:
+                    heard = True
+                    yield SpeechStarted()
                 if (partial := await text.accept(chunk)) is not None:
                     yield Partial(partial)
-                if heard and (silence >= self._ep.end_silence_s or self._done.is_set()):
+                if heard and (self._vad.quiet_for() >= self._ep.end_silence_s or self._done.is_set()):
                     break
                 if not heard and (total >= self._ep.no_speech_s or self._done.is_set()):
                     yield NoSpeech()

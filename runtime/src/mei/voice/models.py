@@ -51,6 +51,14 @@ KOKORO_VOICES = ("af", "af_bella", "af_nicole", "af_sarah", "af_sky", "am_adam",
                  "bf_isabella", "bm_george", "bm_lewis")
 
 
+def kokoro_label(voice: str) -> str:
+    """"bf_emma" → "Emma (British, woman)"; plain "af" is Kokoro's default blend."""
+    accent = {"a": "American", "b": "British"}.get(voice[:1], "")
+    who = {"f": "woman", "m": "man"}.get(voice[1:2], "")
+    name = voice[3:].capitalize() or "Default"
+    return f"{name} ({accent}, {who})" if accent and who else name
+
+
 def models_dir() -> Path:
     """MEI_VOICE_MODELS overrides it (tests and development point it at the spike's models)."""
     override = os.environ.get("MEI_VOICE_MODELS", "")

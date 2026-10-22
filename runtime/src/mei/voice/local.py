@@ -53,6 +53,7 @@ class SileroVad:
         self._config = config
         self._vad = so.VoiceActivityDetector(config, buffer_size_in_seconds=10)
         self._pending = np.zeros(0, np.float32)
+        self._speaking_for = self._quiet_for = 0.0
 
     def is_speech(self, chunk: np.ndarray) -> bool:
         self._pending = np.concatenate([self._pending, chunk])
@@ -60,14 +61,29 @@ class SileroVad:
         while len(self._pending) >= VAD_WINDOW:
             self._vad.accept_waveform(self._pending[:VAD_WINDOW])
             self._pending = self._pending[VAD_WINDOW:]
-            speech = speech or self._vad.is_speech_detected()
+            detected = self._vad.is_speech_detected()
+            speech = speech or detected
+            # Silero says speech started once it has lasted min_speech_duration, and ended once
+            # min_silence_duration has passed: count both from when they really happened.
+            silero, window = self._config.silero_vad, VAD_WINDOW / SAMPLE_RATE
+            if detected:
+                self._speaking_for, self._quiet_for = (self._speaking_for or silero.min_speech_duration) + window, 0.0
+            else:
+                self._speaking_for, self._quiet_for = 0.0, (self._quiet_for or silero.min_silence_duration) + window
         while not self._vad.empty():  # finished segments: the pipeline doesn't need them back
             self._vad.pop()
         return speech
 
+    def speaking_for(self) -> float:
+        return self._speaking_for
+
+    def quiet_for(self) -> float:
+        return self._quiet_for
+
     def reset(self) -> None:
         self._vad.reset()
         self._pending = np.zeros(0, np.float32)
+        self._speaking_for = self._quiet_for = 0.0
 
 
 class KrokoStt:

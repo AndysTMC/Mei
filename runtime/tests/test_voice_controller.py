@@ -177,6 +177,15 @@ async def test_the_microphone_check_reports_numbers_and_spots_an_overdriven_inpu
     await v.stop()
 
 
+def test_voices_to_choose_come_from_the_catalog_by_the_id_settings_keep():
+    from mei.voice.controller import voice_choices
+    choices = voice_choices()
+    assert [o["id"] for o in choices["piper"]] == ["amy", "lessac"]
+    assert choices["kokoro"][7] == {"id": "7", "label": "Emma (British, woman)"}
+    assert choices["openai"][0] == {"id": "", "label": "Alloy (default)"} and {"id": "nova", "label": "Nova"} in choices["openai"]
+    assert choices["gemini"][0]["label"] == "Kore (default)"
+
+
 def test_turning_on_the_wake_word_or_cloud_listening_is_announced():
     from mei.core.engine import _loosened
     from mei.protocol import Config

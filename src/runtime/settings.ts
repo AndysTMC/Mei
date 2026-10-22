@@ -17,7 +17,7 @@ import type { ProviderId } from '../providers/types.js';
 import { Logger, Tag } from '../utils/logger.js';
 import type {
     ApprovalPreset, CloudFiles, ConfigDoc, ConfigReply, GrantView, LogEntry, MemoriesReply, MemoryPatch, MicLevelReply,
-    ModelsReply, ProviderSettings, VoiceModelsReply, VoiceSettingsDoc,
+    ModelsReply, ProviderSettings, VoiceDevicesReply, VoiceModelsReply, VoiceSettingsDoc,
 } from './protocol.js';
 
 export type Call = <T>(method: string, args?: object) => Promise<T>;
@@ -181,8 +181,7 @@ export class RuntimeSettings {
         }, 'memory');
     }
 
-    setVoice<K extends 'enabled' | 'speak_replies' | 'stt' | 'tts' | 'voice' | 'barge_in' | 'wake_word'>(
-        field: K, value: VoiceSettingsDoc[K]): void {
+    setVoice<K extends VoiceField>(field: K, value: VoiceSettingsDoc[K]): void {
         if (!this._writable() || this.voice[field] === value) return;
         this._mutate(doc => {
             doc.voice = { ...voiceOf(doc), [field]: value };
@@ -210,6 +209,11 @@ export class RuntimeSettings {
 
     async testSpeaker(): Promise<void> {
         await this._call('VoiceTestSpeaker');
+    }
+
+    /** The microphones and speakers PipeWire knows (listing them opens no audio). */
+    async voiceDevices(): Promise<VoiceDevicesReply> {
+        return this._call<VoiceDevicesReply>('VoiceDevices');
     }
 
     /** Memories matching `query` (all when empty), optionally only those with `status`. */
@@ -354,8 +358,12 @@ export class RuntimeSettings {
     }
 }
 
+export type VoiceField = 'enabled' | 'speak_replies' | 'stt' | 'tts' | 'voice' | 'cloud_voice' | 'kokoro_speaker'
+    | 'speed' | 'device' | 'barge_in' | 'wake_word' | 'end_silence_ms' | 'mic' | 'output';
+
 const VOICE_DEFAULTS: VoiceSettingsDoc = {
-    enabled: false, speak_replies: true, stt: 'local', tts: 'piper', voice: 'amy', barge_in: false, wake_word: false,
+    enabled: false, speak_replies: true, stt: 'local', tts: 'piper', voice: 'amy', cloud_voice: '', kokoro_speaker: 0,
+    speed: 1.0, device: 'auto', barge_in: false, wake_word: false, end_silence_ms: 500, mic: '', output: '',
 };
 
 function voiceOf(doc: ConfigDoc): VoiceSettingsDoc {

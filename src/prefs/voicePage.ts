@@ -13,12 +13,17 @@ import Adw from 'gi://Adw';
 import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
 
-import type { SttChoice, TtsChoice, VoiceModelsReply } from '../runtime/protocol.js';
+import type {
+    SttChoice, TtsChoice, VoiceDevice, VoiceDevicesReply, VoiceModelsReply, VoiceOption,
+} from '../runtime/protocol.js';
 import type { RuntimeSettings } from '../runtime/settings.js';
-import { micText, modelLine, STT_CHOICES, TTS_CHOICES, voiceStatusText } from './setupText.js';
+import {
+    deviceOptions, DEVICE_CHOICES, micText, modelLine, STT_CHOICES, TTS_CHOICES, voiceIdOf, voiceStatusText,
+} from './setupText.js';
 import { choiceRow, switchRow, type Row } from './rows.js';
 
 const POLL_MS = 500;
+const SETTLE_MS = 600;
 
 /** The rows setup and Settings share: on/off, the models it needs, and the checks. */
 export function voiceBasics(window: Gtk.Window, settings: RuntimeSettings): { groups: Adw.PreferencesGroup[]; destroy(): void } {
@@ -68,6 +73,7 @@ export function voiceBasics(window: Gtk.Window, settings: RuntimeSettings): { gr
         const missing = reply.models.filter(m => m.needed && !m.have).map(m => m.id);
         getAll.set_sensitive(missing.length > 0 && !reply.downloading);
         getAll.set_label(reply.downloading ? 'Downloading…' : missing.length ? 'Download' : 'Downloaded');
+        getAll.set_css_classes(missing.length ? ['suggested-action'] : []);
         const ready = reply.state === 'idle' || reply.state === 'speaking';
         checkMic.set_sensitive(ready);
         play.set_sensitive(ready);
@@ -145,14 +151,22 @@ export class VoicePage {
         const [voice, models, checks] = basics.groups;
         prefs.add(voice);
 
+        let voices: Partial<Record<TtsChoice, VoiceOption[]>> = {};
+        let devices: VoiceDevicesReply = { mics: [], outputs: [] };
+        const v = () => settings.voice;
+
         const listening = new Adw.PreferencesGroup({ title: 'Listening' });
         const stt = choiceRow(settings, 'changed::voice', 'Writing down what you say', STT_CHOICES,
-            () => settings.voice.stt, (id: SttChoice) => settings.setVoice('stt', id));
+            () => v().stt, (id: SttChoice) => settings.setVoice('stt', id));
+        const mic = listRow(settings, 'Microphone', () => deviceOptions(devices.mics, v().mic), () => v().mic,
+            id => settings.setVoice('mic', id));
+        const pause = numberRow(settings, 'Pause before Mei answers', 'Seconds of quiet that mean you’ve finished',
+            [0.3, 2.0, 0.1], () => v().end_silence_ms / 1000, s => settings.setVoice('end_silence_ms', Math.round(s * 1000)));
         const wake = toggle(settings, 'Listen for “Hey Mei”',
             'The microphone stays on. Slower to react than the shortcut, and it can wake on similar words.', 'wake_word');
         const bargeIn = toggle(settings, 'Interrupt by talking',
             'Talk over Mei to stop it. Works with earphones; with speakers, press the shortcut instead.', 'barge_in');
-        for (const r of [stt, wake, bargeIn]) {
+        for (const r of [stt, mic, pause, wake, bargeIn]) {
             listening.add(r.row);
             this._parts.push(r);
         }
@@ -160,15 +174,41 @@ export class VoicePage {
 
         const speaking = new Adw.PreferencesGroup({ title: 'Speaking' });
         const out = toggle(settings, 'Answer out loud', 'When you talk to Mei, it answers by voice too', 'speak_replies');
-        const tts = choiceRow(settings, 'changed::voice', 'Voice', TTS_CHOICES, () => settings.voice.tts,
+        const tts = choiceRow(settings, 'changed::voice', 'Speaking with', TTS_CHOICES, () => v().tts,
             (id: TtsChoice) => settings.setVoice('tts', id));
-        for (const r of [out, tts]) {
+        const who = listRow(settings, 'Voice', () => voices[v().tts] ?? [], () => voiceIdOf(v()),
+            id => chooseVoice(settings, id));
+        const speed = numberRow(settings, 'Speed', '1 is normal', [0.5, 2.0, 0.1], () => v().speed,
+            s => settings.setVoice('speed', s));
+        const device = choiceRow(settings, 'changed::voice', 'Runs on', DEVICE_CHOICES, () => v().device,
+            (id: VoiceDevice) => settings.setVoice('device', id));
+        const output = listRow(settings, 'Speaker', () => deviceOptions(devices.outputs, v().output), () => v().output,
+            id => settings.setVoice('output', id));
+        for (const r of [out, tts, who, speed, device, output]) {
             speaking.add(r.row);
             this._parts.push(r);
         }
         prefs.add(speaking);
         prefs.add(models);
         prefs.add(checks);
+
+        const showDevice = () => device.row.set_visible(v().tts === 'kokoro');
+        const signal = settings.connect('changed::voice', showDevice);
+        this._parts.push({ destroy: () => settings.disconnect(signal) });
+        showDevice();
+        settings.voiceModels().then(reply => {
+            voices = reply.voices;
+            who.render();
+        }).catch(e => who.row.set_subtitle(`Couldn’t list voices: ${e instanceof Error ? e.message : String(e)}`));
+        settings.voiceDevices().then(reply => {
+            devices = reply;
+            mic.render();
+            output.render();
+        }).catch(e => {
+            const why = `Couldn’t list devices: ${e instanceof Error ? e.message : String(e)}`;
+            mic.row.set_subtitle(why);
+            output.row.set_subtitle(why);
+        });
 
         const view = new Adw.ToolbarView({ content: prefs });
         view.add_top_bar(new Adw.HeaderBar());
@@ -184,4 +224,68 @@ function toggle(settings: RuntimeSettings, title: string, subtitle: string,
     field: 'speak_replies' | 'barge_in' | 'wake_word'): Row<Adw.SwitchRow> {
     return switchRow(settings, 'changed::voice', title, subtitle, () => settings.voice[field],
         on => settings.setVoice(field, on));
+}
+
+function chooseVoice(settings: RuntimeSettings, id: string): void {
+    const tts = settings.voice.tts;
+    if (tts === 'piper') settings.setVoice('voice', id);
+    else if (tts === 'kokoro') settings.setVoice('kokoro_speaker', Number(id));
+    else settings.setVoice('cloud_voice', id);
+}
+
+/** A choice whose options can change: the voices of the chosen speech, the devices plugged in. */
+function listRow(settings: RuntimeSettings, title: string, options: () => VoiceOption[], current: () => string,
+    choose: (id: string) => void): Row<Adw.ComboRow> & { render(): void } {
+    const labels = new Gtk.StringList();
+    const row = new Adw.ComboRow({ title, model: labels });
+    let shown: VoiceOption[] = [];
+    let updating = false;
+    const render = () => {
+        updating = true;
+        shown = options();
+        labels.splice(0, labels.get_n_items(), shown.map(o => o.label));
+        row.set_selected(Math.max(0, shown.findIndex(o => o.id === current())));
+        updating = false;
+    };
+    row.connect('notify::selected', () => {
+        const option = shown[row.get_selected()];
+        if (!updating && option && option.id !== current()) choose(option.id);
+    });
+    const id = settings.connect('changed::voice', render);
+    render();
+    return { row, render, destroy: () => settings.disconnect(id) };
+}
+
+/** A number, written back once it stops changing (each change reloads the voice worker). */
+function numberRow(settings: RuntimeSettings, title: string, subtitle: string, [min, max, step]: [number, number, number],
+    current: () => number, choose: (value: number) => void): Row<Adw.SpinRow> {
+    const row = Adw.SpinRow.new_with_range(min, max, step);
+    row.set_title(title);
+    row.set_subtitle(subtitle);
+    row.set_digits(1);
+    let updating = false;
+    let pending = 0;
+    const render = () => {
+        updating = true;
+        row.set_value(current());
+        updating = false;
+    };
+    row.connect('notify::value', () => {
+        if (updating) return;
+        if (pending) GLib.source_remove(pending);
+        pending = GLib.timeout_add(GLib.PRIORITY_DEFAULT, SETTLE_MS, () => {
+            pending = 0;
+            choose(Math.round(row.get_value() * 10) / 10);
+            return GLib.SOURCE_REMOVE;
+        });
+    });
+    const id = settings.connect('changed::voice', render);
+    render();
+    return {
+        row,
+        destroy: () => {
+            if (pending) GLib.source_remove(pending);
+            settings.disconnect(id);
+        },
+    };
 }

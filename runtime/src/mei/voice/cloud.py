@@ -27,14 +27,20 @@ class Endpoint:
     label: str
     url: str
     model: str
-    voice: str = ""
+    voice: str = ""  # the default
+    voices: tuple[str, ...] = ()  # the provider's others, to choose from in Settings
 
 
 STT = {"openai": Endpoint("openai", "OpenAI", "https://api.openai.com/v1/audio/transcriptions", "gpt-4o-mini-transcribe"),
        "groq": Endpoint("groq", "Groq", "https://api.groq.com/openai/v1/audio/transcriptions", "whisper-large-v3-turbo")}
-TTS = {"openai": Endpoint("openai", "OpenAI", "https://api.openai.com/v1/audio/speech", "gpt-4o-mini-tts", "alloy"),
+TTS = {"openai": Endpoint("openai", "OpenAI", "https://api.openai.com/v1/audio/speech", "gpt-4o-mini-tts", "alloy",
+                          ("ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse")),
        "gemini": Endpoint("gemini", "Gemini", "https://generativelanguage.googleapis.com/v1beta/models/"
-                          "gemini-2.5-flash-preview-tts:generateContent", "gemini-2.5-flash-preview-tts", "Kore")}
+                          "gemini-2.5-flash-preview-tts:generateContent", "gemini-2.5-flash-preview-tts", "Kore",
+                          ("Zephyr", "Puck", "Charon", "Fenrir", "Leda", "Orus", "Aoede", "Callirrhoe", "Autonoe",
+                           "Enceladus", "Iapetus", "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi",
+                           "Laomedeia", "Achernar", "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird",
+                           "Zubenelgenubi", "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat"))}
 
 
 class CloudSpeech:
@@ -57,17 +63,18 @@ class CloudSpeech:
         if end is None:
             raise VoiceError("speech", f"no cloud backend {backend!r}")
         key = await self._key(end)
+        voice = voice if voice in end.voices else end.voice  # one of another provider's: this one's default
         if backend == "gemini":
             body = {"contents": [{"parts": [{"text": text}]}],
                     "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
-                        "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice or end.voice}}}}}
+                        "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}}}
             response = await self._post(end, json=body, headers={"x-goog-api-key": key})
             try:
                 part = response.json()["candidates"][0]["content"]["parts"][0]["inlineData"]
             except (KeyError, IndexError, TypeError, ValueError):
                 raise VoiceError("speech", f"{end.label} answered without audio") from None
             return Speech(from_s16(base64.b64decode(part["data"])), _rate(part.get("mimeType", ""), 24_000))
-        body = {"model": end.model, "input": text, "voice": voice or end.voice, "response_format": "pcm"}
+        body = {"model": end.model, "input": text, "voice": voice, "response_format": "pcm"}
         response = await self._post(end, json=body, headers={"Authorization": f"Bearer {key}"})
         return Speech(from_s16(response.content), 24_000)  # OpenAI's "pcm": 24 kHz, 16-bit, mono
 
