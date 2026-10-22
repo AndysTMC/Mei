@@ -26,6 +26,7 @@ const XML = `
     <method name="State"><arg type="s" direction="out" name="json"/></method>
     <method name="Screenshot"><arg type="s" direction="in" name="path"/></method>
     <method name="Click"><arg type="i" direction="in" name="x"/><arg type="i" direction="in" name="y"/></method>
+    <method name="Scroll"><arg type="i" direction="in" name="x"/><arg type="i" direction="in" name="y"/><arg type="i" direction="in" name="steps"/></method>
     <method name="PressOpenShortcut"/>
     <method name="PressAskShortcut"/>
     <method name="PressVoiceShortcut"/>
@@ -36,11 +37,18 @@ const XML = `
 
 export class DevHooks {
     private readonly _exported: Gio.DBusExportedObject;
-    private _pointer: Clutter.VirtualInputDevice | null = null;
-    private _keyboard: Clutter.VirtualInputDevice | null = null;
+    // Made up front: the Shell adds a new input device asynchronously, and the first events sent
+    // through one made on the spot can be lost (the first click of a test went nowhere).
+    private readonly _pointer: Clutter.VirtualInputDevice;
+    private readonly _keyboard: Clutter.VirtualInputDevice;
+    /** Each ClickButton: was the button what the pointer was over, and did it say "clicked"? */
+    private readonly _clicks: { label: string; picked: boolean; clicked: boolean }[] = [];
 
     constructor(private readonly _popup: ChatPopup, private readonly _runtime: RuntimeChatController,
         private readonly _notifier: TaskNotifier) {
+        const seat = Clutter.get_default_backend().get_default_seat();
+        this._pointer = seat.create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
+        this._keyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         this._exported = Gio.DBusExportedObject.wrapJSObject(XML, this);
         this._exported.export(Gio.DBus.session, OBJECT_PATH);
     }
@@ -87,21 +95,37 @@ export class DevHooks {
 
     /** A left click at stage coordinates, for driving windows such as Settings. */
     Click(x: number, y: number): void {
-        this._pointer ??= Clutter.get_default_backend().get_default_seat()
-            .create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
         const t = GLib.get_monotonic_time();
         this._pointer.notify_absolute_motion(t, x, y);
         this._pointer.notify_button(t + 10_000, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.PRESSED);
         this._pointer.notify_button(t + 20_000, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.RELEASED);
     }
 
-    /** Clicks the popup's visible button with this label, where it is on screen, like a person would. */
+    /** Wheel steps at stage coordinates: positive scrolls down. */
+    Scroll(x: number, y: number, steps: number): void {
+        const t = GLib.get_monotonic_time();
+        this._pointer.notify_absolute_motion(t, x, y);
+        const direction = steps > 0 ? Clutter.ScrollDirection.DOWN : Clutter.ScrollDirection.UP;
+        for (let i = 0; i < Math.abs(steps); i++)
+            this._pointer.notify_discrete_scroll(t + (i + 1) * 10_000, direction, Clutter.ScrollSource.WHEEL);
+    }
+
+    /** Clicks the popup's visible button with this label, where it is on screen, like a person would;
+     * only if the button is what is there (not scrolled away or covered). Returns whether it exists. */
     ClickButton(label: string): boolean {
         const button = findButton(this._popup.contentActor, label);
         if (!button) return false;
         const [x, y] = button.get_transformed_position();
         const [w, h] = button.get_transformed_size();
-        this.Click(Math.round(x + w / 2), Math.round(y + h / 2));
+        const at = [Math.round(x + w / 2), Math.round(y + h / 2)];
+        const top = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, at[0], at[1]);
+        const record = { label, picked: top !== null && (top === button || button.contains(top)), clicked: false };
+        this._clicks.push(record);
+        if (!record.picked) return true;
+        button.connect('clicked', () => {
+            record.clicked = true;
+        });
+        this.Click(at[0], at[1]);
         return true;
     }
 
@@ -126,16 +150,20 @@ export class DevHooks {
     }
 
     private _press(keys: number[]): void {
-        this._keyboard ??= Clutter.get_default_backend().get_default_seat()
-            .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         let t = GLib.get_monotonic_time();
         for (const key of keys) this._keyboard.notify_keyval(t += 10_000, key, Clutter.KeyState.PRESSED);
         for (const key of keys.reverse()) this._keyboard.notify_keyval(t += 10_000, key, Clutter.KeyState.RELEASED);
     }
 
     State(): string {
+        const focus = global.display.focus_window?.get_frame_rect();
         return JSON.stringify({
             popup: { open: this._popup.isOpen, expanded: this._popup.isExpanded },
+            // Where the focused window is (Settings opens wherever the Shell places it).
+            // The Shell takes no input until its startup animation is over: drive it only after.
+            startingUp: Main.layoutManager._startingUp,
+            window: focus ? { x: focus.x, y: focus.y, width: focus.width, height: focus.height } : null,
+            clicks: this._clicks.slice(-5),
             shown: visibleText(this._popup.contentActor),
             controller: this._runtime.debugState(),
             // Every notification in the tray: Mei's own, and those the runtime sent while detached.

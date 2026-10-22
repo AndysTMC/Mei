@@ -25,7 +25,10 @@ WORDS = [f"w{i:02d}" for i in range(60)]
 PIECES = ["Mock reply:"] + [" " + w for w in WORDS]
 REPLY = "".join(PIECES)
 DELAY_S = 0.08
-NEXT_BUTTON = (920, 665)  # in the setup assistant, in the nested Shell's 1280×800 screen
+# Points in Settings' window, as they are with its top-left corner at WINDOW_AT in the nested Shell's
+# 1280×800 screen; `click_window` moves them to wherever the Shell placed the window.
+WINDOW_AT = (320, 112)
+NEXT_BUTTON = (920, 665)  # in the setup assistant
 CHOOSE_PROVIDER_BUTTON = (842, 287)  # "Choose…" on the Models step
 BACK_BUTTON = (342, 135)  # the header's back arrow
 MODEL_PROVIDER_ROW = (460, 412)  # "Model provider" on Settings' main page
@@ -64,6 +67,7 @@ class Harness:
         self.bus = bus
         self.results: dict = {}
         self.shell: subprocess.Popen | None = None
+        self.retried_clicks: list[str] = []
 
     async def _call(self, dest, path, iface, member, sig="", body=None):
         reply = await self.bus.call(Message(destination=dest, path=path, interface=iface, member=member,
@@ -81,6 +85,17 @@ class Harness:
         await self._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "Click", "ii", [x, y])
         await asyncio.sleep(0.8)  # the step transition
 
+    async def click_window(self, x: int, y: int) -> None:
+        """Click a point in the focused window (Settings), measured with it at WINDOW_AT."""
+        frame = (await self.state())["window"]
+        if frame is None:
+            raise RuntimeError("no focused window to click in")
+        await self.click(x + frame["x"] - WINDOW_AT[0], y + frame["y"] - WINDOW_AT[1])
+
+    async def scroll(self, x: int, y: int, steps: int) -> None:
+        await self._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "Scroll", "iii", [x, y, steps])
+        await asyncio.sleep(0.5)  # the scroll animation
+
     async def runtime(self, member: str, args: dict) -> dict:
         body = await self._call("com.andystmc.Mei1", "/com/andystmc/Mei1", "com.andystmc.Mei1.Runtime",
                                 member, "s", [json.dumps(args)])
@@ -90,11 +105,29 @@ class Harness:
         return await self.hook("State")
 
     async def press(self, label: str) -> bool:
-        """Click the popup's button with this label where it is on screen."""
-        body = await self._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "ClickButton", "s",
-                                [label])
-        await asyncio.sleep(0.5)
-        return bool(body[0])
+        """Click the popup's button with this label where it is on screen, once it is on top (a
+        card may still be fading in or scrolling into view). A click the nested Shell dropped on the
+        way in is tried again, and noted in `self.retried_clicks`. False if the button never took
+        a click, and why is in `self.results["clicks"]`."""
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            body = await self._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "ClickButton", "s",
+                                    [label])
+            if not body[0]:
+                await asyncio.sleep(0.2)
+                continue
+            click = (await self.state())["clicks"][-1]
+            if not click["picked"]:  # not on top yet
+                await asyncio.sleep(0.2)
+                continue
+            for _ in range(15):
+                await asyncio.sleep(0.1)
+                if (await self.state())["clicks"][-1]["clicked"]:
+                    await asyncio.sleep(0.4)
+                    return True
+            self.retried_clicks.append(label)
+        self.results.setdefault("clicks", (await self.state())["clicks"])
+        return False
 
     async def use_fake(self, script: list[dict], delay_ms: int = 10) -> None:
         """Switch to the scripted provider, keeping every other setting."""
@@ -119,8 +152,11 @@ class Harness:
         raise AssertionError(f"timed out waiting for {what}; last state: {json.dumps(last)[:1500]}")
 
     def start_shell(self) -> None:
+        """Headless, with a virtual 1280×800 screen: no window in the real session, whose pointer
+        would otherwise reach the Shell under test and move the hooks' clicks off their targets."""
         log = open(os.path.join(OUT, "shell.log"), "a")
-        self.shell = subprocess.Popen(["gnome-shell", "--devkit", "--wayland", "--no-x11"], stdout=log, stderr=log)
+        self.shell = subprocess.Popen(["gnome-shell", "--headless", "--virtual-monitor", "1280x800", "--wayland",
+                                       "--no-x11"], stdout=log, stderr=log)
 
     def stop_shell(self) -> None:
         if self.shell:
@@ -155,6 +191,8 @@ async def main() -> int:
         # 1. The extension starts the runtime by D-Bus activation. Settings live in the runtime: configure
         #    it the way Settings would, and the popup picks the change up from config.changed.
         await h.until(lambda s: s["controller"]["status"] == "connected", 60, "the extension to connect")
+        # Clicks sent while the Shell's startup animation plays are lost, and so is the pointer that sent them.
+        await h.until(lambda s: not s["startingUp"], 60, "the Shell to finish starting up")
 
         # 0. First run: setup was never offered, so the extension opens Settings, and Settings opens on
         #    the setup assistant and marks it offered.
@@ -167,13 +205,13 @@ async def main() -> int:
         await asyncio.sleep(2.0)  # let the window finish drawing
         await h.hook("Screenshot", os.path.join(OUT, "setup-1-service.png"))
         for name in ("2-models", "3-approvals", "4-memory", "5-voice", "6-privacy", "7-shortcuts", "8-done"):
-            await h.click(*NEXT_BUTTON)
+            await h.click_window(*NEXT_BUTTON)
             await h.hook("Screenshot", os.path.join(OUT, f"setup-{name}.png"))
             if name == "2-models":  # "Choose…" opens the provider page on top of setup; Back returns
-                await h.click(*CHOOSE_PROVIDER_BUTTON)
+                await h.click_window(*CHOOSE_PROVIDER_BUTTON)
                 await h.hook("Screenshot", os.path.join(OUT, "provider-page.png"))
-                await h.click(*BACK_BUTTON)
-        await h.click(*NEXT_BUTTON)  # Finish
+                await h.click_window(*BACK_BUTTON)
+        await h.click_window(*NEXT_BUTTON)  # Finish
         await asyncio.sleep(1.0)
         setup = await h.runtime("SetupStatus", {})
         h.check("setup_finishes_from_the_assistant", setup["completed"] and setup["skipped"] == [],
@@ -190,16 +228,19 @@ async def main() -> int:
                 and cfg["config"]["providers"]["custom"]["url"] == url
                 and st["controller"]["provider"] == "custom", cfg["config"])
 
-        await h.click(*MODEL_PROVIDER_ROW)  # Settings is still open on its main page
+        await h.click_window(*MODEL_PROVIDER_ROW)  # Settings is still open on its main page
         await h.hook("Screenshot", os.path.join(OUT, "provider-custom.png"))
-        await h.click(*BACK_BUTTON)
-        await h.click(*MEMORY_ROW)
+        await h.click_window(*BACK_BUTTON)
+        await h.click_window(*MEMORY_ROW)
         await h.hook("Screenshot", os.path.join(OUT, "memory-page.png"))
-        await h.click(*BACK_BUTTON)
-        await h.click(*VOICE_ROW)
+        await h.click_window(*BACK_BUTTON)
+        await h.click_window(*VOICE_ROW)
         await asyncio.sleep(0.5)
         await h.hook("Screenshot", os.path.join(OUT, "voice-page.png"))
-        await h.click(*BACK_BUTTON)
+        for part in (2, 3):  # the rest of the page
+            await h.scroll(640, 450, 5)
+            await h.hook("Screenshot", os.path.join(OUT, f"voice-page-{part}.png"))
+        await h.click_window(*BACK_BUTTON)
 
         # 1b. The default shortcut (Super+Alt+M) opens the popup from anywhere and closes it again.
         await h.hook("PressOpenShortcut")
@@ -288,7 +329,8 @@ async def main() -> int:
         st = await h.until(lambda s: "outcome" in s["controller"]["timeline"], 30, "the approved task to finish")
         trashed = os.path.join(OUT, "data", "Trash/files/old.txt")  # the trash lives in XDG_DATA_HOME
         h.check("approved_from_the_popup", clicked and not os.path.exists(os.path.join(OUT, "home/Music/old.txt"))
-                and os.path.exists(trashed) and not st["controller"]["waiting"])
+                and os.path.exists(trashed) and not st["controller"]["waiting"],
+                {"clicks retried": h.retried_clicks} if h.retried_clicks else None)
 
         # 6. The dark-mode slice through the real Shell bridge: nothing it touches needs a card, and Mei
         #    checks both criteria itself (the setting, and a Files window the Shell reports).
@@ -408,8 +450,8 @@ async def main() -> int:
         conv = (await h.until(lambda s: s["controller"]["current"], 10, "the task to start"))["controller"]["current"]
         h.stop_shell()
         h.start_shell()
-        await h.until(lambda s: s["controller"]["status"] == "connected" and s["controller"]["busy"], 60,
-                      "the restarted Shell to see the task still working")
+        await h.until(lambda s: s["controller"]["status"] == "connected" and s["controller"]["busy"]
+                      and not s["startingUp"], 60, "the restarted Shell to see the task still working")
         st = await h.until(lambda s: (s["controller"]["notice"] or {}).get("conversationId") == conv, 90,
                            "the notice after the Shell restart")
         task = (await h.runtime("GetConversation", {"conversation_id": conv}))["tasks"][-1]
@@ -424,7 +466,8 @@ async def main() -> int:
             import numpy as np
             from mei.voice import local
             piper = local.piper(__import__("pathlib").Path(models))
-            question = (await piper.synthesize("What's the weather like tomorrow?")).samples
+            # Two sentences, so "weather" is on screen for a while before the person stops talking.
+            question = (await piper.synthesize("What's the weather like tomorrow? I'm going out for a long walk.")).samples
             np.concatenate([np.zeros(8000, np.float32), question, np.zeros(16000 * 20, np.float32)]).astype(
                 np.float32).tofile(os.environ["MEI_VOICE_SOURCE_FILE"])
             await h.use_fake([{"text": "It will be sunny tomorrow. Around eighteen degrees."}])
