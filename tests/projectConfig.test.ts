@@ -18,7 +18,7 @@ test('the schema keeps only keybindings: the runtime owns every other setting', 
     const schema = readFileSync('schemas/org.gnome.shell.extensions.mei.gschema.xml', 'utf8');
     for (const key of ['provider', 'provider-type', 'provider-configs', 'experimental-runtime'])
         assert.doesNotMatch(schema, new RegExp(`<key name="${key}"`));
-    assert.deepEqual([...schema.matchAll(/<key name="([^"]+)"/g)].map(m => m[1]), ['open-shortcut', 'ask-shortcut']);
+    assert.deepEqual([...schema.matchAll(/<key name="([^"]+)"/g)].map(m => m[1]), ['open-shortcut', 'ask-shortcut', 'voice-shortcut']);
 });
 
 test('sensitive local environment files are ignored while the template is committed', () => {

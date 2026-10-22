@@ -14,8 +14,11 @@ class Command(msgspec.Struct, tag_field="op", kw_only=True):
 
 class Load(Command, tag="load"):
     models: str
-    stt: Literal["kroko"] = "kroko"
-    tts: Literal["piper", "kokoro"] = "piper"
+    # "core": a cloud backend in the core does it (the worker has no network): the worker sends the
+    # utterance up (Transcribe), or asks for each sentence's audio (Synthesize). Kroko still gives
+    # the live partials either way.
+    stt: Literal["kroko", "core"] = "kroko"
+    tts: Literal["piper", "kokoro", "core"] = "piper"
     voice: str = "amy"  # Piper voice
     speaker: int = 0  # Kokoro speaker id
     speed: float = 1.0
@@ -76,8 +79,23 @@ class Quit(Command, tag="quit"):
     pass
 
 
+class Transcript(Command, tag="transcript"):
+    """The core's answer to Transcribe."""
+    id: str
+    text: str = ""
+    error: str = ""
+
+
+class Audio(Command, tag="audio"):
+    """The core's answer to Synthesize: mono float32 samples, base64."""
+    id: str
+    rate: int = 0
+    pcm: str = ""
+    error: str = ""
+
+
 AnyCommand = (Load | Listen | DoneTalking | CancelListen | Say | End | StopSpeaking | Arm | Suspend | Resume
-              | Diagnose | Quit)
+              | Diagnose | Quit | Transcript | Audio)
 
 
 class Event(msgspec.Struct, tag_field="ev", kw_only=True):
@@ -137,6 +155,18 @@ class Suspended(Event, tag="suspended"):
     pass
 
 
+class Transcribe(Event, tag="transcribe"):
+    """Speech to text by the core: one utterance, mono float32 at 16 kHz, base64."""
+    id: str
+    pcm: str
+
+
+class Synthesize(Event, tag="synthesize"):
+    """Text to speech by the core: answer with Audio."""
+    id: str
+    text: str
+
+
 class Diagnosis(Event, tag="diagnosis"):
     network: bool
     home_visible: bool
@@ -145,7 +175,10 @@ class Diagnosis(Event, tag="diagnosis"):
 
 
 AnyEvent = (Ready | Failed | Listening | SpeechStarted | Partial | Final | NoSpeech | Speaking | Spoken | BargeIn | Woke
-            | Suspended | Diagnosis)
+            | Suspended | Diagnosis | Transcribe | Synthesize)
+
+# One message per line; a line can carry audio (up to a 30 s utterance or a long sentence, base64).
+MAX_LINE = 8 << 20
 
 _commands = msgspec.json.Decoder(AnyCommand)
 _events = msgspec.json.Decoder(AnyEvent)

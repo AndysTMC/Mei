@@ -52,6 +52,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         const cloudFiles = buildCloudFilesRow(settings);
         const shortcut = buildShortcutRow(window, this.getSettings(), 'open-shortcut', 'Open Mei');
         const askShortcut = buildShortcutRow(window, this.getSettings(), 'ask-shortcut', 'Ask about this');
+        const voiceShortcut = buildShortcutRow(window, this.getSettings(), 'voice-shortcut', 'Talk to Mei');
 
         const page = new Adw.PreferencesPage({ title: 'Mei', icon_name: 'preferences-system-symbolic' });
         const mei = new Adw.PreferencesGroup({ title: 'Mei' });
@@ -81,6 +82,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         page.add(privacy);
         const shortcuts = group('Shortcuts', shortcut.row);
         shortcuts.add(askShortcut.row);
+        shortcuts.add(voiceShortcut.row);
         page.add(shortcuts);
         window.add(page);
 
@@ -134,7 +136,8 @@ export default class MeiPreferences extends ExtensionPreferences {
         window.connect('destroy', () => {
             sources.destroy();
             settings.disconnect(saveFailed);
-            for (const part of [providers, logs, setup, preset, retention, cloudFiles, shortcut, askShortcut, memory]) part.destroy();
+            for (const part of [providers, logs, setup, preset, retention, cloudFiles, shortcut, askShortcut, voiceShortcut,
+                memory]) part.destroy();
         });
     }
 }

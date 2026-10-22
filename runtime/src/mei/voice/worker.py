@@ -20,7 +20,7 @@ from pathlib import Path
 
 import msgspec
 
-from . import local, pipeline, wire
+from . import local, pipeline, remote, wire
 from .parts import SAMPLE_RATE, AudioSink, AudioSource, VoiceError
 from .pipewire import PipeWireSink, PipeWireSource
 from .recorded import CaptureSink, RecordedSource
@@ -45,6 +45,7 @@ class Worker:
         self._mic_job = ""  # "listen", "wake", or "barge" while _mic_task runs
         self._armed = False
         self._suspended = False
+        self._link = remote.CoreLink(self.emit)  # cloud speech, through the core
 
     def emit(self, event: wire.Event) -> None:
         self._out.write(wire.encode(event))
@@ -94,6 +95,8 @@ class Worker:
                 self._rearm()
             case wire.Diagnose():
                 self.emit(diagnose())
+            case wire.Transcript() | wire.Audio():
+                self._link.answer(cmd)
             case wire.Quit():
                 await self._release_mic()
                 await self._speaker_stop()
@@ -110,9 +113,13 @@ class Worker:
         root = Path(cfg.models)
         try:
             self._vad = local.SileroVad(root)
-            stt = local.KrokoStt(root)
+            stt = local.KrokoStt(root) if cfg.stt == "kroko" or local.have_kroko(root) else None
+            if cfg.stt == "core":
+                stt = remote.CoreStt(self._link, partials=stt)
             if cfg.tts == "kokoro":
                 tts, device, note = local.kokoro(root, cfg.speaker, cfg.speed, cfg.device)
+            elif cfg.tts == "core":
+                tts, device, note = remote.CoreTts(self._link), "cloud", ""
             else:
                 tts, device, note = local.piper(root, cfg.voice, cfg.speed), "cpu", ""
             self._wake = local.SherpaWake(root, Path("/tmp"), cfg.wake_threshold) if cfg.wake else None
@@ -127,7 +134,8 @@ class Worker:
         self._sink = CaptureSink(Path(cfg.sink_file)) if cfg.sink_file else PipeWireSink(cfg.output)
         ep = pipeline.Endpointing(end_silence_s=cfg.end_silence_s)
         self._listener = pipeline.Listener(self._source, self._vad, stt, ep)
-        self._speaker = pipeline.Speaker(tts, self._sink, on_start=self._spoke, on_done=self._spoken)
+        self._speaker = pipeline.Speaker(tts, self._sink, on_start=self._spoke, on_done=self._spoken,
+                                         on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)))
         self._config = cfg
         self._armed = cfg.wake and self._wake is not None
         self.emit(wire.Ready(stt=stt.name, tts=tts.name, device=device, note=note, wake=self._wake is not None))
@@ -267,7 +275,7 @@ def diagnose() -> wire.Diagnosis:
 async def main() -> int:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="voice worker: %(message)s")
     loop = asyncio.get_running_loop()
-    reader = asyncio.StreamReader(limit=1 << 20)
+    reader = asyncio.StreamReader(limit=wire.MAX_LINE)
     await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
     worker = Worker()
     while line := await reader.readline():

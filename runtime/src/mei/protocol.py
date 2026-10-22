@@ -221,8 +221,12 @@ class VoiceSettings(msgspec.Struct, kw_only=True):
     # Voice (§11, decision 0017). Off until the person turns it on in setup or Settings.
     enabled: bool = False
     speak_replies: bool = True  # answer out loud when spoken to
-    tts: Literal["piper", "kokoro"] = "piper"  # Piper starts at once; Kokoro sounds more natural, slower on a CPU
+    # Speech to text: on this computer (Kroko), or a cloud provider, which then hears the person's voice.
+    stt: Literal["local", "openai", "groq"] = "local"
+    # Speech: Piper starts at once; Kokoro sounds more natural (slower on a CPU); cloud voices get Mei's replies.
+    tts: Literal["piper", "kokoro", "openai", "gemini"] = "piper"
     voice: str = "amy"  # Piper voice
+    cloud_voice: str = ""  # the provider's voice name; "" = its default
     kokoro_speaker: int = 0
     speed: Annotated[float, msgspec.Meta(ge=0.5, le=2.0)] = 1.0
     device: Literal["auto", "cpu", "gpu"] = "auto"  # for Kokoro: the GPU when one works

@@ -18,7 +18,10 @@ import { RuntimeClient, RuntimeError, type ConnectionStatus } from './client.js'
 import { activeLabel, noticeFor, reaction, wantsPerson, type Notice, type Reaction } from './notices.js';
 import { Projection } from './projection.js';
 import { attachmentLabel } from './attachment.js';
-import type { ApprovalScope, Attachment, ConversationReply, Envelope, SetupStatusReply, SubmitReply } from './protocol.js';
+import { voiceLine, type VoiceView } from './voice.js';
+import type {
+    ApprovalScope, Attachment, ConversationReply, Envelope, SetupStatusReply, SubmitReply, VoiceStateName, VoiceStatusReply,
+} from './protocol.js';
 import { RuntimeSettings } from './settings.js';
 import { buildTimeline, type TimelineItem } from './timeline.js';
 
@@ -53,6 +56,8 @@ export class RuntimeChatController {
     private _lastNotice: Notice | null = null;
     /** What "Ask about this" attached to the next message, until it is sent or dropped. */
     private _attachment: Attachment | null = null;
+    /** Voice (2.4): the runtime's voice state and what it has heard. */
+    private _voice: VoiceView = { state: 'off', note: '', transcript: '' };
     /** Called once when setup was never offered (the extension opens Settings). */
     onSetupNeeded: (() => void) | null = null;
     /** Whether this controller asked for setup to open (read by the dev-build test hooks). */
@@ -64,6 +69,7 @@ export class RuntimeChatController {
         this.settings = new RuntimeSettings((method, args) => this._client.call(method, args));
         this._client.onAttached = reply => {
             this._projection.applyAttach(reply);
+            void this._loadVoiceStatus();
             if (reply.mode === 'snapshot' && this._current) void this._loadConversation(this._current);
             this._reloadSettings();
             void this._checkSetup();
@@ -122,6 +128,7 @@ export class RuntimeChatController {
             interrupted: this._current ? this._projection.interruptedTask(this._current)?.draft ?? null : null,
             provider: this.settings.active,
             attachment: this._attachment,
+            voice: this._voice,
             setupOffered: this.setupOffered,
             timeline: this._timeline().map(i => i.kind),
             waiting: this.needsAttention,
@@ -169,6 +176,21 @@ export class RuntimeChatController {
             if (this._attachment === attachment) this._setAttachment(null);
             this._render();
         }).catch((e: RuntimeError) => this._showFailure(e));
+    }
+
+    get voiceState(): VoiceStateName {
+        return this._voice.state;
+    }
+
+    /** The voice shortcut or the mic button: talk; while listening, done talking; while Mei speaks, stop it and talk. */
+    voiceListen(): void {
+        this._popup.hideError();
+        this._client.call<VoiceStatusReply>('VoiceListen', { conversation_id: this._current })
+            .catch((e: RuntimeError) => this._showFailure(e));
+    }
+
+    voiceStop(): void {
+        this._client.call('VoiceStop', {}).catch((e: RuntimeError) => this._showFailure(e));
     }
 
     /** "Ask about this" (§18.4): a new chat whose first message carries the window and selection. */
@@ -296,6 +318,10 @@ export class RuntimeChatController {
     // ── Events and rendering ────────────────────────────────────────────────
 
     private _onEvent(event: Envelope): void {
+        if (event.type === 'voice.state' || event.type === 'voice.partial') {
+            this._onVoice(event);
+            return;
+        }
         const result = this._projection.applyEvent(event);
         if (result === 'gap') {
             Logger.warn(Tag.Extension, `Missed runtime events before seq ${event.seq}; re-attaching`);
@@ -347,6 +373,41 @@ export class RuntimeChatController {
             }
         }
         return react;
+    }
+
+    // ── Voice ───────────────────────────────────────────────────────────────
+
+    private _onVoice(event: Envelope): void {
+        const p = event.payload;
+        if (event.type === 'voice.partial') {
+            this._voice = { ...this._voice, transcript: String(p.text ?? '') };
+        } else {
+            const state = p.state as VoiceStateName;
+            const conversation = (p.conversation_id as string | null) ?? null;
+            if (state === 'listening' && this._voice.state !== 'listening') this._voice.transcript = '';
+            this._voice = { ...this._voice, state, note: String(p.note ?? '') };
+            // A spoken request starts or continues a conversation: show it, as sending one would.
+            if (state === 'thinking' && conversation && conversation !== this._current) this.loadChat(conversation);
+            if (state === 'idle' || state === 'off') this._voice.transcript = '';
+        }
+        this._showVoice();
+        this.onStateChanged?.();
+    }
+
+    private _showVoice(): void {
+        const available = !['off', 'unavailable'].includes(this._voice.state);
+        this._popup.showVoice(voiceLine(this._voice), available, this._voice.state === 'listening');
+    }
+
+    private async _loadVoiceStatus(): Promise<void> {
+        try {
+            const status = await this._client.call<VoiceStatusReply>('VoiceStatus');
+            this._voice = { state: status.state, note: status.note, transcript: '' };
+        } catch (e) {
+            Logger.debug(Tag.Extension, `VoiceStatus: ${(e as Error).message}`);  // an older runtime: no voice
+            this._voice = { state: 'off', note: '', transcript: '' };
+        }
+        this._showVoice();
     }
 
     /** A card now waits on the person: show it in place, even in compact mode. */

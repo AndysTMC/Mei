@@ -8,7 +8,7 @@ stops it and listens. "Stop" or "cancel that" is matched here, not by the model,
 task. After a spoken reply Mei listens for a few seconds more, so a follow-up needs no shortcut.
 The microphone is closed while the screen is locked.
 
-The controller sees the engine's events by being one of its publishers (Fanout).
+The controller sees the engine's events by being one of its publishers (core/fanout.py).
 """
 
 import asyncio
@@ -23,8 +23,10 @@ from mei.protocol import Envelope, ProtocolError, SubmitInputArgs, TaskCommandAr
 from mei.store import repo
 from mei.store.db import new_id
 
-from . import wire
-from .models import BASIC, KOKORO, KWS, PIPER, have, models_dir
+from . import remote, wire
+from .cloud import CloudSpeech
+from .models import KOKORO, KROKO, KWS, PIPER, SILERO, have, models_dir
+from .parts import VoiceError
 from .speakable import Sentences
 
 log = logging.getLogger("mei.voice")
@@ -35,27 +37,14 @@ RESTARTS = (1.0, 5.0, 30.0)  # back-off when the worker dies
 States = ("off", "unavailable", "starting", "idle", "listening", "thinking", "speaking", "suspended")
 
 
-class Fanout:
-    """The engine's publisher, passing every event to several (the D-Bus service, voice)."""
-
-    def __init__(self, *sinks) -> None:
-        self._sinks = sinks
-
-    def publish(self, events: list[Envelope]) -> None:
-        for sink in self._sinks:
-            sink.publish(events)
-
-    def publish_ephemeral(self, event: Envelope) -> None:
-        for sink in self._sinks:
-            sink.publish_ephemeral(event)
-
-
 class VoiceController:
     def __init__(self, engine, emit: Callable[[str, dict], None], argv: Callable[[VoiceSettings, Path], list[str]],
-                 models: Path | None = None, load_extra: dict | None = None) -> None:
+                 models: Path | None = None, load_extra: dict | None = None, cloud: CloudSpeech | None = None) -> None:
         """`emit(type, payload)` sends an ephemeral event to clients; `argv(settings, models)` is the
-        command that starts the worker (in its jail). `load_extra`: test backends (recorded audio)."""
+        command that starts the worker (in its jail). `cloud`: cloud speech, when chosen in Settings.
+        `load_extra`: test backends (recorded audio)."""
         self._engine = engine
+        self._cloud = cloud
         self._emit = emit
         self._argv = argv
         self._models = models or models_dir()
@@ -98,9 +87,11 @@ class VoiceController:
             await self._load()
 
     def needed(self):
+        """The local models these settings use: voice detection and Kroko always (Kroko shows what
+        is heard live, even when a cloud provider does the final text)."""
         s = self._settings
-        return (*BASIC, *([PIPER.get(s.voice, PIPER["amy"])] if s.tts == "piper" else [KOKORO]),
-                *([KWS] if s.wake_word else []))
+        speech = {"piper": [PIPER.get(s.voice, PIPER["amy"])], "kokoro": [KOKORO]}.get(s.tts, [])
+        return (SILERO, KROKO, *speech, *([KWS] if s.wake_word else []))
 
     async def stop(self) -> None:
         proc, self._proc = self._proc, None
@@ -128,7 +119,7 @@ class VoiceController:
         try:
             self._proc = await asyncio.create_subprocess_exec(*argv, stdin=asyncio.subprocess.PIPE,
                                                               stdout=asyncio.subprocess.PIPE,
-                                                              stderr=asyncio.subprocess.PIPE)
+                                                              stderr=asyncio.subprocess.PIPE, limit=wire.MAX_LINE)
         except OSError as e:
             self._set("unavailable", f"the voice worker couldn't start: {e.strerror}")
             return
@@ -138,7 +129,9 @@ class VoiceController:
 
     async def _load(self) -> None:
         s = self._settings
-        await self._send(wire.Load(models=str(self._models), tts=s.tts, voice=s.voice, speaker=s.kokoro_speaker,
+        stt = "kroko" if s.stt == "local" else "core"
+        tts = s.tts if s.tts in ("piper", "kokoro") else "core"
+        await self._send(wire.Load(models=str(self._models), stt=stt, tts=tts, voice=s.voice, speaker=s.kokoro_speaker,
                                    speed=s.speed, device=s.device, wake=s.wake_word, barge_in=s.barge_in,
                                    end_silence_s=s.end_silence_ms / 1000, mic=s.mic, output=s.output,
                                    **self._load_extra))
@@ -258,6 +251,26 @@ class VoiceController:
                     self._conversation = None
             case wire.Suspended():
                 self._set("suspended")
+            case wire.Transcribe() | wire.Synthesize():
+                asyncio.ensure_future(self._cloud_answer(event))
+
+    async def _cloud_answer(self, request: wire.Transcribe | wire.Synthesize) -> None:
+        """The worker asks for cloud speech (it has no network): answer it, or say what failed."""
+        s = self._settings
+        try:
+            if self._cloud is None:
+                raise VoiceError("cloud speech", "isn't available here")
+            if isinstance(request, wire.Transcribe):
+                text = await self._cloud.transcribe(s.stt, remote.samples(request.pcm))
+                reply: wire.Command = wire.Transcript(id=request.id, text=text)
+            else:
+                speech = await self._cloud.synthesize(s.tts, request.text, s.cloud_voice)
+                reply = wire.Audio(id=request.id, rate=speech.rate, pcm=remote.pcm(speech.samples))
+        except VoiceError as e:
+            self._set(self.state, e.message)
+            reply = (wire.Transcript(id=request.id, error=e.message) if isinstance(request, wire.Transcribe)
+                     else wire.Audio(id=request.id, error=e.message))
+        await self._send_quietly(reply)
 
     async def _heard(self, text: str) -> None:
         """A finished utterance: stop the task, or ask Mei."""

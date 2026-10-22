@@ -41,6 +41,8 @@ const KNOWN_EVENTS = new Set([
     'approval.requested', 'approval.resolved', 'input.requested', 'input.answered', 'grant.created', 'grant.revoked',
     // 2.3
     'memory.saved', 'memory.pending_review', 'memory.updated', 'memory.deleted',
+    // 2.4 (ephemeral)
+    'voice.state', 'voice.partial',
 ]);
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'unavailable' | 'incompatible';

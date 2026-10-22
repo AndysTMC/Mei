@@ -151,9 +151,11 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
         + 'or ask about what you are looking at: the window and the text you selected go with your question.');
     const shortcut = buildShortcutRow(window, gsettings, 'open-shortcut', 'Open Mei');
     const askShortcut = buildShortcutRow(window, gsettings, 'ask-shortcut', 'Ask about this');
-    rows.push(shortcut, askShortcut);
+    const voiceShortcut = buildShortcutRow(window, gsettings, 'voice-shortcut', 'Talk to Mei');
+    rows.push(shortcut, askShortcut, voiceShortcut);
     shortcuts.add(shortcut.row);
     shortcuts.add(askShortcut.row);
+    shortcuts.add(voiceShortcut.row);
 
     /* ── Summary ── */
     const done = new Adw.StatusPage({ icon_name: 'emblem-ok-symbolic', title: 'Mei is ready' });

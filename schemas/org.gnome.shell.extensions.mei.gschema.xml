@@ -14,5 +14,10 @@
             <summary>Ask Mei about this</summary>
             <description>Keyboard shortcut that opens a new Mei chat with the focused window's title and the selected text attached. An empty list turns it off.</description>
         </key>
+        <key name="voice-shortcut" type="as">
+            <default><![CDATA[['<Super><Alt>space']]]></default>
+            <summary>Talk to Mei</summary>
+            <description>Keyboard shortcut that starts listening. Press it again when you're done talking, or while Mei speaks to stop it and talk. An empty list turns it off.</description>
+        </key>
     </schema>
 </schemalist>

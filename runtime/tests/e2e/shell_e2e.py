@@ -411,6 +411,36 @@ async def main() -> int:
         h.check("task_survives_a_shell_restart_and_notifies", task["state"] == "COMPLETED"
                 and st["controller"]["notice"]["title"] == "Mei finished"
                 and any(n["title"] == "Mei finished" for n in st["notifications"]), st["controller"]["notice"])
+
+        # 12. Voice: Super+Alt+Space listens; the question (from a file standing in for the microphone)
+        #     shows as it is heard, becomes a spoken request, and the reply is spoken (captured to a file).
+        models = os.environ.get("MEI_VOICE_MODELS", "")
+        if models and os.path.exists(os.path.join(models, "sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06")):
+            import numpy as np
+            from mei.voice import local
+            piper = local.piper(__import__("pathlib").Path(models))
+            question = (await piper.synthesize("What's the weather like tomorrow?")).samples
+            np.concatenate([np.zeros(8000, np.float32), question, np.zeros(16000 * 20, np.float32)]).astype(
+                np.float32).tofile(os.environ["MEI_VOICE_SOURCE_FILE"])
+            await h.use_fake([{"text": "It will be sunny tomorrow. Around eighteen degrees."}])
+            cfg = await h.runtime("GetConfig", {})
+            config = {**cfg["config"], "voice": {**cfg["config"].get("voice", {}), "enabled": True}}
+            await h.runtime("UpdateConfig", {"revision": cfg["revision"], "config": config})
+            await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 90, "voice to be ready")
+            await h.hook("Popup", "new")
+            await h.hook("PressVoiceShortcut")
+            st = await h.until(lambda s: s["controller"]["voice"]["state"] == "listening"
+                               and "weather" in s["controller"]["voice"]["transcript"].lower(), 30, "the question heard")
+            listening = "Listening…" in st["shown"] and any("weather" in t.lower() for t in st["shown"])
+            await h.hook("Screenshot", os.path.join(OUT, "voice-listening.png"))
+            st = await h.until(lambda s: s["controller"]["current"] and s["controller"]["voice"]["state"] == "idle"
+                               and len(s["controller"]["messages"]) >= 2, 60, "the spoken reply")
+            conv = await h.runtime("GetConversation", {"conversation_id": st["controller"]["current"]})
+            user = conv["messages"][0]
+            played = os.path.getsize(os.environ["MEI_VOICE_SINK_FILE"]) / 4 / 16000
+            h.check("voice_question_answered_out_loud", listening and user["metadata"].get("source") == "voice"
+                    and user["content"].lower().startswith("what's the weather") and played > 2.0,
+                    {"user": user["content"], "played_s": round(played, 1)})
     except AssertionError as e:
         h.results["error"] = str(e)
     finally:

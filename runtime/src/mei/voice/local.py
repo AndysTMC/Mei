@@ -24,6 +24,10 @@ CUDA_PROVIDER = Path(so.__file__).parent / "lib" / "libonnxruntime_providers_cud
 WAKE_TOKENS = "▁HE Y ▁MA Y @HEY_MEI"
 
 
+def have_kroko(root: Path) -> bool:
+    return (root / KROKO.folder).is_dir()
+
+
 def _need(path: Path, part: str) -> str:
     if not path.exists():
         raise VoiceError(part, f"the model isn't downloaded ({path.name})")

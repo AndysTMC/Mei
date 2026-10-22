@@ -13,7 +13,8 @@ pytest.importorskip("sherpa_onnx")
 
 from mei.protocol import ProtocolError, VoiceSettings  # noqa: E402
 from mei.store import repo  # noqa: E402
-from mei.voice.controller import STOP, Fanout, VoiceController  # noqa: E402
+from mei.core.fanout import Fanout  # noqa: E402
+from mei.voice.controller import STOP, VoiceController  # noqa: E402
 
 from agent_harness import Harness  # noqa: E402
 from test_voice import models, say, voice  # noqa: E402,F401  (fixtures)

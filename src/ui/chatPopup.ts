@@ -24,6 +24,8 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Logger, Tag } from '../utils/logger.js';
 import type { ThemeManager } from '../utils/theme.js';
 import { AttachmentChip } from './conversation/attachmentChip.js';
+import { VoiceBar } from './conversation/voiceBar.js';
+import type { VoiceLine } from '../runtime/voice.js';
 import { Composer } from './conversation/composer.js';
 import type { ApprovalScope } from '../runtime/protocol.js';
 import type { TimelineItem } from '../runtime/timeline.js';
@@ -74,6 +76,10 @@ export class ChatPopup {
     onKeepMemory: ((memoryId: string) => void) | null = null;
     /** Called when the person undoes or discards a memory. */
     onForgetMemory: ((memoryId: string) => void) | null = null;
+    /** Called when the person presses the mic button (talk, or done talking). */
+    onVoice: (() => void) | null = null;
+    /** Called when the person stops voice from the voice bar. */
+    onVoiceStop: (() => void) | null = null;
     /** Called when the person drops what "Ask about this" attached. */
     onRemoveAttachment: (() => void) | null = null;
 
@@ -88,6 +94,7 @@ export class ChatPopup {
     private readonly _composer: Composer;
     private readonly _error: ErrorPill;
     private readonly _attachment: AttachmentChip;
+    private readonly _voice: VoiceBar;
     private readonly _history: HistoryPanel;
     private readonly _themeSignal: number;
     private _expanded = false;
@@ -133,16 +140,19 @@ export class ChatPopup {
         this._composer = new Composer(this._sources, Math.round(screenHeight * 0.20), {
             onSend: text => this.onSend?.(text),
             onStop: () => this.onCancel?.(),
+            onVoice: () => this.onVoice?.(),
         });
         this._error = new ErrorPill(this._sources);
         this._attachment = new AttachmentChip(() => this.onRemoveAttachment?.());
+        this._voice = new VoiceBar(() => this.onVoiceStop?.());
         this._history = new HistoryPanel(this._sources, contentMaxHeight, {
             onBack: () => this.hideHistoryList(),
             onLoadChat: id => this.onLoadChat?.(id),
             onDeleteChat: id => this.onDeleteChat?.(id),
         });
 
-        for (const part of [this._messages.actor, this._attachment.actor, this._composer.actor, this._error.actor])
+        for (const part of [this._messages.actor, this._attachment.actor, this._voice.actor, this._composer.actor,
+            this._error.actor])
             this._content.add_child(part);
         this._chatView.add_child(this._header.actor);
         this._chatView.add_child(this._content);
@@ -234,6 +244,13 @@ export class ChatPopup {
 
     showStreamingResponse(content: string, thinking: string): void {
         this._messages.showStreaming(content, thinking);
+    }
+
+    /** What voice is doing, and what it has heard (the voice bar), and whether the mic button shows. */
+    showVoice(line: VoiceLine, available: boolean, listening: boolean): void {
+        if (line.visible !== this._voice.actor.visible) this._animateHeight(() => this._voice.show(line));
+        else this._voice.show(line);
+        this._composer.setVoice(available, listening);
     }
 
     /** Show what the next message will carry ("About: …"), or nothing. */

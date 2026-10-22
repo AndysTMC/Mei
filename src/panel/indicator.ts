@@ -169,6 +169,14 @@ export class MeiIndicator {
         }
     }
 
+    /** Listening and speaking show as a line under the label (§18.2's voice orb, kept quiet). */
+    setVoiceState(state: string): void {
+        for (const kind of ['listening', 'speaking'] as const) {
+            if (state === kind) this._button.add_style_class_name(`voice-${kind}`);
+            else this._button.remove_style_class_name(`voice-${kind}`);
+        }
+    }
+
     setStopControlVisible(visible: boolean): void {
         if (this._stopControlVisible === visible) return;
 

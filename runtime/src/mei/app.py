@@ -41,7 +41,7 @@ from mei.setup import Probes, Setup
 from mei.store import repo
 from mei.store.db import Store, iso_now, new_id
 from mei.voice import jail as voice_jail
-from mei.voice.controller import Fanout, VoiceController
+from mei.core.fanout import Fanout
 
 log = logging.getLogger("mei.app")
 
@@ -167,11 +167,15 @@ def desktop_env(bus: MessageBus, bridge: Callable) -> Env:
                media=Mpris(bus), status=SystemStatus(home))
 
 
-def voice_controller(engine: Engine, service_ref: Callable[[], RuntimeService | None]) -> VoiceController | None:
-    """Voice, where it can run: the local engine installed and bubblewrap for the worker's jail."""
+def voice_controller(engine: Engine, service_ref: Callable[[], RuntimeService | None], client: httpx.AsyncClient,
+                     key_for):
+    """Voice, where it can run: the local engine installed (the optional `voice` extra, imported only
+    then) and bubblewrap for the worker's jail. None otherwise."""
     if not voice_jail.engine_installed() or not voice_jail.available():
         log.info("voice isn't available here (the voice engine or bubblewrap is missing)")
         return None
+    from mei.voice.cloud import CloudSpeech
+    from mei.voice.controller import VoiceController
 
     def emit(kind: str, payload: dict) -> None:
         service = service_ref()
@@ -179,10 +183,17 @@ def voice_controller(engine: Engine, service_ref: Callable[[], RuntimeService | 
             service.publish_ephemeral(Envelope(type=kind, event_id=new_id(), epoch=engine.store.epoch, at=iso_now(),
                                                required=False, payload=payload))
 
-    def argv(settings, models: Path) -> list[str]:
-        return voice_jail.worker_argv(models, gpu=voice_jail.wants_gpu(settings.tts, settings.device))
+    # Test-only (like MEI_DATA_DIR): a recorded file instead of the microphone, and playback captured
+    # to a file, so end-to-end tests never open the real microphone or play sound aloud.
+    source, sink = os.environ.get("MEI_VOICE_SOURCE_FILE", ""), os.environ.get("MEI_VOICE_SINK_FILE", "")
+    extra = {"source_file": source, "source_realtime": True, "sink_file": sink} if source and sink else {}
 
-    return VoiceController(engine, emit, argv)
+    def argv(settings, models: Path) -> list[str]:
+        return voice_jail.worker_argv(models, gpu=voice_jail.wants_gpu(settings.tts, settings.device),
+                                      readable=(Path(source),) if extra else (),
+                                      writable=(Path(sink).parent,) if extra else ())
+
+    return VoiceController(engine, emit, argv, load_extra=extra, cloud=CloudSpeech(client, key_for))
 
 
 async def retention_loop(engine: Engine) -> None:
@@ -225,7 +236,7 @@ async def serve() -> int:
                         registry=default_registry(), env=env)
         make_provider = provider_factory(client, key_for)
         setup = Setup(store, setup_probes(bus), data_dir(), RUNTIME_VERSION)
-        voice = voice_controller(engine, lambda: holder[0] if holder else None)
+        voice = voice_controller(engine, lambda: holder[0] if holder else None, client, key_for)
         service = RuntimeService(bus, engine, list_models=model_lister(store, client, key_for), setup=setup,
                                  test_provider=provider_tester(store, make_provider), notifier=env.notifier, voice=voice)
         # The service needs the engine and the engine publishes through it (and through voice).

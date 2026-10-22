@@ -71,6 +71,8 @@ export default class MeiExtension extends Extension {
         popup.onDeny = id => runtime.deny(id);
         popup.onAnswer = (id, value) => runtime.answer(id, value);
         popup.onRemoveAttachment = () => runtime.removeAttachment();
+        popup.onVoice = () => runtime.voiceListen();
+        popup.onVoiceStop = () => runtime.voiceStop();
         popup.onKeepMemory = id => runtime.keepMemory(id);
         popup.onForgetMemory = id => runtime.forgetMemory(id);
         popup.onOpenSettings = () => this.openPreferences();
@@ -91,6 +93,11 @@ export default class MeiExtension extends Extension {
         const modes = Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP;
         Main.wm.addKeybinding('open-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT, modes,
             () => popup.toggle());
+        // Talk to Mei: open the popup (to show what is heard) and listen; again: done talking.
+        Main.wm.addKeybinding('voice-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT, modes, () => {
+            if (!popup.isOpen) popup.open();
+            runtime.voiceListen();
+        });
         // "Ask about this" (§18.4): the focused window and the selected text go with a new message.
         Main.wm.addKeybinding('ask-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT, modes, () => {
             focusedContext()
@@ -115,6 +122,7 @@ export default class MeiExtension extends Extension {
         if (this._settings) {
             Main.wm.removeKeybinding('open-shortcut');
             Main.wm.removeKeybinding('ask-shortcut');
+            Main.wm.removeKeybinding('voice-shortcut');
         }
         this._settings = null;
         this._devHooks?.destroy();
@@ -143,5 +151,6 @@ export default class MeiExtension extends Extension {
         const popupExpanded = Boolean(this._popup?.isExpanded);
         this._indicator.setStopControlVisible(isStreaming && !waiting && popupOpen && !popupExpanded);
         this._indicator.setActivity((isStreaming || busy || waiting) && !popupOpen);
+        this._indicator.setVoiceState(this._runtime?.voiceState ?? 'off');
     }
 }

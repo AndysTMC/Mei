@@ -28,6 +28,7 @@ const XML = `
     <method name="Click"><arg type="i" direction="in" name="x"/><arg type="i" direction="in" name="y"/></method>
     <method name="PressOpenShortcut"/>
     <method name="PressAskShortcut"/>
+    <method name="PressVoiceShortcut"/>
     <method name="SetPrimarySelection"><arg type="s" direction="in" name="text"/></method>
     <method name="ClickButton"><arg type="s" direction="in" name="label"/><arg type="b" direction="out" name="found"/></method>
   </interface>
@@ -112,6 +113,11 @@ export class DevHooks {
     /** Presses Super+Alt+A (the default ask-shortcut). */
     PressAskShortcut(): void {
         this._press([Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_a]);
+    }
+
+    /** Presses Super+Alt+Space (the default voice-shortcut). */
+    PressVoiceShortcut(): void {
+        this._press([Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_space]);
     }
 
     /** Selects text as if the person had highlighted it in some app. */

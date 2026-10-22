@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .parts import SAMPLE_RATE, AudioSink, AudioSource, SpeechToText, TextToSpeech, Vad
+from .parts import SAMPLE_RATE, AudioSink, AudioSource, SpeechToText, TextToSpeech, Vad, VoiceError
 
 
 @dataclass(frozen=True)
@@ -111,11 +111,12 @@ class Speaker:
     LOOKAHEAD = 2
 
     def __init__(self, tts: TextToSpeech, sink: AudioSink, on_start: Callable[[], None],
-                 on_done: Callable[[], None]) -> None:
+                 on_done: Callable[[], None], on_error: Callable[[VoiceError], None] = lambda _e: None) -> None:
         self._tts = tts
         self._sink = sink
         self._on_start = on_start
         self._on_done = on_done
+        self._on_error = on_error
         self._texts: asyncio.Queue[str | None] = asyncio.Queue()
         self._speech: asyncio.Queue = asyncio.Queue(maxsize=self.LOOKAHEAD)
         self._tasks: list[asyncio.Task] = []
@@ -152,7 +153,13 @@ class Speaker:
     async def _synthesize(self) -> None:
         while True:  # the end marker (None) passes through to the player
             text = await self._texts.get()
-            await self._speech.put(None if text is None else await self._tts.synthesize(text))
+            if text is None:
+                await self._speech.put(None)
+                continue
+            try:
+                await self._speech.put(await self._tts.synthesize(text))
+            except VoiceError as e:  # one sentence that can't be said: say the rest
+                self._on_error(e)
 
     async def _play(self) -> None:
         loop = asyncio.get_running_loop()

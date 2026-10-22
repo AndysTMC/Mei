@@ -11,6 +11,8 @@ main() {
     out=${1:-$(mktemp -d -t mei-e2e.XXXXXX)}
     py="$root/runtime/.venv/bin/python"
     [ -x "$py" ] || { echo "run 'uv sync' in runtime/ first"; return 1; }
+    # Voice (Stage 5): the spike's models, and files instead of the microphone and speakers (test-only).
+    export MEI_VOICE_MODELS=${MEI_VOICE_MODELS:-$HOME/.cache/mei-spikes/0c/models}
 
     (cd "$root" && npm run build:dev >/dev/null)
     mkdir -p "$out"/data/gnome-shell/extensions "$out"/data/dbus-1/services "$out"/config "$out"/state "$out"/cache \
@@ -29,6 +31,8 @@ main() {
     export HOME="$out/home" XDG_DATA_HOME="$out/data" XDG_CONFIG_HOME="$out/config" XDG_STATE_HOME="$out/state" \
         XDG_CACHE_HOME="$out/cache"
     export GSETTINGS_BACKEND=keyfile MEI_DATA_DIR="$out/mei" MEI_DEV_HOOKS=1 MEI_LOG_LEVEL=info
+    mkdir -p "$out/voice"
+    export MEI_VOICE_SOURCE_FILE="$out/voice/heard.f32" MEI_VOICE_SINK_FILE="$out/voice/played.f32"
     /usr/bin/gsettings set org.gnome.shell disable-user-extensions false
     /usr/bin/gsettings set org.gnome.shell enabled-extensions "['mei@andystmc.com']"
     echo "e2e output: $out"

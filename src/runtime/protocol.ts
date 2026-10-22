@@ -9,7 +9,7 @@ export const BUS_NAME = 'com.andystmc.Mei1';
 export const OBJECT_PATH = '/com/andystmc/Mei1';
 export const INTERFACE = 'com.andystmc.Mei1.Runtime';
 export const ERROR_PREFIX = 'com.andystmc.Mei1.Error.';
-export const PROTOCOL_VERSION: [number, number] = [2, 3];
+export const PROTOCOL_VERSION: [number, number] = [2, 4];
 
 export type TaskState =
     | 'ACCEPTED' | 'RUNNING' | 'WAITING_APPROVAL' | 'WAITING_INPUT' | 'WAITING_RESOURCE' | 'VERIFYING'
@@ -36,6 +36,15 @@ export interface Attachment {
     app_id: string;
     window_title: string;
     text: string;
+}
+
+/** Voice (2.4): where the voice controller is (§11.2). */
+export type VoiceStateName =
+    | 'off' | 'unavailable' | 'starting' | 'idle' | 'listening' | 'thinking' | 'speaking' | 'suspended';
+
+export interface VoiceStatusReply {
+    state: VoiceStateName;
+    note: string;
 }
 
 export interface ConversationSummary {

@@ -27,12 +27,15 @@ const CURSOR_MARGIN = 2;
 export interface ComposerActions {
     onSend(text: string): void;
     onStop(): void;
+    /** The mic button: talk instead of typing. */
+    onVoice(): void;
 }
 
 export class Composer {
     readonly actor = new St.BoxLayout({ vertical: true, x_expand: true });
     readonly entry: St.Entry;
     readonly askButton: St.Button;
+    readonly micButton: St.Button;
     private readonly _scroll: St.ScrollView;
     private _loading = false;
     private _expanded = false;
@@ -73,7 +76,22 @@ export class Composer {
         });
         this.askButton.connect('clicked', () => (this._loading && !this._expanded ? this._actions.onStop() : this._send()));
         addClickScale(this.askButton);
-        this.actor.add_child(this.askButton);
+        this.micButton = new St.Button({
+            style_class: 'mei-mic-btn',
+            can_focus: true,
+            reactive: true,
+            track_hover: true,
+            visible: false,
+            accessible_name: 'Talk to Mei',
+            accessible_role: Atk.Role.PUSH_BUTTON,
+            child: new St.Icon({ icon_name: 'audio-input-microphone-symbolic', icon_size: 14 }),
+        });
+        this.micButton.connect('clicked', () => this._actions.onVoice());
+        addClickScale(this.micButton);
+        const buttons = new St.BoxLayout({ x_expand: true });
+        buttons.add_child(this.askButton);
+        buttons.add_child(this.micButton);
+        this.actor.add_child(buttons);
         this.queueLayout();
     }
 
@@ -102,6 +120,14 @@ export class Composer {
         button.scale_x = button.scale_y = 1.0;
         button.sync_hover();
         this.entry.hint_text = loading ? 'Add to what Mei is doing…' : 'Ask Mei anything…';
+    }
+
+    /** The mic button shows only when voice can be used. */
+    setVoice(available: boolean, listening: boolean): void {
+        this.micButton.visible = available;
+        if (listening) this.micButton.add_style_class_name('listening');
+        else this.micButton.remove_style_class_name('listening');
+        this.micButton.accessible_name = listening ? 'Done talking' : 'Talk to Mei';
     }
 
     stopBlink(): void {
