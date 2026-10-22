@@ -63,12 +63,15 @@ class PathRules:
         """Does this folder contain one Mei never touches (so mounting it whole would expose it)?"""
         return any(v == root or v in root.parents for v in _views(folder) for root in self._denied)
 
-    def secrets_under(self, folder: Path, limit: int = 20_000) -> tuple[list[Path], bool]:
+    def secrets_under(self, folder: Path, limit: int = 20_000, *, dir_fd: int | None = None) -> tuple[list[Path], bool]:
         """Sensitive files and folders inside `folder`, to hide from a command that mounts it.
+        With `dir_fd` (the folder held open), the walk starts there and never follows a link.
         The second value is False if the walk stopped at `limit` entries before seeing everything."""
         found: list[Path] = []
         seen = 0
-        for here, dirs, files in os.walk(folder):
+        walk = ((folder / rel, dirs, files) for rel, dirs, files, _fd in os.fwalk(".", dir_fd=dir_fd)) \
+            if dir_fd is not None else os.walk(folder)
+        for here, dirs, files in walk:
             base = Path(here)
             for name in list(dirs):
                 if self.sensitive(base / name) or self.denied(base / name):

@@ -168,8 +168,13 @@ async def test_launch_without_the_shell_runs_in_its_own_scope(monkeypatch):
 @pytest.mark.skipif(not PdfToText.available(), reason="needs pdftotext")
 async def test_pdf_text_from_the_sandboxed_parser(tmp_path):
     write_pdf(tmp_path / "invoice.pdf", ["INVOICE 2026-0042", "Total 120.00 EUR"])
-    text = await PdfToText().pdf_text(tmp_path / "invoice.pdf", 1000)
-    assert "INVOICE 2026-0042" in text and "Total 120.00 EUR" in text and "\x0c" not in text
+    fd = os.open(tmp_path / "invoice.pdf", os.O_RDONLY)
+    try:
+        for parser in (PdfToText(), PdfToText(bwrap="/nonexistent")):  # in its jail, and without one
+            text = await parser.pdf_text(fd, 1000)
+            assert "INVOICE 2026-0042" in text and "Total 120.00 EUR" in text and "\x0c" not in text
+    finally:
+        os.close(fd)
 
 
 def test_user_dirs(tmp_path, monkeypatch):

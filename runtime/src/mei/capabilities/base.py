@@ -163,6 +163,7 @@ class MemoryPort(Protocol):
 class Mount:
     path: Path
     writable: bool = False
+    fd: int | None = None  # the folder held open (fs_at.folder): bound by fd, so a link swap can't redirect it
 
 
 @dataclass(frozen=True)
@@ -172,6 +173,8 @@ class RunSpec:
     timeout_s: float
     spill: Path  # where the full output goes
     workspace: Path | None = None  # the conversation's scratch folder, writable, also $HOME inside the jail
+    workspace_fd: int | None = None  # the workspace held open, bound by fd
+    cwd_fd: int | None = None  # host commands: the judged folder held open, run there
     mounts: tuple[Mount, ...] = ()
     hidden: tuple[Path, ...] = ()  # sensitive files and folders inside the mounts, masked
     network: bool = False
@@ -202,7 +205,9 @@ class Notifier(Protocol):
 
 
 class TextExtractor(Protocol):
-    async def pdf_text(self, path: Path, max_chars: int) -> str: ...
+    async def pdf_text(self, file_fd: int, max_chars: int) -> str:
+        """The text of the PDF open at `file_fd` (the file judged, opened without following links)."""
+        ...
 
 
 @dataclass
@@ -266,9 +271,10 @@ class ActionContext:
     action_id: str
     conversation_id: str = "none"
     task_id: str = ""
-    # Each path resource's role → where policy judged it really leads, as re-checked just before the run.
-    # File capabilities act on exactly these (fs_at.py); empty when a capability runs outside the loop.
-    judged: dict[str, str] = field(default_factory=dict)
+    # Each path resource's role → where policy judged it really leads (in order: a command can name several
+    # folders), as re-checked just before the run. File capabilities act on exactly these (fs_at.py); empty
+    # when a capability runs outside the loop.
+    judged: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def backup_dir(self) -> Path:

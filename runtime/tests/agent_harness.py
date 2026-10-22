@@ -17,8 +17,8 @@ from evals.driver import Driver, Recorder, call, turn  # noqa: F401  (re-exporte
 class TextExtractor:
     """Stands in for pdftotext: the test's "PDFs" are text files."""
 
-    async def pdf_text(self, path: Path, max_chars: int) -> str:
-        return path.read_text()[:max_chars]
+    async def pdf_text(self, file_fd: int, max_chars: int) -> str:
+        return os.pread(file_fd, max_chars * 4, 0).decode()[:max_chars]
 
 
 async def fake_factory(cfg: ProviderConfig):

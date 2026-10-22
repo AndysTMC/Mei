@@ -407,7 +407,10 @@ class TaskLoop:
         self.d.publish(tx.events)
         flight.action_id = action["id"]
         self.d.boundary("action_started")
-        judged = {r["role"]: r["value"] for r in json.loads(action["resources"] or "[]") if r.get("kind") == "path"}
+        judged: dict[str, tuple[str, ...]] = {}
+        for r in json.loads(action["resources"] or "[]"):
+            if r.get("kind") == "path":
+                judged[r["role"]] = (*judged.get(r["role"], ()), r["value"])
         ctx = ActionContext(self.d.env, action["id"], task["conversation_id"], task["id"], judged)
         timeout = min(cap.timeout_s, MAX_ACTION_S)
         started = time.monotonic()

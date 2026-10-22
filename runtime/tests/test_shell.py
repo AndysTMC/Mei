@@ -2,6 +2,7 @@
 timeout through the engine, output spill, and policy for folders and host commands."""
 
 import asyncio
+import json
 import subprocess
 import time
 
@@ -187,3 +188,73 @@ async def test_shell_output_reads_a_runs_spill_from_an_offset(tmp_path):
     assert r.observation.startswith("0123456789") and "more after character 100" in r.observation
     with pytest.raises(CapabilityError):
         await ShellOutput().run(OutputParams(run="abcdef12"), ActionContext(env, "x", "another-conversation"))
+
+
+# ── Folders bound by descriptor (decision 0015) ─────────────────────────────
+
+
+def _swap_to_outside(h: Harness, tmp_path, folder: str):
+    put(h.env, f"{folder}/notes.txt", "NOTES-INSIDE")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "notes.txt").write_text("OUTSIDE-SECRET")
+    path = h.env.path(folder)
+
+    def swap() -> None:
+        path.rename(path.with_name(path.name + "-real"))
+        path.symlink_to(outside)
+    return swap
+
+
+async def test_a_link_swapped_in_before_the_jail_starts_binds_the_folder_judged(tmp_path):
+    h = Harness(tmp_path, script=run_script("cat notes.txt; touch made-here", folders=[{"path": "~/Projects/site", "write": True}],
+                                            cwd="~/Projects/site"))
+    swap = _swap_to_outside(h, tmp_path, "~/Projects/site")
+    run = h.env.runner.run
+
+    async def swap_then_run(spec):
+        swap()  # after the folder is held open, before bubblewrap mounts it
+        return await run(spec)
+    h.env.runner.run = swap_then_run
+    r = h.submit("build ~/Projects/site")
+    assert await h.until(r["task_id"]) == S.WAITING_APPROVAL  # a writable folder asks
+    h.approve(r["task_id"], scope="task")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    seen = output(h)
+    assert "NOTES-INSIDE" in seen and "OUTSIDE" not in seen
+    assert h.env.path("~/Projects/site-real/made-here").exists() and not (tmp_path / "outside" / "made-here").exists()
+
+
+async def test_a_link_swapped_in_after_the_recheck_never_reaches_the_jail(tmp_path, monkeypatch):
+    from mei.core.loop import TaskLoop
+    h = Harness(tmp_path, script=run_script("cat notes.txt", folders=[{"path": "~/Projects/site"}], cwd="~/Projects/site"))
+    swap = _swap_to_outside(h, tmp_path, "~/Projects/site")
+    recheck = TaskLoop._recheck
+
+    async def recheck_then_swap(self, task, action):
+        ok = await recheck(self, task, action)
+        swap()
+        return ok
+    monkeypatch.setattr(TaskLoop, "_recheck", recheck_then_swap)
+    r = h.submit("show me what's in ~/Projects/site")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    [action] = h.actions(r["task_id"])
+    assert json.loads(action["result"])["error_class"] == "changed"
+    assert "OUTSIDE" not in "\n".join(t["content"] for req in h.requests() for t in req["turns"])
+
+
+async def test_a_host_command_runs_in_the_folder_approved(tmp_path):
+    h = Harness(tmp_path, script=[turn(call("shell_run_host", command="cat notes.txt", cwd="~/Work")), {"text": "ok"}])
+    swap = _swap_to_outside(h, tmp_path, "~/Work")
+    run = h.env.runner.run
+
+    async def swap_then_run(spec):
+        swap()
+        return await run(spec)
+    h.env.runner.run = swap_then_run
+    r = h.submit("run cat on my computer")
+    assert await h.until(r["task_id"]) == S.WAITING_APPROVAL
+    h.approve(r["task_id"])
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    seen = output(h)
+    assert "NOTES-INSIDE" in seen and "OUTSIDE" not in seen

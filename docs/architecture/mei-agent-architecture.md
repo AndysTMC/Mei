@@ -1301,7 +1301,7 @@ What differs from the plan above, and why:
 - **Memory "toast + Undo"** is a card in the conversation ("Remembered … Undo"), next to what the task did, rather than a transient toast.
 - **"Ask about this" starts a new chat**, so the attachment never steers a task already running in the current one.
 - Not done: a summary line in the notification for tasks that end without a checked outcome (it names the conversation).
-- After Stage 4 (2026-10-22, decision 0014): file changes go through the folders policy judged, held open, closing the symlink race 0010 left open. Reads and the sandbox's folder binds still go by path.
+- After Stage 4 (2026-10-22, decisions 0014 and 0015): file changes, reads, searches, PDF parsing, the command sandbox's folder binds, and host commands' working folder all go through the folders policy judged, held open, closing the symlink race 0010 left open. Completion checks still look by path.
 
 - `shell.run` with bwrap and scopes; bounded head/tail output with artifact spill; `shell.run_host` with per-command approval.
 - ShellBridge: windows, clipboard, idle; MPRIS; `system.status`; "Ask about this" shortcut (§18.4).

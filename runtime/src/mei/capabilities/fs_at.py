@@ -34,17 +34,18 @@ def changed(env: Env, path: Path) -> CapabilityError:
                                       "link), so Mei didn't touch it")
 
 
-def judged_path(ctx: ActionContext, role: str, given: Path, *, follow: bool = True) -> Path:
-    """Where this action may act for `role`. The path the run was given must still lead where policy
-    judged it does (policy follows every link, the last one too); if it leads elsewhere now,
-    something changed after the check.
+def judged_path(ctx: ActionContext, role: str, given: Path, *, follow: bool = True, index: int = 0) -> Path:
+    """Where this action may act for `role` (its `index`-th resource with that role). The path the
+    run was given must still lead where policy judged it does (policy follows every link, the last
+    one too); if it leads elsewhere now, something changed after the check.
 
     With `follow`, that judged path is where it acts. Without it (moving or trashing an item, which
     acts on a link itself, not on what it points to), it acts on the item at the end of the given
     path, reached through its folder's link-free path."""
     real = Path(os.path.realpath(given))
-    judged = ctx.judged.get(role)
-    if judged is not None and Path(judged) != real:
+    values = ctx.judged.get(role, ())
+    judged = values[index] if index < len(values) else None
+    if role in ctx.judged and (judged is None or Path(judged) != real):
         raise changed(ctx.env, given)
     if not follow:
         return Path(os.path.realpath(given.parent)) / given.name
@@ -135,6 +136,18 @@ def open_file(env: Env, dir_fd: int, name: str, path: Path) -> int:
         os.close(fd)
         raise CapabilityError("invalid", f"{env.show(path)} is not a regular file")
     return fd
+
+
+@contextmanager
+def held_file(env: Env, path: Path) -> Iterator[int]:
+    """The regular file at `path` (absolute, without links) open for reading, reached through its held
+    folder and never through a link."""
+    with folder(env, path.parent) as parent:
+        fd = open_file(env, parent.fd, path.name, path)
+    try:
+        yield fd
+    finally:
+        os.close(fd)
 
 
 def backup(ctx: ActionContext, file_fd: int, name: str) -> str:

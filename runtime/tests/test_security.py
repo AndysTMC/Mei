@@ -393,10 +393,71 @@ async def test_trashing_or_moving_a_link_acts_on_the_link_not_what_it_points_to(
     env.path("~/Documents/Links").mkdir()
 
     def ctx(**judged):  # what policy recorded: every link followed
-        return ActionContext(env, "a1", "c1", "t1", {k: os.path.realpath(env.path(v)) for k, v in judged.items()})
+        return ActionContext(env, "a1", "c1", "t1", {k: (os.path.realpath(env.path(v)),) for k, v in judged.items()})
     result = await FsTrash().run(TrashParams(path="~/Downloads/trash-me.pdf"), ctx(path="~/Downloads/trash-me.pdf"))
     assert os.path.islink(result.undo["trashed"]) and result.undo["original"] == str(env.path("~/Downloads/trash-me.pdf"))
     await FsMove().run(MoveParams(source="~/Downloads/move-me.pdf", destination="~/Documents/Links/"),
                        ctx(source="~/Downloads/move-me.pdf", destination="~/Documents/Links/move-me.pdf"))
     assert env.path("~/Documents/Links/move-me.pdf").is_symlink()
     assert target.read_text() == "the real file"
+
+
+# ── Reads after the re-check (decision 0015) ────────────────────────────────
+
+READ_SWAPS = {
+    "read_text": (call("fs_read_text", path="~/Documents/proj/notes.txt"), "summarize ~/Documents/proj/notes.txt"),
+    "read_pdf": (call("fs_read_text", path="~/Documents/proj/scan.pdf"), "what's in ~/Documents/proj/scan.pdf?"),
+    "list": (call("fs_list", path="~/Documents/proj"), "what's in ~/Documents/proj?"),
+    "search": (call("fs_search", path="~/Documents/proj", text="needle"), "which files in ~/Documents/proj mention needle?"),
+}
+
+
+def _sent(h: Harness) -> str:
+    return "\n".join(t["content"] for req in h.requests() for t in req["turns"])
+
+
+@pytest.mark.parametrize("case", list(READ_SWAPS))
+async def test_a_link_swapped_in_after_the_recheck_shows_nothing_outside(tmp_path, monkeypatch, case):
+    from mei.core.loop import TaskLoop
+    tool_call, request = READ_SWAPS[case]
+    h = Harness(tmp_path, script=[turn(tool_call), {"text": "Done."}])
+    for name in ("notes.txt", "scan.pdf", "plain.txt"):
+        put(h.env, f"~/Documents/proj/{name}", "inside needle")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    for name in ("notes.txt", "scan.pdf", "OUTSIDE-ONLY.txt"):
+        (outside / name).write_text("OUTSIDE-SECRET needle")
+    proj = h.env.path("~/Documents/proj")
+    recheck = TaskLoop._recheck
+
+    async def recheck_then_swap(self, task, action):
+        ok = await recheck(self, task, action)
+        proj.rename(proj.with_name("proj-real"))
+        proj.symlink_to(outside)
+        return ok
+    monkeypatch.setattr(TaskLoop, "_recheck", recheck_then_swap)
+    r = h.submit(request)
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    [action] = h.actions(r["task_id"])
+    assert json.loads(action["result"])["error_class"] == "changed"
+    assert "OUTSIDE" not in _sent(h)
+
+
+async def test_a_search_never_opens_a_link_inside_the_folder(tmp_path):
+    h = Harness(tmp_path, script=[turn(call("fs_search", path="~/Documents/proj", text="needle")),
+                                  turn(call("fs_list", path="~/Documents/proj")), {"text": "Done."}])
+    put(h.env, "~/Documents/proj/mine.txt", "a needle here")
+    secret = tmp_path / "elsewhere" / "secret.txt"
+    secret.parent.mkdir()
+    secret.write_text("needle in a file nobody judged")
+    h.env.path("~/Documents/proj/link.txt").symlink_to(secret)
+    (tmp_path / "elsewhere" / "deep").mkdir()
+    (tmp_path / "elsewhere" / "deep" / "x.txt").write_text("needle")
+    h.env.path("~/Documents/proj/linked-folder").symlink_to(tmp_path / "elsewhere" / "deep")
+    r = h.submit("which files in ~/Documents/proj mention needle? then list it")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    search, listing = [json.loads(a["result"]) for a in h.actions(r["task_id"])]
+    sent = _sent(h)
+    assert "1 match under ~/Documents/proj" in sent and "mine.txt" in sent and "x.txt" not in sent
+    assert "- link.txt (link, modified" in sent and "- linked-folder (link, modified" in sent
+    assert search["ok"] and listing["ok"]

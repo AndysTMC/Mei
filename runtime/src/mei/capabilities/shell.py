@@ -8,6 +8,7 @@ tail; the rest is read with `shell.output`.
 """
 
 import os
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Annotated
 
@@ -15,6 +16,7 @@ import msgspec
 
 from .base import (WORKSPACE, ActionContext, ActionResult, Availability, AVAILABLE, Capability, CapabilityError,
                    Effects, Env, Mount, Resource, RunResult, RunSpec)
+from .fs_at import folder, judged_path
 
 MAX_COMMAND = 4000
 MAX_TIMEOUT_S = 600
@@ -86,20 +88,26 @@ class ShellRun(Capability):
 
     async def run(self, p: RunParams, ctx: ActionContext) -> ActionResult:
         env = ctx.env
-        workspace = env.workspace(ctx.conversation_id)
-        workspace.mkdir(parents=True, exist_ok=True, mode=0o700)
-        mounts, hidden = [], []
-        for f in p.folders:
-            path = _folder(env, f.path)
-            secrets, _complete = env.rules.secrets_under(path)
-            mounts.append(Mount(path, writable=f.write))
-            hidden += secrets
-        cwd = _real(env, p.cwd) if p.cwd else (mounts[0].path if mounts else workspace)
-        if cwd != workspace and not any(cwd == m.path or m.path in cwd.parents for m in mounts):
-            raise CapabilityError("invalid", "cwd must be one of the folders, or the workspace")
-        spec = RunSpec(command=p.command, cwd=cwd, timeout_s=p.timeout_s, workspace=workspace, mounts=tuple(mounts),
-                       hidden=tuple(hidden), network=p.network, spill=_spill(ctx))
-        return report(p.command, await env.runner.run(spec), ctx, sources=[str(m.path) for m in mounts])
+        # Every folder the jail gets is held open from here until the command ends, and bound by its
+        # descriptor (decision 0015): the folders judged, whatever their paths lead to by then.
+        with ExitStack() as held:
+            workspace = judged_path(ctx, "workspace", env.workspace(ctx.conversation_id))
+            space = held.enter_context(folder(env, workspace, create=True, mode=0o700))
+            mounts, hidden = [], []
+            for i, f in enumerate(p.folders):
+                path = judged_path(ctx, "folder", _folder(env, f.path), index=i)
+                opened = held.enter_context(folder(env, path))
+                secrets, _complete = env.rules.secrets_under(path, dir_fd=opened.fd)
+                mounts.append(Mount(path, writable=f.write, fd=opened.fd))
+                hidden += secrets
+            cwd = _real(env, p.cwd) if p.cwd else (mounts[0].path if mounts else workspace)
+            if cwd != workspace and not any(cwd == m.path or m.path in cwd.parents for m in mounts):
+                raise CapabilityError("invalid", "cwd must be one of the folders, or the workspace")
+            spec = RunSpec(command=p.command, cwd=cwd, timeout_s=p.timeout_s, workspace=workspace,
+                           workspace_fd=space.fd, mounts=tuple(mounts), hidden=tuple(hidden), network=p.network,
+                           spill=_spill(ctx))
+            result = await env.runner.run(spec)
+        return report(p.command, result, ctx, sources=[str(m.path) for m in mounts])
 
 
 class HostParams(msgspec.Struct, kw_only=True):
@@ -135,11 +143,14 @@ class ShellRunHost(Capability):
         return f"Run on your computer, unsandboxed, in {env.show(_real(env, p.cwd))}: {p.command}"
 
     async def run(self, p: HostParams, ctx: ActionContext) -> ActionResult:
-        cwd = _real(ctx.env, p.cwd)
+        cwd = judged_path(ctx, "cwd", _real(ctx.env, p.cwd))
         if not cwd.is_dir():
             raise CapabilityError("not_found", f"{ctx.env.show(cwd)} isn't a folder")
-        spec = RunSpec(command=p.command, cwd=cwd, timeout_s=p.timeout_s, spill=_spill(ctx), sandboxed=False)
-        return report(p.command, await ctx.env.runner.run(spec), ctx, sources=[str(cwd)])
+        with folder(ctx.env, cwd) as here:  # it runs in the folder approved, held open
+            spec = RunSpec(command=p.command, cwd=cwd, cwd_fd=here.fd, timeout_s=p.timeout_s, spill=_spill(ctx),
+                           sandboxed=False)
+            result = await ctx.env.runner.run(spec)
+        return report(p.command, result, ctx, sources=[str(cwd)])
 
 
 class OutputParams(msgspec.Struct, kw_only=True):

@@ -2,6 +2,8 @@
 
 File names and contents are written by whoever made the file, so every observation here is
 untrusted (§13.4): the model sees it wrapped as data, and paths taken from it count as untrusted.
+Like changes, reads go through the folder policy judged, held open, and never follow a link on
+the way or in a search (fs_at.py, decision 0015): what Mei reads is what was judged.
 """
 
 import datetime
@@ -14,6 +16,7 @@ from typing import Annotated
 import msgspec
 
 from .base import ActionContext, ActionResult, Capability, CapabilityError, Env, Resource
+from .fs_at import folder, held_file, judged_path
 
 MAX_LIST = 1000
 MAX_SCAN = 20_000  # entries a search looks at before it stops and says so
@@ -67,6 +70,8 @@ def entry_line(env: Env, path: Path, st: os.stat_result, *, full: bool) -> str:
     name = env.show(path) if full else path.name
     if stat.S_ISDIR(st.st_mode):
         return f"- {name}/ (folder, modified {local_time(st.st_mtime)})"
+    if stat.S_ISLNK(st.st_mode):
+        return f"- {name} (link, modified {local_time(st.st_mtime)})"
     return f"- {name} ({describe_size(st.st_size)}, modified {local_time(st.st_mtime)})"
 
 
@@ -102,26 +107,27 @@ class FsList(Capability):
 
     async def run(self, p: ListParams, ctx: ActionContext) -> ActionResult:
         env = ctx.env
-        folder = resolve_existing(env, p.path, want_dir=True)
+        where = judged_path(ctx, "path", resolve_existing(env, p.path, want_dir=True))
         rows: list[tuple[Path, os.stat_result]] = []
-        try:
-            names = sorted(os.listdir(folder), key=str.lower)
-        except PermissionError:
-            raise CapabilityError("permission", f"no permission to list {env.show(folder)}") from None
-        for name in names:
-            if not p.include_hidden and name.startswith("."):
-                continue
-            if not fnmatch.fnmatch(name.lower(), p.pattern.lower()):
-                continue
+        with folder(env, where) as held:
             try:
-                rows.append((folder / name, os.lstat(folder / name)))
-            except OSError:
-                continue  # removed while we listed
+                names = sorted(os.listdir(held.fd), key=str.lower)
+            except PermissionError:
+                raise CapabilityError("permission", f"no permission to list {env.show(where)}") from None
+            for name in names:
+                if not p.include_hidden and name.startswith("."):
+                    continue
+                if not fnmatch.fnmatch(name.lower(), p.pattern.lower()):
+                    continue
+                try:
+                    rows.append((where / name, os.stat(name, dir_fd=held.fd, follow_symlinks=False)))
+                except OSError:
+                    continue  # removed while we listed
         shown = rows[:p.limit]
-        head = f"{env.show(folder)}: {len(rows)} entries" + (f", showing the first {p.limit}" if len(rows) > p.limit else "")
+        head = f"{env.show(where)}: {len(rows)} entries" + (f", showing the first {p.limit}" if len(rows) > p.limit else "")
         body = "\n".join(entry_line(env, path, st, full=False) for path, st in shown)
         return ActionResult(ok=True, observation=f"{head}\n{body}" if body else f"{head} (empty)",
-                            summary=f"Listed {env.show(folder)} ({len(rows)} entries)", trust="untrusted")
+                            summary=f"Listed {env.show(where)} ({len(rows)} entries)", trust="untrusted")
 
 
 # ── fs.search ───────────────────────────────────────────────────────────────
@@ -157,40 +163,42 @@ class FsSearch(Capability):
 
     async def run(self, p: SearchParams, ctx: ActionContext) -> ActionResult:
         env = ctx.env
-        root = resolve_existing(env, p.path, want_dir=True)
+        root = judged_path(ctx, "path", resolve_existing(env, p.path, want_dir=True))
         after = parse_when(p.modified_after, "modified_after")
         before = parse_when(p.modified_before, "modified_before")
         needle = p.text.lower()
         found: list[tuple[Path, os.stat_result]] = []
         scanned = 0
         stopped = False
-        base_depth = len(root.parts)
-        for folder, dirs, files in os.walk(root):
-            here = Path(folder)
-            dirs[:] = sorted(d for d in dirs if (p.include_hidden or not d.startswith("."))
-                             and not env.rules.skip_when_walking(here / d)
-                             and len((here / d).parts) - base_depth < p.max_depth)
-            for name in sorted(files):
-                scanned += 1
-                if scanned > MAX_SCAN or len(found) >= p.limit:
-                    stopped = True
+        with folder(env, root) as held:
+            # fwalk from the held folder: each folder is entered through its parent's fd, and links
+            # (to folders or files) are never followed, so the search stays inside what was judged.
+            for rel, dirs, files, dir_fd in os.fwalk(".", dir_fd=held.fd, follow_symlinks=False):
+                here = root / rel
+                depth = len(Path(rel).parts)  # "." has none
+                dirs[:] = sorted(d for d in dirs if (p.include_hidden or not d.startswith("."))
+                                 and not env.rules.skip_when_walking(here / d) and depth + 1 < p.max_depth)
+                for name in sorted(files):
+                    scanned += 1
+                    if scanned > MAX_SCAN or len(found) >= p.limit:
+                        stopped = True
+                        break
+                    if (not p.include_hidden and name.startswith(".")) or not fnmatch.fnmatch(name.lower(), p.name.lower()):
+                        continue
+                    path = here / name
+                    if env.rules.denied(path) or env.rules.sensitive(path):
+                        continue
+                    try:
+                        st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if (after is not None and st.st_mtime < after) or (before is not None and st.st_mtime >= before):
+                        continue
+                    if needle and not _contains(dir_fd, name, st, needle):
+                        continue
+                    found.append((path, st))
+                if stopped:
                     break
-                if (not p.include_hidden and name.startswith(".")) or not fnmatch.fnmatch(name.lower(), p.name.lower()):
-                    continue
-                path = here / name
-                if env.rules.denied(path) or env.rules.sensitive(path):
-                    continue
-                try:
-                    st = os.stat(path)
-                except OSError:
-                    continue
-                if (after is not None and st.st_mtime < after) or (before is not None and st.st_mtime >= before):
-                    continue
-                if needle and not _contains(path, st, needle):
-                    continue
-                found.append((path, st))
-            if stopped:
-                break
         lines = "\n".join(entry_line(env, path, st, full=True) for path, st in found)
         head = f"{len(found)} match{'es' if len(found) != 1 else ''} under {env.show(root)}"
         if stopped:
@@ -204,11 +212,14 @@ class FsSearch(Capability):
                             sources=[str(root)] if content else [])
 
 
-def _contains(path: Path, st: os.stat_result, needle: str) -> bool:
-    if st.st_size > MAX_TEXT_SEARCH_BYTES or path.suffix.lower() in (".pdf", *TEXT_SUFFIXES_NOT_READABLE):
-        return False
+def _contains(dir_fd: int, name: str, st: os.stat_result, needle: str) -> bool:
+    if (not stat.S_ISREG(st.st_mode) or st.st_size > MAX_TEXT_SEARCH_BYTES
+            or Path(name).suffix.lower() in (".pdf", *TEXT_SUFFIXES_NOT_READABLE)):
+        return False  # a link is never opened: what it points to wasn't judged
     try:
-        data = path.read_bytes()
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+        with os.fdopen(fd, "rb") as f:
+            data = f.read(MAX_TEXT_SEARCH_BYTES)
     except OSError:
         return False
     if b"\0" in data[:8192]:
@@ -242,13 +253,20 @@ class FsReadText(Capability):
 
     async def run(self, p: ReadParams, ctx: ActionContext) -> ActionResult:
         env = ctx.env
-        path = resolve_existing(env, p.path, want_dir=False)
-        if path.suffix.lower() == ".pdf":
-            if env.extractor is None:
-                raise CapabilityError("unavailable", "reading PDFs needs pdftotext (poppler-utils), which isn't installed")
-            text = await env.extractor.pdf_text(path, p.offset + p.max_chars + 1)
-        else:
-            text = _read_text_file(env, path, p.offset + p.max_chars + 1)
+        path = judged_path(ctx, "path", resolve_existing(env, p.path, want_dir=False))
+        pdf = path.suffix.lower() == ".pdf"
+        if pdf and env.extractor is None:
+            raise CapabilityError("unavailable", "reading PDFs needs pdftotext (poppler-utils), which isn't installed")
+        if not pdf and path.suffix.lower() in TEXT_SUFFIXES_NOT_READABLE:
+            raise CapabilityError("invalid", f"{env.show(path)} isn't a text file")
+        try:
+            with held_file(env, path) as fd:
+                if pdf:
+                    text = await env.extractor.pdf_text(fd, p.offset + p.max_chars + 1)
+                else:
+                    text = _read_text_file(env, path, fd, p.offset + p.max_chars + 1)
+        except PermissionError:
+            raise CapabilityError("permission", f"no permission to read {env.show(path)}") from None
         part = text[p.offset:p.offset + p.max_chars]
         more = len(text) > p.offset + p.max_chars
         note = f"\n[… more after character {p.offset + len(part)}; read again with offset={p.offset + len(part)}]" if more else ""
@@ -256,14 +274,9 @@ class FsReadText(Capability):
                             data_class="file_content", trust="untrusted", sources=[str(path)])
 
 
-def _read_text_file(env: Env, path: Path, limit_chars: int) -> str:
-    if path.suffix.lower() in TEXT_SUFFIXES_NOT_READABLE:
-        raise CapabilityError("invalid", f"{env.show(path)} isn't a text file")
-    try:
-        with open(path, "rb") as f:
-            data = f.read(limit_chars * 4)  # UTF-8 is at most four bytes a character
-    except PermissionError:
-        raise CapabilityError("permission", f"no permission to read {env.show(path)}") from None
+def _read_text_file(env: Env, path: Path, fd: int, limit_chars: int) -> str:
+    with os.fdopen(os.dup(fd), "rb") as f:
+        data = f.read(limit_chars * 4)  # UTF-8 is at most four bytes a character
     if b"\0" in data[:8192]:
         raise CapabilityError("invalid", f"{env.show(path)} is a binary file")
     return data.decode("utf-8", "replace")[:limit_chars]

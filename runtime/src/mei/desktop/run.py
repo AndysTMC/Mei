@@ -23,11 +23,11 @@ class Output:
 
 
 async def run(argv: list[str], *, env: dict[str, str] | None = None, timeout: float = 15.0,
-              max_output: int = MAX_OUTPUT) -> Output:
+              max_output: int = MAX_OUTPUT, pass_fds: tuple[int, ...] = ()) -> Output:
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, **(env or {})}, start_new_session=True)
+            env={**os.environ, **(env or {})}, start_new_session=True, pass_fds=pass_fds)
     except OSError as e:
         raise ToolFailed(f"couldn't run {os.path.basename(argv[0])}: {e.strerror}") from None
     try:
