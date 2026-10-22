@@ -1,0 +1,21 @@
+{
+ "kokoro-fp32/cuda": {
+  "load_s": 1.37,
+  "first_sentence_s_median": 0.449,
+  "first_sentence_s_max": 0.495,
+  "rtf_median": 0.153,
+  "vram_mb": 658
+ },
+ "piper-amy-low/cuda": {
+  "load_s": 1.04,
+  "first_sentence_s_median": 0.496,
+  "first_sentence_s_max": 0.517,
+  "rtf_median": 0.142,
+  "vram_mb": 274
+ },
+ "kroko/cuda": {
+  "rtf": 0.036,
+  "wer_piper_voice": 0.093,
+  "vram_mb": 84
+ }
+}

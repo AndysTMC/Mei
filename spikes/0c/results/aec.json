@@ -1,0 +1,11 @@
+{
+ "date": "2026-10-22",
+ "setup": "earphones on the laptop's headphone jack; PipeWire WebRTC echo-cancel loaded for the test only; ~9 s of Kokoro speech per round",
+ "laptop_speakers_mic_gain_100pct": {"echo_reduction_db": 14.9, "cancelled_speech_fraction_silent": 0.673},
+ "mic_silence_3s": {"laptop_capture_100pct": {"db": -3.4, "clipped_pct": 19.5}, "laptop_capture_51pct": {"db": -29.5, "clipped_pct": 0.0},
+                    "brio_100": {"db": -28.7, "clipped_pct": 0.0}},
+ "earphones_laptop_mic_capture_51pct": {"silent": {"cancelled_db": -51.6, "speech_fraction": 0.0},
+                                        "talking_over": {"cancelled_db": -17.8, "speech_fraction": 0.529}},
+ "earphones_brio": {"silent": {"cancelled_db": -49.2, "speech_fraction": 0.0},
+                    "talking_over": {"cancelled_db": -28.4, "speech_fraction": 0.439}}
+}

@@ -1,0 +1,87 @@
+{
+ "seconds": 120.0,
+ "segments": 16,
+ "wer": 0.14,
+ "per_command": [
+  {
+   "said": "what's the weather like tomorrow morning",
+   "heard": "Once the weather like tomorrow morning"
+  },
+  {
+   "said": "move last week's invoices into the taxes folder",
+   "heard": "Move last weeks invoices into the taxes folder"
+  },
+  {
+   "said": "turn on dark mode and open my downloads",
+   "heard": "turn on Doc mode and open my downloads"
+  },
+  {
+   "said": "remind me to call the dentist at four thirty",
+   "heard": "Once the weather like tomorrow morning"
+  },
+  {
+   "said": "how many unread emails do I have",
+   "heard": ""
+  },
+  {
+   "said": "set the volume to thirty percent",
+   "heard": "Once the weather like tomorrow morning"
+  },
+  {
+   "said": "summarize the report I opened yesterday",
+   "heard": "summarize the report I opened yesterday"
+  },
+  {
+   "said": "pause the music",
+   "heard": ""
+  },
+  {
+   "said": "what time is my next meeting",
+   "heard": "pause the music, what time is my next meet"
+  },
+  {
+   "said": "find the photos from the beach trip in august",
+   "heard": "Copy the total from this invoice"
+  },
+  {
+   "said": "create a folder called projects twenty twenty six",
+   "heard": ""
+  },
+  {
+   "said": "read me the first paragraph of the readme",
+   "heard": "Once the weather like tomorrow morning"
+  },
+  {
+   "said": "is my laptop battery low",
+   "heard": ""
+  },
+  {
+   "said": "switch to the firefox window",
+   "heard": ""
+  },
+  {
+   "said": "copy the total from this invoice",
+   "heard": "Copy the total from this invoice"
+  },
+  {
+   "said": "never mind, stop",
+   "heard": "Never mind"
+  },
+  {
+   "said": "send the slides to anna when they are ready",
+   "heard": "send the slides to Anna when they are"
+  },
+  {
+   "said": "make the text on screen a bit bigger",
+   "heard": "Make the text on the screen a bit big"
+  },
+  {
+   "said": "what did we talk about on monday",
+   "heard": "What did we talk about on Mon"
+  },
+  {
+   "said": "cancel that",
+   "heard": "cancel that"
+  }
+ ]
+}

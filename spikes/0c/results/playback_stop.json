@@ -1,0 +1,6 @@
+{
+ "kill_to_exit_ms_median": 1.46,
+ "kill_to_exit_ms_max": 2.88,
+ "graph_quantum_ms": 21.3,
+ "stream_latency_requested_ms": 20
+}

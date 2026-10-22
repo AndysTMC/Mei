@@ -16,3 +16,4 @@
 | 0014 | File changes go through the folders policy judged, held open; a link can't redirect them after the check | accepted; first two known limits closed by 0015 | 2026-10-22 | 0010 (in part: a known limit) |
 | 0015 | Reads and the command sandbox use the folders policy judged, held open, too | accepted; first three known limits closed by 0016 | 2026-10-22 | 0014 (in part: two known limits) |
 | 0016 | Checks, probes, and app launches use what was judged; a secret appearing during a command stops it | accepted | 2026-10-22 | 0015 (in part: three known limits) |
+| 0017 | Voice: one interface per part with local and cloud backends; device by measurement; PipeWire's own protocol | accepted | 2026-10-22 | — (revises ADR-7 in the architecture) |
