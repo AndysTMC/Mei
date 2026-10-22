@@ -258,3 +258,42 @@ async def test_a_host_command_runs_in_the_folder_approved(tmp_path):
     assert await h.until(r["task_id"]) == S.COMPLETED
     seen = output(h)
     assert "NOTES-INSIDE" in seen and "OUTSIDE" not in seen
+
+
+# ── Secrets appearing while a command runs (decision 0016) ──────────────────
+
+
+@pytest.mark.parametrize("where", ["site/.env", "site/new/id_rsa"])
+async def test_a_secret_file_appearing_during_a_command_stops_it_and_withholds_its_output(tmp_path, where):
+    h = Harness(tmp_path, script=run_script("echo 'sta''rted'; sleep 3; cat .env new/id_rsa 2>&1; echo 'LEA''KED'",
+                                            folders=[{"path": "~/Projects/site"}], cwd="~/Projects/site", timeout_s=20))
+    put(h.env, "~/Projects/site/notes.txt", "notes")
+    r = h.submit("show me what's in ~/Projects/site")
+    async with asyncio.timeout(10):
+        while not h.actions(r["task_id"]) or h.actions(r["task_id"])[0]["execution"] != E.STARTED:
+            await asyncio.sleep(0.05)
+    await asyncio.sleep(0.5)
+    started = time.monotonic()
+    put(h.env, f"~/Projects/{where}", "API_TOKEN=supersecret")  # the person's editor saves a secret meanwhile
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    assert time.monotonic() - started < 2.5  # stopped, not left to finish its sleep
+    seen = "\n".join(t["content"] for req in h.requests() for t in req["turns"] if t["role"] == "tool")
+    assert "supersecret" not in seen and "LEAKED" not in seen and "started" not in seen  # none of the output
+    assert "may hold secrets, so Mei stopped the command" in seen
+    assert not list(h.env.artifacts(r["conversation_id"]).glob("*.out"))  # the spill is gone too
+
+
+async def test_secrets_already_there_are_masked_and_ordinary_new_files_dont_stop_anything(tmp_path):
+    h = Harness(tmp_path, script=run_script("sleep 1; cat .env 2>&1; ls", folders=[{"path": "~/Projects/site", "write": True}],
+                                            cwd="~/Projects/site"))
+    put(h.env, "~/Projects/site/.env", "API_TOKEN=supersecret")
+    r = h.submit("build ~/Projects/site")
+    assert await h.until(r["task_id"]) == S.WAITING_APPROVAL
+    h.approve(r["task_id"], scope="task")
+    async with asyncio.timeout(10):
+        while h.actions(r["task_id"])[0]["execution"] != E.STARTED:
+            await asyncio.sleep(0.05)
+    put(h.env, "~/Projects/site/README.md", "hello")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    seen = output(h)
+    assert "supersecret" not in seen and "README.md" in seen and "exit 0" in seen

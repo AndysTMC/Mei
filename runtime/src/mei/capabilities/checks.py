@@ -6,9 +6,10 @@ tools' rules: no denied or sensitive paths, and only the settings `settings_get`
 """
 
 import fnmatch
-import os
+import stat
 
-from .base import CheckResult, Env
+from .base import CapabilityError, CheckResult, Env
+from .fs_at import look, names
 from .meta import CheckSpec
 from .settings import ALLOWED
 from .settings_values import same_value
@@ -24,6 +25,8 @@ async def run_check(spec: CheckSpec, env: Env) -> CheckResult:
             return await _window(spec, env)
     except ValueError as e:
         return CheckResult(status="unverifiable", detail=str(e))
+    except CapabilityError as e:  # a link swapped in while looking, or no permission: it can't tell
+        return CheckResult(status="unverifiable", detail=e.message)
     return CheckResult(status="unverifiable", detail=f"unknown check {spec.type or '(none)'}")
 
 
@@ -35,20 +38,23 @@ def _path_check(spec: CheckSpec, env: Env) -> CheckResult:
         # A check is a tool too: it may not look where the file tools can't (keys, credentials).
         return CheckResult(status="unverifiable", detail="Mei doesn't check there")
     shown = env.show(path)
+    # Looked at without following links on the way (fs_at.look), so a link swapped in can't make
+    # a check pass for somewhere else; it comes out unverifiable instead.
     if spec.type == "file_absent":
-        gone = not path.exists() and not path.is_symlink()
+        gone = look(env, path, follow=False) is None
         return CheckResult(status="passed" if gone else "failed", detail=f"{shown} {'is gone' if gone else 'still exists'}")
+    st = look(env, path)
     if spec.type == "file_exists":
-        if not path.exists():
+        if st is None:
             return CheckResult(status="failed", detail=f"{shown} doesn't exist")
-        size = path.stat().st_size if path.is_file() else 0
+        size = st.st_size if stat.S_ISREG(st.st_mode) else 0
         if spec.min_size and size < spec.min_size:
             return CheckResult(status="failed", detail=f"{shown} is {size} bytes, under {spec.min_size}")
         return CheckResult(status="passed", detail=f"{shown} exists")
-    if not path.is_dir():
+    if st is None or not stat.S_ISDIR(st.st_mode):
         return CheckResult(status="failed", detail=f"{shown} isn't a folder")
     pattern = (spec.glob or "*").lower()
-    matches = sum(1 for name in os.listdir(path) if fnmatch.fnmatch(name.lower(), pattern))
+    matches = sum(1 for name in names(env, path) if fnmatch.fnmatch(name.lower(), pattern))
     ok = matches >= 1 if spec.count < 0 else matches == spec.count
     want = "at least 1" if spec.count < 0 else str(spec.count)
     return CheckResult(status="passed" if ok else "failed",

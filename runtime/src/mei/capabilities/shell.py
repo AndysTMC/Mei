@@ -93,20 +93,25 @@ class ShellRun(Capability):
         with ExitStack() as held:
             workspace = judged_path(ctx, "workspace", env.workspace(ctx.conversation_id))
             space = held.enter_context(folder(env, workspace, create=True, mode=0o700))
-            mounts, hidden = [], []
+            mounts, hidden, unscanned = [], [], []
             for i, f in enumerate(p.folders):
                 path = judged_path(ctx, "folder", _folder(env, f.path), index=i)
                 opened = held.enter_context(folder(env, path))
-                secrets, _complete = env.rules.secrets_under(path, dir_fd=opened.fd)
+                secrets, complete = env.rules.secrets_under(path, dir_fd=opened.fd)
                 mounts.append(Mount(path, writable=f.write, fd=opened.fd))
                 hidden += secrets
+                if not complete:
+                    unscanned.append(env.show(path))
             cwd = _real(env, p.cwd) if p.cwd else (mounts[0].path if mounts else workspace)
             if cwd != workspace and not any(cwd == m.path or m.path in cwd.parents for m in mounts):
                 raise CapabilityError("invalid", "cwd must be one of the folders, or the workspace")
             spec = RunSpec(command=p.command, cwd=cwd, timeout_s=p.timeout_s, workspace=workspace,
                            workspace_fd=space.fd, mounts=tuple(mounts), hidden=tuple(hidden), network=p.network,
-                           spill=_spill(ctx))
+                           spill=_spill(ctx), secret=lambda path: env.rules.sensitive(path) or env.rules.denied(path))
             result = await env.runner.run(spec)
+        if unscanned:
+            result.notes.append(f"{', '.join(unscanned)} had too much in it to check fully for secret files; "
+                                "some may not have been hidden")
         return report(p.command, result, ctx, sources=[str(m.path) for m in mounts])
 
 
@@ -186,7 +191,15 @@ def _spill(ctx: ActionContext) -> Path:
 
 
 def report(command: str, r: RunResult, ctx: ActionContext, *, sources: list[str]) -> ActionResult:
-    """What the model sees of a run: the status, then the head and tail of the output."""
+    """What the model sees of a run: the status, then the head and tail of the output. If a secret
+    file appeared in a folder the command could see, nothing of the output (decision 0016)."""
+    if r.secret_appeared is not None:
+        if r.spilled is not None:
+            r.spilled.unlink(missing_ok=True)
+        why = (f"{ctx.env.show(r.secret_appeared)} appeared while it ran, and it may hold secrets, so Mei stopped "
+               "the command and kept its output from you")
+        return ActionResult(ok=False, observation=f"$ {command}\nstopped: {why}", summary=f"Stopped `{command[:60]}`",
+                            error_class="permission")
     if r.timed_out:
         status = f"stopped after {r.seconds:.0f} s (time limit); everything it started was killed"
     else:

@@ -18,6 +18,8 @@ from pathlib import Path
 
 from mei.capabilities.base import RunResult, RunSpec
 
+from .watch import MAX_FOLDERS as MAX_WATCHED, SecretWatch
+
 BWRAP = "/usr/bin/bwrap"
 SYSTEMD_RUN = "/usr/bin/systemd-run"
 SYSTEMCTL = "/usr/bin/systemctl"
@@ -53,15 +55,36 @@ class Sandbox:
             cwd=cwd, env=_host_env() if not spec.sandboxed else _minimal_env(), start_new_session=True,
             pass_fds=held)
         result = RunResult(None, b"", b"", 0, 0.0, spilled=spec.spill)
+        watched = [(m.path, m.fd) for m in spec.mounts if m.fd is not None]
+        watch = SecretWatch(watched, spec.secret) if spec.secret is not None and watched else None
+        collect = asyncio.ensure_future(self._collect(proc, spec.spill, result))
+        tripped = asyncio.ensure_future(watch.tripped.wait()) if watch is not None else None
         try:
-            await asyncio.wait_for(self._collect(proc, spec.spill, result), spec.timeout_s)
-            result.exit_code = await proc.wait()
-        except TimeoutError:
-            result.timed_out = True
-            await self._stop(proc, unit)
+            if watch is not None:
+                watch.start()
+                if not watch.complete:
+                    result.notes.append(f"Mei could watch only {MAX_WATCHED} folders for secret files appearing")
+            done, _ = await asyncio.wait({collect, *([tripped] if tripped else [])}, timeout=spec.timeout_s,
+                                         return_when=asyncio.FIRST_COMPLETED)
+            if collect in done:
+                collect.result()
+                result.exit_code = await proc.wait()
+            else:
+                if tripped is not None and tripped in done:
+                    result.secret_appeared = watch.found
+                else:
+                    result.timed_out = True
+                await self._stop(proc, unit)
+                await collect  # the output ends with the process
         except asyncio.CancelledError:
             await self._stop(proc, unit)
             raise
+        finally:
+            for task in (collect, tripped):
+                if task is not None and not task.done():
+                    task.cancel()
+            if watch is not None:
+                watch.close()
         result.seconds = time.monotonic() - started
         return result
 

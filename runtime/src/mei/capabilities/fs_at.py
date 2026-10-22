@@ -138,6 +138,31 @@ def open_file(env: Env, dir_fd: int, name: str, path: Path) -> int:
     return fd
 
 
+def look(env: Env, path: Path, *, follow: bool = True) -> os.stat_result | None:
+    """What is at `path` now, for a check or a probe: None if nothing is. The folders on the way are
+    walked without following links, from where they really lead now. With `follow`, the item is
+    where `path` leads; without, it is the item at the end of `path` itself (a link stays a link).
+    A link swapped in during the look raises `changed`, so a check can say it couldn't tell."""
+    where = Path(os.path.realpath(path if follow else path.parent))
+    target = where if follow else where / path.name
+    try:
+        with folder(env, target.parent) as held:
+            st = entry(held.fd, target.name)
+    except CapabilityError as e:
+        if e.error_class == "not_found":
+            return None
+        raise
+    if follow and st is not None and stat.S_ISLNK(st.st_mode):
+        raise changed(env, path)
+    return st
+
+
+def names(env: Env, path: Path) -> list[str]:
+    """The entries of the folder `path` leads to, read from the folder held open."""
+    with folder(env, Path(os.path.realpath(path))) as held:
+        return os.listdir(held.fd)
+
+
 @contextmanager
 def held_file(env: Env, path: Path) -> Iterator[int]:
     """The regular file at `path` (absolute, without links) open for reading, reached through its held

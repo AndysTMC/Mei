@@ -407,11 +407,7 @@ class TaskLoop:
         self.d.publish(tx.events)
         flight.action_id = action["id"]
         self.d.boundary("action_started")
-        judged: dict[str, tuple[str, ...]] = {}
-        for r in json.loads(action["resources"] or "[]"):
-            if r.get("kind") == "path":
-                judged[r["role"]] = (*judged.get(r["role"], ()), r["value"])
-        ctx = ActionContext(self.d.env, action["id"], task["conversation_id"], task["id"], judged)
+        ctx = ActionContext(self.d.env, action["id"], task["conversation_id"], task["id"], _judged(action))
         timeout = min(cap.timeout_s, MAX_ACTION_S)
         started = time.monotonic()
         try:
@@ -471,7 +467,8 @@ class TaskLoop:
             await self._execute(task, action, cap, params, flight)
             return True
         try:
-            disposition = await cap.probe(params, ActionContext(self.d.env, action["id"], task["conversation_id"], task["id"]))
+            disposition = await cap.probe(params, ActionContext(self.d.env, action["id"], task["conversation_id"], task["id"],
+                                                                _judged(action)))
         except Exception as e:
             log.warning("probing %s failed: %s", cap.name, e, extra={"task_id": task["id"]})
             disposition = Disposition.UNKNOWN
@@ -488,6 +485,15 @@ class TaskLoop:
                 ledger.ask_in_doubt(tx, taskd, action)
         self.d.publish(tx.events)
         return disposition != Disposition.UNKNOWN
+
+
+def _judged(action) -> dict[str, tuple[str, ...]]:
+    """Each path role → the values policy recorded for it, in order: what the run may act on (fs_at.py)."""
+    judged: dict[str, tuple[str, ...]] = {}
+    for r in json.loads(action["resources"] or "[]"):
+        if r.get("kind") == "path":
+            judged[r["role"]] = (*judged.get(r["role"], ()), r["value"])
+    return judged
 
 
 def _judged_fields(proposal: decide.Proposal) -> dict:

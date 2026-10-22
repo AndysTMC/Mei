@@ -21,7 +21,8 @@ from mei.core.states import Disposition
 
 from .base import (LOCAL_UNDOABLE, ActionContext, ActionResult, Capability, CapabilityError, CheckResult, Effects,
                    Env, Resource)
-from .fs_at import backup, entry, folder, judged_path, move_at, open_file, rename_noreplace, temp_name, write_atomic
+from .fs_at import (backup, entry, folder, held_file, judged_path, look, move_at, open_file, rename_noreplace, temp_name,
+                    write_atomic)
 from .fs_read import resolve_existing
 
 MAX_WRITE_CHARS = 1_000_000
@@ -42,8 +43,28 @@ def write_resource(env: Env, value: str, role: str) -> list[Resource]:
     return [Resource(kind="path", value=str(target(env, value)), access="write", role=role)]
 
 
-def _clean_temp(path: Path, action_id: str) -> None:
-    path.with_name(temp_name(action_id)).unlink(missing_ok=True)
+def _clean_temp(ctx: ActionContext, path: Path) -> None:
+    """Remove a temp file a crash left beside `path` (judged), through its held folder."""
+    try:
+        with folder(ctx.env, path.parent) as held:
+            os.unlink(temp_name(ctx.action_id), dir_fd=held.fd)
+    except FileNotFoundError:
+        pass
+    except CapabilityError as e:
+        if e.error_class != "not_found":
+            raise
+
+
+def _read(ctx: ActionContext, path: Path) -> bytes | None:
+    """The judged file's bytes, read through its held folder; None if no regular file is there. A
+    link swapped in raises `changed`: the caller can't tell, rather than reading somewhere else."""
+    try:
+        with held_file(ctx.env, path) as fd, os.fdopen(os.dup(fd), "rb") as f:
+            return f.read()
+    except CapabilityError as e:
+        if e.error_class in ("not_found", "invalid"):
+            return None
+        raise
 
 
 # ── fs.write_text ───────────────────────────────────────────────────────────
@@ -98,14 +119,15 @@ class FsWriteText(Capability):
                             undo={"kind": "write", "path": str(path), "backup": saved, "created_dirs": created})
 
     async def verify(self, p: WriteParams, result: ActionResult, ctx: ActionContext) -> CheckResult:
-        path = target(ctx.env, p.path)
-        ok = path.is_file() and sha256(path.read_bytes()) == sha256(p.text.encode())
+        data = _read(ctx, judged_path(ctx, "path", target(ctx.env, p.path)))
+        ok = data is not None and sha256(data) == sha256(p.text.encode())
         return CheckResult(status="passed" if ok else "failed", detail="" if ok else "the file doesn't hold the text")
 
     async def probe(self, p: WriteParams, ctx: ActionContext) -> Disposition:
-        path = target(ctx.env, p.path)
-        _clean_temp(path, ctx.action_id)
-        if path.is_file() and sha256(path.read_bytes()) == sha256(p.text.encode()):
+        path = judged_path(ctx, "path", target(ctx.env, p.path))
+        _clean_temp(ctx, path)
+        data = _read(ctx, path)
+        if data is not None and sha256(data) == sha256(p.text.encode()):
             return Disposition.CONFIRMED
         return Disposition.NONE  # writes replace the file in one step: either the new text is there or it isn't
 
@@ -153,19 +175,20 @@ class FsEdit(Capability):
                             summary=f"Edited {env.show(path)}", undo={"kind": "edit", "path": str(path), "backup": saved})
 
     async def verify(self, p: EditParams, result: ActionResult, ctx: ActionContext) -> CheckResult:
-        saved = Path((result.undo or {}).get("backup", ""))
-        path = target(ctx.env, p.path)
+        saved = Path((result.undo or {}).get("backup", ""))  # Mei's own copy
+        current = _read(ctx, judged_path(ctx, "path", target(ctx.env, p.path)))
         expected = saved.read_text(encoding="utf-8").replace(p.old, p.new) if saved.is_file() else None
-        ok = expected is not None and path.is_file() and path.read_text(encoding="utf-8") == expected
+        ok = expected is not None and current is not None and current.decode("utf-8") == expected
         return CheckResult(status="passed" if ok else "failed")
 
     async def probe(self, p: EditParams, ctx: ActionContext) -> Disposition:
-        path = target(ctx.env, p.path)
-        _clean_temp(path, ctx.action_id)
+        path = judged_path(ctx, "path", target(ctx.env, p.path))
+        _clean_temp(ctx, path)
         saved = ctx.backup_dir / path.name
-        if not saved.is_file() or not path.is_file():
-            return Disposition.NONE if path.is_file() else Disposition.UNKNOWN
-        current, before = path.read_text(encoding="utf-8"), saved.read_text(encoding="utf-8")
+        data = _read(ctx, path)
+        if not saved.is_file() or data is None:
+            return Disposition.NONE if data is not None else Disposition.UNKNOWN
+        current, before = data.decode("utf-8"), saved.read_text(encoding="utf-8")
         if current == before.replace(p.old, p.new):
             return Disposition.CONFIRMED
         return Disposition.NONE if current == before else Disposition.UNKNOWN
@@ -231,18 +254,19 @@ class FsMove(Capability):
                             undo={"kind": "move", "from": str(dest), "to": str(source), "created_dirs": created})
 
     async def verify(self, p: MoveParams, result: ActionResult, ctx: ActionContext) -> CheckResult:
-        dest = Path((result.undo or {})["from"])
+        dest = Path((result.undo or {})["from"])  # both as the run acted on them: judged
         source = Path((result.undo or {})["to"])
-        ok = dest.exists() and not source.exists()
+        ok = look(ctx.env, dest, follow=False) is not None and look(ctx.env, source, follow=False) is None
         return CheckResult(status="passed" if ok else "failed")
 
     async def probe(self, p: MoveParams, ctx: ActionContext) -> Disposition:
-        source, dest = target(ctx.env, p.source), target(ctx.env, p.destination)
-        candidates = [dest, dest / source.name]
-        moved = any(c.exists() for c in candidates)
-        if moved and not source.exists():
+        env = ctx.env
+        source, dest = target(env, p.source), target(env, p.destination)
+        moved = any(look(env, c, follow=False) is not None for c in (dest, dest / source.name))
+        there = look(env, source, follow=False) is not None
+        if moved and not there:
             return Disposition.CONFIRMED
-        if source.exists() and not moved:
+        if there and not moved:
             return Disposition.NONE
         return Disposition.UNKNOWN  # both or neither: a copy across drives stopped part way
 
@@ -283,7 +307,8 @@ class FsMakeDir(Capability):
                             undo={"kind": "make_dir", "created": created})
 
     async def verify(self, p: MakeDirParams, result: ActionResult, ctx: ActionContext) -> CheckResult:
-        return CheckResult(status="passed" if target(ctx.env, p.path).is_dir() else "failed")
+        st = look(ctx.env, judged_path(ctx, "path", target(ctx.env, p.path)))
+        return CheckResult(status="passed" if st is not None and stat.S_ISDIR(st.st_mode) else "failed")
 
 
 # ── fs.trash ────────────────────────────────────────────────────────────────
@@ -317,15 +342,16 @@ class FsTrash(Capability):
 
     async def verify(self, p: TrashParams, result: ActionResult, ctx: ActionContext) -> CheckResult:
         undo = result.undo or {}
-        ok = Path(undo["trashed"]).exists() and not Path(undo["original"]).exists()
+        ok = (look(ctx.env, Path(undo["trashed"]), follow=False) is not None
+              and look(ctx.env, Path(undo["original"]), follow=False) is None)
         return CheckResult(status="passed" if ok else "failed")
 
     async def probe(self, p: TrashParams, ctx: ActionContext) -> Disposition:
-        path = target(ctx.env, p.path)
-        entry = find_trashed(ctx.env, path)
-        if entry is not None and not path.exists():
+        path = judged_path(ctx, "path", target(ctx.env, p.path), follow=False)
+        there = look(ctx.env, path, follow=False) is not None
+        if find_trashed(ctx.env, path) is not None and not there:
             return Disposition.CONFIRMED
-        return Disposition.NONE if path.exists() else Disposition.UNKNOWN
+        return Disposition.NONE if there else Disposition.UNKNOWN
 
 
 def trash(env: Env, path: Path) -> tuple[Path, Path]:

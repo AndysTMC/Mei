@@ -11,6 +11,7 @@ from mei.core.states import Disposition
 
 from .base import (ActionContext, ActionResult, App, Availability, AVAILABLE, Capability, CapabilityError,
                    CheckResult, Effects, Env, Resource)
+from .fs_at import judged_path, look
 from .fs_read import resolve_existing
 
 MAX_LISTED = 40
@@ -92,7 +93,13 @@ class AppsLaunch(Capability):
     async def run(self, p: LaunchParams, ctx: ActionContext) -> ActionResult:
         env = ctx.env
         app = find_app(env, p.app_id)
-        paths = [resolve_existing(env, f) for f in p.files]
+        # The app opens files by path, so give it the real paths policy judged, each walked once more
+        # without following links just before the launch (fs_at.py): a link swapped in after the
+        # check stops the launch instead of opening something else.
+        paths = [judged_path(ctx, "file", resolve_existing(env, f), index=i) for i, f in enumerate(p.files)]
+        for path in paths:
+            if look(env, path) is None:
+                raise CapabilityError("not_found", f"{env.show(path)} doesn't exist")
         await env.launcher.launch(app, [_uri(path) for path in paths])
         shown = ", ".join(env.show(path) for path in paths)
         return ActionResult(ok=True, observation=f"Opened {app.name}" + (f" with {shown}" if shown else ""),

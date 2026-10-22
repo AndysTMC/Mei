@@ -179,6 +179,9 @@ class RunSpec:
     hidden: tuple[Path, ...] = ()  # sensitive files and folders inside the mounts, masked
     network: bool = False
     sandboxed: bool = True  # False: shell.run_host, the person's own session as it is
+    # Would Mei hide this file? Folders with a descriptor are watched while the command runs, and a
+    # file this says yes to that appears stops it (desktop/watch.py).
+    secret: Callable[[Path], bool] | None = None
 
 
 @dataclass
@@ -191,6 +194,7 @@ class RunResult:
     timed_out: bool = False
     spilled: Path | None = None
     notes: list[str] = field(default_factory=list)
+    secret_appeared: Path | None = None  # stopped: this appeared in a watched folder; the output is withheld
 
 
 class Runner(Protocol):

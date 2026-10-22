@@ -461,3 +461,80 @@ async def test_a_search_never_opens_a_link_inside_the_folder(tmp_path):
     assert "1 match under ~/Documents/proj" in sent and "mine.txt" in sent and "x.txt" not in sent
     assert "- link.txt (link, modified" in sent and "- linked-folder (link, modified" in sent
     assert search["ok"] and listing["ok"]
+
+
+# ── Checks, probes, and app launches by what was judged (decision 0016) ─────
+
+
+def _swap_folder(env, tmp_path, folder: str, files: dict[str, str]):
+    """`folder` holds `files`; a twin outside holds the same names. Returns (outside, swap)."""
+    for name, text in files.items():
+        put(env, f"{folder}/{name}", text)
+    outside = tmp_path / "outside"
+    outside.mkdir(exist_ok=True)
+    for name, text in files.items():
+        (outside / name).write_text(text)
+    path = env.path(folder)
+
+    def swap() -> None:
+        path.rename(path.with_name(path.name + "-real"))
+        path.symlink_to(outside)
+    return outside, swap
+
+
+async def test_a_completion_check_cant_pass_by_looking_somewhere_else(tmp_path, monkeypatch):
+    from mei.capabilities import fs_at
+    from mei.capabilities.checks import run_check
+    from mei.capabilities.meta import CheckSpec
+    from agent_harness import make_world
+    env = make_world(tmp_path)
+    _outside, swap = _swap_folder(env, tmp_path, "~/Documents/proj", {"report.pdf": "pdf"})
+    spec = CheckSpec(type="file_exists", path="~/Documents/proj/report.pdf")
+    assert (await run_check(spec, env)).status == "passed"
+    folder = fs_at.folder
+
+    def swap_then_walk(env_, path, **kw):  # the look has resolved the path; a folder on the way becomes a link
+        if not env.path("~/Documents/proj").is_symlink():
+            swap()
+        return folder(env_, path, **kw)
+    monkeypatch.setattr(fs_at, "folder", swap_then_walk)
+    result = await run_check(spec, env)
+    assert result.status == "unverifiable" and "changed since Mei checked it" in result.detail
+
+
+async def test_an_actions_own_check_reads_what_was_judged_not_what_the_path_leads_to_now(tmp_path):
+    from mei.capabilities.base import ActionContext, ActionResult, CapabilityError
+    from mei.capabilities.fs_write import FsWriteText, WriteParams
+    from agent_harness import make_world
+    env = make_world(tmp_path)
+    _outside, swap = _swap_folder(env, tmp_path, "~/Documents/proj", {"notes.txt": "the text"})
+    judged = str(env.path("~/Documents/proj/notes.txt"))
+    ctx = ActionContext(env, "a1", "c1", "t1", {"path": (judged,)})
+    p = WriteParams(path="~/Documents/proj/notes.txt", text="the text")
+    assert (await FsWriteText().verify(p, ActionResult(ok=True, observation=""), ctx)).status == "passed"
+    swap()  # the outside twin holds the same text: the check must not pass by reading it
+    with pytest.raises(CapabilityError) as err:  # the loop records this as "unverifiable"
+        await FsWriteText().verify(p, ActionResult(ok=True, observation=""), ctx)
+    assert err.value.error_class == "changed"
+
+
+async def test_an_app_isnt_handed_a_file_whose_path_changed_after_the_check(tmp_path, monkeypatch):
+    from mei.core.loop import TaskLoop
+    from mei.desktop.apps import Launcher
+    from test_desktop import FILES, RecordingBridge
+    h = Harness(tmp_path, script=[turn(call("apps_launch", app_id="org.gnome.Nautilus", files=["~/Documents/proj"])),
+                                  {"text": "Opened."}])
+    bridge = RecordingBridge()
+    h.env.apps, h.env.bridge, h.env.launcher = (lambda: [FILES]), (lambda: bridge), Launcher(lambda: bridge)
+    _outside, swap = _swap_folder(h.env, tmp_path, "~/Documents/proj", {"a.txt": "a"})
+    recheck = TaskLoop._recheck
+
+    async def recheck_then_swap(self, task, action):
+        ok = await recheck(self, task, action)
+        swap()
+        return ok
+    monkeypatch.setattr(TaskLoop, "_recheck", recheck_then_swap)
+    r = h.submit("open ~/Documents/proj in Files")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    [action] = h.actions(r["task_id"])
+    assert json.loads(action["result"])["error_class"] == "changed" and bridge.launched == []
