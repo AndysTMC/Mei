@@ -1,5 +1,5 @@
 /**
- * What the popup's voice bar says (§11.2, Stage 5). Pure, so it is tested without the Shell.
+ * What voice says it's doing, in the composer (§11.2, Stage 5). Pure, so it is tested without the Shell.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -11,6 +11,8 @@ export interface VoiceView {
     note: string;
     /** What the person is saying, as heard so far (or the final text, until the reply comes). */
     transcript: string;
+    /** This listening is dictation (the mic): its words go into the message box. */
+    dictating: boolean;
 }
 
 export interface VoiceLine {

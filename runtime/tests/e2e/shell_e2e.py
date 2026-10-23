@@ -311,8 +311,9 @@ async def main() -> int:
         h.check("compact_shows_the_last_reply", not st["popup"]["expanded"] and any(t.strip() == REPLY for t in st["shown"]))
         await h.hook("Screenshot", os.path.join(OUT, "popup-compact.png"))
 
-        # 5. Stage 3: an agent task needs an approval card; the person allows it in the popup, and the
-        #    approval is accepted because it comes from the Shell process itself.
+        # 5. Stage 3: an agent task needs an approval; it takes over the input area, the person allows it
+        #    in the small popup, and it goes away; the approval is accepted because it comes from the
+        #    Shell process itself. One request, one reply.
         await h.use_fake([
             {"text": "I'll tidy that.", "tool_calls": [{"name": "fs_trash", "arguments": {"path": "~/Music/old.txt"}}]},
             {"tool_calls": [{"name": "task_finish", "arguments": {"summary": "Moved old.txt to the trash."}}]}])
@@ -321,16 +322,37 @@ async def main() -> int:
         await h.hook("Popup", "expand")
         await h.hook("Send", "tidy up my files")
         st = await h.until(lambda s: "approval" in s["controller"]["timeline"], 30, "the approval card")
-        h.check("approval_card_shown", st["controller"]["waiting"] and any(
-            t.startswith("Mei wants to: Move ~/Music/old.txt to the trash") for t in st["shown"]), st["shown"][-8:])
+        h.check("approval_card_shown", st["controller"]["waiting"] and "Mei wants to" in st["shown"]
+                and "Move ~/Music/old.txt to the trash" in st["shown"] and "Ask" not in st["shown"], st["shown"][-10:])
         await asyncio.sleep(0.5)
         await h.hook("Screenshot", os.path.join(OUT, "approval-card.png"))
+        await h.hook("Popup", "collapse")  # answered in the small popup, where it used to stay after a click
+        await asyncio.sleep(0.6)
+        await h.hook("Screenshot", os.path.join(OUT, "approval-compact.png"))
         clicked = await h.press("Allow once")
         st = await h.until(lambda s: "outcome" in s["controller"]["timeline"], 30, "the approved task to finish")
+        await asyncio.sleep(0.5)
+        st = await h.state()
         trashed = os.path.join(OUT, "data", "Trash/files/old.txt")  # the trash lives in XDG_DATA_HOME
         h.check("approved_from_the_popup", clicked and not os.path.exists(os.path.join(OUT, "home/Music/old.txt"))
-                and os.path.exists(trashed) and not st["controller"]["waiting"],
+                and os.path.exists(trashed) and not st["controller"]["waiting"] and "Allow once" not in st["shown"]
+                and "Ask" in st["shown"],
                 {"clicks retried": h.retried_clicks} if h.retried_clicks else None)
+        await h.hook("Screenshot", os.path.join(OUT, "approved-compact.png"))
+        await h.hook("Popup", "expand")
+        await asyncio.sleep(0.6)
+        shown = (await h.state())["shown"]
+        # One reply to the request; what Mei said on the way ("I'll tidy that.") is behind Steps.
+        h.check("one_reply_per_request", shown.count("tidy up my files") == 1
+                and any("Moved old.txt to the trash" in t for t in shown) and not any("I'll tidy that" in t for t in shown),
+                shown[-10:])
+        await h.hook("Screenshot", os.path.join(OUT, "one-reply.png"))
+        await h._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "HoverButton", "s", ["Steps"])
+        await asyncio.sleep(0.4)
+        await h.hook("Screenshot", os.path.join(OUT, "footer-hover.png"))
+        await h._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "ClickNamed", "s", ["Steps"])
+        await asyncio.sleep(0.6)
+        await h.hook("Screenshot", os.path.join(OUT, "footer-steps.png"))
 
         # 6. The dark-mode slice through the real Shell bridge: nothing it touches needs a card, and Mei
         #    checks both criteria itself (the setting, and a Files window the Shell reports).
@@ -357,6 +379,9 @@ async def main() -> int:
         await asyncio.sleep(1.0)
         await h.hook("Popup", "open")
         await h.hook("Screenshot", os.path.join(OUT, "dark-mode-slice.png"))
+        await h._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "ClickNamed", "s", ["Checks"])
+        await asyncio.sleep(0.6)
+        await h.hook("Screenshot", os.path.join(OUT, "footer-checks.png"))
 
         # 7. Stage 4: a task that outlasts an extension restart. The history list shows it working; when
         #    it finishes, a notification says so (the popup stays closed), and clicking it opens the chat.

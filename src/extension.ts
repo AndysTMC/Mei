@@ -43,7 +43,7 @@ export default class MeiExtension extends Extension {
         this._bridge.export();
 
         this._indicator = new MeiIndicator();
-        const popup = new ChatPopup(this._indicator.actor, this._themeManager);
+        const popup = new ChatPopup(this._indicator.actor, this._themeManager, this.path);
         this._popup = popup;
         runtime.bind(popup);
         runtime.onStateChanged = () => this._syncIndicatorState();
@@ -69,10 +69,11 @@ export default class MeiExtension extends Extension {
         popup.onDeleteChat = id => runtime.deleteChat(id);
         popup.onApprove = (id, scope) => runtime.approve(id, scope);
         popup.onDeny = id => runtime.deny(id);
+        popup.onDenyWith = (id, text) => runtime.denyWith(id, text);
         popup.onAnswer = (id, value) => runtime.answer(id, value);
         popup.onRemoveAttachment = () => runtime.removeAttachment();
-        popup.onVoice = () => runtime.voiceListen();
-        popup.onVoiceStop = () => runtime.voiceStop();
+        popup.onDictate = () => runtime.dictate();
+        popup.onVoice = () => runtime.voiceToggle();
         popup.onKeepMemory = id => runtime.keepMemory(id);
         popup.onForgetMemory = id => runtime.forgetMemory(id);
         popup.onOpenSettings = () => this.openPreferences();

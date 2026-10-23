@@ -29,6 +29,8 @@ export class MeiIndicator {
     private _content: St.BoxLayout;
     private _label: St.Label;
     private _stopPill: St.Bin;
+    /** Beside the label while voice listens (a mic) or speaks (a speaker); hidden otherwise. */
+    private _voiceMark = new St.Icon({ style_class: 'mei-panel-voice', visible: false, y_align: Clutter.ActorAlign.CENTER });
     private _activityActive: boolean = false;
     private _stopControlVisible: boolean = false;
     private _centerBox: St.BoxLayout | null = null;
@@ -76,6 +78,7 @@ export class MeiIndicator {
             x_expand: true,
         });
         this._content.add_child(this._label);
+        this._content.add_child(this._voiceMark);
         this._content.add_child(this._stopPill);
 
         this._button = new St.Button({
@@ -169,12 +172,11 @@ export class MeiIndicator {
         }
     }
 
-    /** Listening and speaking show as a line under the label (§18.2's voice orb, kept quiet). */
+    /** Listening and speaking show as a small mark beside the label (§18.2's voice orb, kept quiet). */
     setVoiceState(state: string): void {
-        for (const kind of ['listening', 'speaking'] as const) {
-            if (state === kind) this._button.add_style_class_name(`voice-${kind}`);
-            else this._button.remove_style_class_name(`voice-${kind}`);
-        }
+        const icon = state === 'listening' ? 'audio-input-microphone-symbolic' : state === 'speaking' ? 'audio-volume-high-symbolic' : '';
+        this._voiceMark.visible = icon !== '' && !this._stopPill.visible;
+        if (icon) this._voiceMark.icon_name = icon;
     }
 
     setStopControlVisible(visible: boolean): void {

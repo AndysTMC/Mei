@@ -1,13 +1,15 @@
 /**
- * What a conversation shows, in order (§18.2): each task's request, its plan while it runs, the
- * replies with the actions they took under them, any card waiting on the person, and, once done, one
- * quiet line saying what Mei checked. Pure: built from the projection, rendered by ui/conversation;
- * no GJS here.
+ * What a conversation shows, in order (§18.2): each request, then one reply to it, the latest thing
+ * Mei said for that task. What Mei said on the way, the actions it took, and how the task ended are
+ * details of that reply, opened on demand. While a task runs, its steps show under it as progress.
+ * A card waiting on the person isn't part of the conversation: it takes over the input area
+ * (`pendingInteraction`). Pure: built from the projection, rendered by ui/conversation; no GJS here.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-import type { ActionView, ApprovalView, InputRequestView, MemoryView, MessageView, Outcome, Plan, TaskView } from './protocol.js';
+import { TERMINAL_STATES } from './protocol.js';
+import type { ActionView, ApprovalView, InputRequestView, MemoryView, MessageView, Outcome, TaskView } from './protocol.js';
 import type { LoadedConversation } from './projection.js';
 
 /** Tools that steer the task rather than act; their effect shows as the plan, a card, or the outcome. */
@@ -23,59 +25,76 @@ export interface ActivityRow {
     detail?: string;
 }
 
+/** What's behind a reply's icons: what Mei did on the way, and how the task ended. */
+export interface ReplyDetails {
+    /** What Mei said before its reply, in order. */
+    notes: string[];
+    steps: ActivityRow[];
+    outcome: Outcome | null;
+}
+
 export type TimelineItem =
-    | { kind: 'message'; message: MessageView; draft?: boolean }
-    | { kind: 'activity'; taskId: string; rows: ActivityRow[] }
-    | { kind: 'plan'; taskId: string; plan: Plan }
+    | { kind: 'message'; message: MessageView; draft?: boolean; details?: ReplyDetails }
+    | { kind: 'progress'; taskId: string; rows: ActivityRow[] }
+    | { kind: 'memory'; memory: MemoryView };
+
+/** What a task waits on the person for: it replaces the input area until answered. */
+export type Interaction =
     | { kind: 'approval'; taskId: string; approval: ApprovalView }
-    | { kind: 'question'; taskId: string; request: InputRequestView }
-    | { kind: 'memory'; memory: MemoryView }
-    | { kind: 'outcome'; taskId: string; outcome: Outcome };
+    | { kind: 'question'; taskId: string; request: InputRequestView };
 
 export function buildTimeline(conv: LoadedConversation): TimelineItem[] {
     const tasks = [...conv.tasks.values()];
     const byInput = new Map(tasks.map(t => [t.input_message_id, t]));
-    const actionsByMessage = new Map<string, ActionView[]>();
-    for (const task of tasks) {
-        for (const action of task.actions ?? []) {
-            if (isMeta(action)) continue;
-            const list = actionsByMessage.get(action.message_id) ?? [];
-            list.push(action);
-            actionsByMessage.set(action.message_id, list);
-        }
-    }
-    const items: TimelineItem[] = [];
-    const ended = new Set<string>();
     const remembered = [...conv.memories.values()].filter(m => m.status !== 'archived')
         .sort((a, b) => a.created_at - b.created_at);
-    const close = (task: TaskView | undefined): void => {
-        if (!task || ended.has(task.id)) return;
-        ended.add(task.id);
-        if (task.approval) items.push({ kind: 'approval', taskId: task.id, approval: task.approval });
-        if (task.input_request) items.push({ kind: 'question', taskId: task.id, request: task.input_request });
-        for (const memory of remembered) if (memory.source_task_id === task.id) items.push({ kind: 'memory', memory });
-        if (task.outcome) items.push({ kind: 'outcome', taskId: task.id, outcome: task.outcome });
-    };
-    let current: TaskView | undefined;
+    const items: TimelineItem[] = [];
     for (const message of conv.messages) {
-        const starts = byInput.get(message.id);
-        if (starts) {
-            close(current);
-            current = starts;
+        if (message.role === 'assistant' && message.task_id && conv.tasks.has(message.task_id)) continue; // under its request
+        if (message.role !== 'user') {
+            if (message.role === 'assistant' && message.content.trim()) items.push({ kind: 'message', message });
+            continue;
         }
-        const actions = actionsByMessage.get(message.id) ?? [];
-        if (message.content.trim() || message.role === 'user') items.push({ kind: 'message', message });
-        // The plan is progress: once there's an outcome, the outcome line says how it ended.
-        if (starts && hasPlan(starts.plan) && !starts.outcome) items.push({ kind: 'plan', taskId: starts.id, plan: starts.plan! });
-        if (actions.length) {
-            actions.sort((a, b) => a.created_at - b.created_at || a.position - b.position);
-            items.push({ kind: 'activity', taskId: actions[0].task_id, rows: actions.map(activityRow) });
-        }
+        items.push({ kind: 'message', message });
+        const task = byInput.get(message.id);
+        if (task) items.push(...taskItems(conv, task, remembered));
     }
-    close(current);
-    for (const task of tasks) close(task); // a task whose input isn't loaded (shouldn't happen) still shows its card
     for (const memory of remembered) if (!memory.source_task_id || !conv.tasks.has(memory.source_task_id)) items.push({ kind: 'memory', memory });
     return items;
+}
+
+function taskItems(conv: LoadedConversation, task: TaskView, remembered: MemoryView[]): TimelineItem[] {
+    const said = conv.messages.filter(m => m.role === 'assistant' && m.task_id === task.id && m.content.trim());
+    const steps = (task.actions ?? []).filter(a => !isMeta(a))
+        .sort((a, b) => a.created_at - b.created_at || a.position - b.position).map(activityRow);
+    const items: TimelineItem[] = [];
+    const reply = said.at(-1);
+    if (reply) {
+        items.push({ kind: 'message', message: reply,
+            details: { notes: said.slice(0, -1).map(m => m.content), steps, outcome: task.outcome ?? null } });
+    }
+    // While it runs: the steps so far, but not one waiting on the person (the input area asks).
+    const progress = steps.filter(r => r.state !== 'waiting');
+    if (!TERMINAL_STATES.has(task.state) && progress.length) items.push({ kind: 'progress', taskId: task.id, rows: progress });
+    for (const memory of remembered) if (memory.source_task_id === task.id) items.push({ kind: 'memory', memory });
+    return items;
+}
+
+/** What the small popup shows: the latest reply and what follows it, or, while Mei is still working
+ * on the latest request, its progress so far. */
+export function latestReply(items: TimelineItem[]): TimelineItem[] {
+    const reply = items.findLastIndex(i => i.kind === 'message' && i.message.role === 'assistant');
+    const request = items.findLastIndex(i => i.kind === 'message' && i.message.role === 'user');
+    return reply > request ? items.slice(reply) : items.slice(request + 1);
+}
+
+/** The latest card a task in this conversation waits on the person for, if any. */
+export function pendingInteraction(conv: LoadedConversation): Interaction | null {
+    const waiting = [...conv.tasks.values()].filter(t => !TERMINAL_STATES.has(t.state) && (t.approval || t.input_request))
+        .sort((a, b) => a.created_at - b.created_at).at(-1);
+    if (!waiting) return null;
+    return waiting.approval ? { kind: 'approval', taskId: waiting.id, approval: waiting.approval }
+        : { kind: 'question', taskId: waiting.id, request: waiting.input_request! };
 }
 
 export function activityRow(action: ActionView): ActivityRow {
@@ -140,8 +159,4 @@ export function outcomeLine(outcome: Outcome): OutcomeLine {
 
 function isMeta(action: ActionView): boolean {
     return META.has(action.capability ?? action.tool);
-}
-
-function hasPlan(plan: Plan | undefined): boolean {
-    return Boolean(plan && ((plan.steps?.length ?? 0) > 0 || (plan.criteria?.length ?? 0) > 0));
 }

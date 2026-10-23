@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { Projection } from '../src/runtime/projection.js';
 import type { ActionView, AttachReply, Envelope, Outcome } from '../src/runtime/protocol.js';
-import { activityRow, buildTimeline, outcomeLine } from '../src/runtime/timeline.js';
+import { activityRow, buildTimeline, latestReply, outcomeLine, pendingInteraction, type TimelineItem } from '../src/runtime/timeline.js';
 
 interface Fixture {
     attach: AttachReply;
@@ -24,7 +24,7 @@ function replay(until?: (e: Envelope) => boolean): Projection {
     return p;
 }
 
-test('an agent task: actions, the approval card while it waits, and the outcome after', () => {
+test('an agent task: one reply, its steps as progress while it runs, the approval in the input area', () => {
     const waiting = replay(e => e.type === 'approval.requested');
     const id = fx.expect.conversation_id;
     const task = waiting.waitingTask(id);
@@ -32,8 +32,12 @@ test('an agent task: actions, the approval card while it waits, and the outcome 
     assert.equal(task.approval.card.capability, 'fs.trash');
     assert.equal(task.approval.card.resources[0].provenance, 'model');
     assert.deepEqual(waiting.needsAttention(), [id]);
-    const kinds = buildTimeline(waiting.loaded.get(id)!).map(i => i.kind);
-    assert.deepEqual(kinds, ['message', 'plan', 'message', 'activity', 'approval']);
+    const conv = waiting.loaded.get(id)!;
+    const items = buildTimeline(conv);
+    // The request and Mei's reply so far ("I'll tidy that."). The step waiting on the person isn't
+    // repeated as progress, and the approval isn't in the conversation: it takes over the input area.
+    assert.deepEqual(items.map(i => i.kind), ['message', 'message']);
+    assert.equal(pendingInteraction(conv)?.kind, 'approval');
 
     const done = replay();
     const finished = done.loaded.get(id)!.tasks.get(fx.expect.task_id)!;
@@ -43,15 +47,27 @@ test('an agent task: actions, the approval card while it waits, and the outcome 
     assert.deepEqual(done.needsAttention(), []);
     assert.deepEqual(finished.actions?.map(a => [a.capability, a.execution]),
         [['plan.update', 'SUCCEEDED'], ['fs.trash', 'SUCCEEDED'], ['task.finish', 'SUCCEEDED']]);
-    const items = buildTimeline(done.loaded.get(id)!);
-    // Done: the plan gives way to one outcome line (no second "message" restating it).
-    assert.deepEqual(items.map(i => i.kind), ['message', 'message', 'activity', 'message', 'outcome']);
-    const activity = items.find(i => i.kind === 'activity');
-    assert.ok(activity?.kind === 'activity');
-    assert.deepEqual(activity.rows.map(r => [r.text, r.state]), [['Trashed old.txt', 'done']]);
-    const outcome = items.find(i => i.kind === 'outcome');
-    assert.ok(outcome?.kind === 'outcome');
-    assert.equal(outcomeLine(outcome.outcome).tone, 'checked');
+    const after = buildTimeline(done.loaded.get(id)!);
+    // Done: a request and one reply. What Mei said on the way, its steps and its checks are the
+    // reply's details, not more messages.
+    assert.deepEqual(after.map(i => i.kind), ['message', 'message']);
+    const reply = after[1];
+    assert.ok(reply.kind === 'message' && reply.details);
+    assert.equal(reply.message.role, 'assistant');
+    assert.deepEqual(reply.details.steps.map(r => [r.text, r.state]), [['Trashed old.txt', 'done']]);
+    assert.equal(reply.details.notes.length, 1); // "I'll tidy that.", said on the way
+    assert.equal(outcomeLine(reply.details.outcome!).tone, 'checked');
+    assert.equal(pendingInteraction(done.loaded.get(id)!), null);
+});
+
+test('the small popup shows the latest reply, or the progress of the request still being worked on', () => {
+    const msg = (role: 'user' | 'assistant', content: string): TimelineItem => ({ kind: 'message', message: {
+        id: content, conversation_id: 'c', task_id: null, role, content, thinking: null, metadata: {}, created_at: 0 } });
+    const progress: TimelineItem = { kind: 'progress', taskId: 't', rows: [] };
+    const items = [msg('user', 'q1'), msg('assistant', 'a1'), msg('user', 'q2')];
+    assert.deepEqual(latestReply([...items, progress]), [progress]);
+    assert.deepEqual(latestReply([...items, msg('assistant', 'a2')]).map(i => i.kind === 'message' && i.message.content), ['a2']);
+    assert.deepEqual(latestReply([]), []);
 });
 
 function action(over: Partial<ActionView>): ActionView {

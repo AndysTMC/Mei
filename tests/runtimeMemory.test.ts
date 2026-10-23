@@ -36,14 +36,16 @@ function replayWith(extra: { type: string; payload: Record<string, unknown> }[])
     return p;
 }
 
-test('memories a task saved show under it, before its outcome; review ones wait for Keep or Discard', () => {
+test('memories a task saved show under its reply (whose details hold the outcome); review ones wait for Keep or Discard', () => {
     const p = replayWith([
         { type: 'memory.saved', payload: { memory: memory('a') } },
         { type: 'memory.pending_review', payload: { memory: memory('b', { status: 'pending_review', provenance: 'untrusted' }) } },
     ]);
     const items = buildTimeline(p.loaded.get(conv)!);
     const kinds = items.map(i => i.kind);
-    assert.deepEqual(kinds.slice(-3), ['memory', 'memory', 'outcome']);
+    assert.deepEqual(kinds.slice(-3), ['message', 'memory', 'memory']);
+    const reply = items.at(-3);
+    assert.ok(reply?.kind === 'message' && reply.details?.outcome);
     const shown = items.filter(i => i.kind === 'memory').map(i => i.kind === 'memory' && i.memory.status);
     assert.deepEqual(shown, ['active', 'pending_review']);
 });

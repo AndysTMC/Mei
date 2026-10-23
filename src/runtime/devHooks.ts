@@ -32,6 +32,8 @@ const XML = `
     <method name="PressVoiceShortcut"/>
     <method name="SetPrimarySelection"><arg type="s" direction="in" name="text"/></method>
     <method name="ClickButton"><arg type="s" direction="in" name="label"/><arg type="b" direction="out" name="found"/></method>
+    <method name="HoverButton"><arg type="s" direction="in" name="name"/><arg type="b" direction="out" name="found"/></method>
+    <method name="ClickNamed"><arg type="s" direction="in" name="name"/><arg type="b" direction="out" name="found"/></method>
   </interface>
 </node>`;
 
@@ -127,6 +129,35 @@ export class DevHooks {
         });
         this.Click(at[0], at[1]);
         return true;
+    }
+
+    /** Moves the pointer over the popup's last visible button with this accessible name (a reply's footer). */
+    HoverButton(name: string): boolean {
+        const at = this._named(name);
+        if (at) this._pointer.notify_absolute_motion(GLib.get_monotonic_time(), at[0], at[1]);
+        return at !== null;
+    }
+
+    /** Clicks the popup's last visible button with this accessible name. */
+    ClickNamed(name: string): boolean {
+        const at = this._named(name);
+        if (at) this.Click(at[0], at[1]);
+        return at !== null;
+    }
+
+    private _named(name: string): [number, number] | null {
+        const buttons: St.Button[] = [];
+        const walk = (actor: Clutter.Actor) => {
+            if (!actor.visible) return;
+            if (actor instanceof St.Button && actor.accessible_name === name) buttons.push(actor);
+            actor.get_children().forEach(walk);
+        };
+        walk(this._popup.contentActor);
+        const button = buttons.at(-1);
+        if (!button) return null;
+        const [x, y] = button.get_transformed_position();
+        const [w, h] = button.get_transformed_size();
+        return [Math.round(x + w / 2), Math.round(y + h / 2)];
     }
 
     /** Presses Super+Alt+M (the default open-shortcut) the way a keyboard would. */

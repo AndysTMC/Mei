@@ -33,6 +33,7 @@ const SAVE_RETRY_MS = 5000;
 export default class MeiPreferences extends ExtensionPreferences {
     override async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
         window.set_title('Mei');
+        monochrome(window);
         const client = new RuntimeClient(() => 0); // calls start the runtime if it isn't running
         const call: Call = (method, args, opts) => client.call(method, args, opts);
         const settings = new RuntimeSettings((method, args) => client.call(method, args));
@@ -173,4 +174,31 @@ function serviceSummary(status: SetupStatusReply): string {
     if (service?.id !== 'service') return 'Running';
     const keyring = service.keyring === 'missing' ? 'not found' : service.keyring;
     return `Running · version ${service.runtime_version} · keyring ${keyring}`;
+}
+
+/**
+ * Mei's look is monochrome: in Mei's window only, the system accent becomes the text's own color
+ * (the suggested button inverts, as in the popup), and a switch that's on is grey, so its white knob
+ * still shows, in light and dark.
+ */
+const MONOCHROME = {
+    light: 'window.mei-prefs { --accent-bg-color: #241f31; --accent-fg-color: #ffffff; --accent-color: #241f31; } '
+        + 'window.mei-prefs switch:checked { background-color: #5e5c64; }',
+    dark: 'window.mei-prefs { --accent-bg-color: #f6f5f4; --accent-fg-color: #000000; --accent-color: #f6f5f4; } '
+        + 'window.mei-prefs switch:checked { background-color: #9a9996; }',
+};
+
+function monochrome(window: Adw.PreferencesWindow): void {
+    const provider = new Gtk.CssProvider();
+    const style = Adw.StyleManager.get_default();
+    const load = () => provider.load_from_string(style.dark ? MONOCHROME.dark : MONOCHROME.light);
+    load();
+    const signal = style.connect('notify::dark', load);
+    const display = window.get_display();
+    Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
+    window.add_css_class('mei-prefs');
+    window.connect('destroy', () => {
+        style.disconnect(signal);
+        Gtk.StyleContext.remove_provider_for_display(display, provider);
+    });
 }

@@ -18,12 +18,12 @@ import { RuntimeClient, RuntimeError, type ConnectionStatus } from './client.js'
 import { activeLabel, noticeFor, reaction, wantsPerson, type Notice, type Reaction } from './notices.js';
 import { Projection } from './projection.js';
 import { attachmentLabel } from './attachment.js';
-import { voiceLine, type VoiceView } from './voice.js';
+import type { VoiceView } from './voice.js';
 import type {
     ApprovalScope, Attachment, ConversationReply, Envelope, SetupStatusReply, SubmitReply, VoiceStateName, VoiceStatusReply,
 } from './protocol.js';
 import { RuntimeSettings } from './settings.js';
-import { buildTimeline, type TimelineItem } from './timeline.js';
+import { buildTimeline, latestReply, pendingInteraction, type TimelineItem } from './timeline.js';
 
 const LOAD_ATTEMPTS = 3;
 /** Events that change what a conversation shows besides its messages. */
@@ -57,7 +57,7 @@ export class RuntimeChatController {
     /** What "Ask about this" attached to the next message, until it is sent or dropped. */
     private _attachment: Attachment | null = null;
     /** Voice (2.4): the runtime's voice state and what it has heard. */
-    private _voice: VoiceView = { state: 'off', note: '', transcript: '' };
+    private _voice: VoiceView = { state: 'off', note: '', transcript: '', dictating: false };
     /** Called once when setup was never offered (the extension opens Settings). */
     onSetupNeeded: (() => void) | null = null;
     /** Whether this controller asked for setup to open (read by the dev-build test hooks). */
@@ -79,6 +79,7 @@ export class RuntimeChatController {
         this._client.onStatus = (status, detail) => {
             this._status = status;
             this._statusDetail = detail ?? '';
+            if (status === 'connected') this._popup.hideError('connection');
             if (status === 'incompatible') this._popup.showError(detail ?? 'This Mei runtime doesn’t match the extension; update Mei.');
             this.onStateChanged?.();
         };
@@ -130,12 +131,23 @@ export class RuntimeChatController {
             attachment: this._attachment,
             voice: this._voice,
             setupOffered: this.setupOffered,
-            timeline: this._timeline().map(i => i.kind),
+            timeline: this._debugTimeline(),
             waiting: this.needsAttention,
             busy: this.isBusy,
             notice: this._lastNotice,
             history: this._historyItems(),
         };
+    }
+
+    /** The timeline's kinds, plus what waits on the person and whether the latest reply has its outcome. */
+    private _debugTimeline(): string[] {
+        const conv = this._current ? this._projection.loaded.get(this._current) : undefined;
+        const items = this._timeline();
+        const kinds: string[] = items.map(i => i.kind);
+        const interaction = conv ? pendingInteraction(conv) : null;
+        if (interaction) kinds.push(interaction.kind);
+        if (items.some(i => i.kind === 'message' && i.details?.outcome)) kinds.push('outcome');
+        return kinds;
     }
 
     /** The popup is built with `settings`, so it's bound after construction and before `start()`. */
@@ -161,7 +173,7 @@ export class RuntimeChatController {
             return;
         }
         if (this._status === 'unavailable' || this._status === 'incompatible') {
-            this._popup.showError(`Mei's runtime isn't reachable. ${this._statusDetail}`);
+            this._popup.showError(`Mei's runtime isn't reachable. ${this._statusDetail}`, { source: 'connection' });
             return;
         }
         if (!this._popup.isExpanded) this._popup.close();
@@ -182,15 +194,43 @@ export class RuntimeChatController {
         return this._voice.state;
     }
 
-    /** The voice shortcut or the mic button: talk; while listening, done talking; while Mei speaks, stop it and talk. */
+    /** The voice shortcut: talk; while listening, done talking; while Mei speaks, stop it and talk. */
     voiceListen(): void {
-        this._popup.hideError();
-        this._client.call<VoiceStatusReply>('VoiceListen', { conversation_id: this._current })
-            .catch((e: RuntimeError) => this._showFailure(e));
+        this._listen(false);
+    }
+
+    /** The voice button: talk with Mei; while that's going on, stop it. */
+    voiceToggle(): void {
+        if (['listening', 'thinking', 'speaking'].includes(this._voice.state) && !this._voice.dictating) this.voiceStop();
+        else this._listen(false);
+    }
+
+    /** The mic: dictate into the message box; while dictating, done. */
+    dictate(): void {
+        this._listen(true);
     }
 
     voiceStop(): void {
         this._client.call('VoiceStop', {}).catch((e: RuntimeError) => this._showFailure(e));
+    }
+
+    private _listen(dictate: boolean): void {
+        this._popup.hideError('voice');
+        const starting = this._voice.state !== 'listening';
+        if (starting) this._voice = { ...this._voice, dictating: dictate };
+        this._client.call<VoiceStatusReply>('VoiceListen', { conversation_id: this._current, dictate })
+            .catch((e: RuntimeError) => {
+                this._voice = { ...this._voice, dictating: false };
+                this._showVoice();
+                if (e.code !== 'Unavailable') {
+                    this._showFailure(e);
+                    return;
+                }
+                // Not ready (models to download, a setting): a way forward, not an error.
+                this._popup.showError(`Voice isn't ready: ${e.message}`, { source: 'voice',
+                    action: { label: 'Set up', run: () => this._popup.onOpenSettings?.() } });
+                this._popup.open();
+            });
     }
 
     /** "Ask about this" (§18.4): a new chat whose first message carries the window and selection. */
@@ -218,10 +258,18 @@ export class RuntimeChatController {
         this._resolve({ approval_id: approvalId, decision: 'deny', scope: 'once' });
     }
 
+    /** Decline, then say what to do instead: the words join the task, as a message would. */
+    denyWith(approvalId: string, text: string): void {
+        this._resolve({ approval_id: approvalId, decision: 'deny', scope: 'once' }, () => this.send(text));
+    }
+
     answer(requestId: string, value: Answer): void {
         this._popup.hideError();
         this._client.call('AnswerInput', { command_id: GLib.uuid_string_random(), request_id: requestId, value })
-            .catch((e: RuntimeError) => this._showFailure(e));
+            .catch((e: RuntimeError) => {
+                this._popup.retryInteraction();
+                this._showFailure(e);
+            });
     }
 
     /** From the popup, which only the Shell process can show: no "Mei will now remember" notification. */
@@ -237,10 +285,14 @@ export class RuntimeChatController {
             .catch((e: RuntimeError) => this._showFailure(e));
     }
 
-    private _resolve(args: { approval_id: string; decision: 'allow' | 'deny'; scope: ApprovalScope }): void {
+    private _resolve(args: { approval_id: string; decision: 'allow' | 'deny'; scope: ApprovalScope }, then?: () => void): void {
         this._popup.hideError();
         this._client.call('ResolveApproval', { command_id: GLib.uuid_string_random(), ...args })
-            .catch((e: RuntimeError) => this._showFailure(e));
+            .then(() => then?.())
+            .catch((e: RuntimeError) => {
+                this._popup.retryInteraction();
+                this._showFailure(e);
+            });
     }
 
     cancel(): void {
@@ -275,9 +327,7 @@ export class RuntimeChatController {
         if (this._current !== id) this.newChat();
         this._current = id;
         this._popup.open();
-        void this._loadConversation(id).then(() => {
-            if (this._current === id && !this._popup.isExpanded) this._showCompact();
-        });
+        void this._loadConversation(id);
     }
 
     /** Newest first, each with what its task in progress is doing, if it has one. */
@@ -304,15 +354,8 @@ export class RuntimeChatController {
         this._popup.showError('Regenerating a reply isn’t available with the Mei runtime yet.');
     }
 
-    toggleExpand(isExpanded: boolean): void {
-        if (isExpanded) this._render();
-        else this._showCompact();
-    }
-
-    /** Compact mode shows the card the task waits on, or else the last reply. */
-    private _showCompact(): void {
-        if (!this._current || !this._projection.loaded.has(this._current)) return;
-        if (!this._popup.showWaitingCard(this._timeline())) this._popup.showMessage('assistant', this._lastAssistant());
+    toggleExpand(_isExpanded: boolean): void {
+        this._render();
     }
 
     // ── Events and rendering ────────────────────────────────────────────────
@@ -380,7 +423,8 @@ export class RuntimeChatController {
     private _onVoice(event: Envelope): void {
         const p = event.payload;
         if (event.type === 'voice.partial') {
-            this._voice = { ...this._voice, transcript: String(p.text ?? '') };
+            if (p.dictation) this._popup.dictate(String(p.text ?? ''));  // into the message box
+            else this._voice = { ...this._voice, transcript: String(p.text ?? '') };
         } else {
             const state = p.state as VoiceStateName;
             const conversation = (p.conversation_id as string | null) ?? null;
@@ -388,35 +432,32 @@ export class RuntimeChatController {
             this._voice = { ...this._voice, state, note: String(p.note ?? '') };
             // A spoken request starts or continues a conversation: show it, as sending one would.
             if (state === 'thinking' && conversation && conversation !== this._current) this.loadChat(conversation);
-            if (state === 'idle' || state === 'off') this._voice.transcript = '';
+            if (state === 'idle' || state === 'off' || state === 'unavailable')
+                this._voice = { ...this._voice, transcript: '', dictating: false };
+            if (state === 'idle' || state === 'listening') this._popup.hideError('voice');  // ready now
         }
         this._showVoice();
         this.onStateChanged?.();
     }
 
     private _showVoice(): void {
-        const available = !['off', 'unavailable'].includes(this._voice.state);
-        this._popup.showVoice(voiceLine(this._voice), available, this._voice.state === 'listening');
+        this._popup.showVoice(this._voice);
     }
 
     private async _loadVoiceStatus(): Promise<void> {
         try {
             const status = await this._client.call<VoiceStatusReply>('VoiceStatus');
-            this._voice = { state: status.state, note: status.note, transcript: '' };
+            this._voice = { state: status.state, note: status.note, transcript: '', dictating: false };
         } catch (e) {
             Logger.debug(Tag.Extension, `VoiceStatus: ${(e as Error).message}`);  // an older runtime: no voice
-            this._voice = { state: 'off', note: '', transcript: '' };
+            this._voice = { state: 'off', note: '', transcript: '', dictating: false };
         }
         this._showVoice();
     }
 
-    /** A card now waits on the person: show it in place, even in compact mode. */
+    /** Something now waits on the person: it takes the input area, in either mode. */
     private _onAsk(open: boolean): void {
         this._render();
-        if (!this._popup.isExpanded) {
-            this._popup.setLoading(false);
-            this._popup.showWaitingCard(this._timeline());
-        }
         if (open) this._popup.open();
     }
 
@@ -424,32 +465,26 @@ export class RuntimeChatController {
         const state = event.payload.state as string;
         const error = event.payload.error as string | null;
         this._render();
-        if (state === 'FAILED') {
-            this._popup.showError(`${error ?? 'Mei could not answer.'}`);
-        } else if (state === 'INTERRUPTED') {
-            this._popup.showError('Mei restarted while answering. Regenerate the partial reply to continue.');
-        } else if (state === 'COMPLETED' && !this._popup.isExpanded) {
-            this._popup.showMessage('assistant', this._lastAssistant());
-        }
+        if (state === 'FAILED') this._popup.showError(`${error ?? 'Mei could not answer.'}`);
+        else if (state === 'INTERRUPTED') this._popup.showError('Mei restarted while answering. Regenerate the partial reply to continue.');
         if (open) this._popup.open();
     }
 
+    /** The conversation (expanded) or its latest reply (compact), and what waits on the person. */
     private _render(): void {
         this.onStateChanged?.();
         if (!this._current) return;
         const conv = this._projection.loaded.get(this._current);
         if (!conv) return;
         const active = this._projection.activeTask(this._current);
-        if (!this._popup.isExpanded) {
-            if (!active) this._popup.setLoading(false);
-            return;
-        }
-        const items = this._timeline();
+        const all = this._timeline();
+        const items = this._popup.isExpanded ? all : latestReply(all);
         // showTimeline() rebuilds the message list, which takes the loading bubble (and the streamed
         // text inside it) with it. Drop it first and attach a fresh one after, never the reverse.
         this._popup.setLoading(false);
         this._popup.showTimeline(items, !active);
-        if (!active || this._projection.waitingTask(this._current)) return; // waiting on a card: no spinner
+        this._popup.showInteraction(pendingInteraction(conv));
+        if (!active || this._projection.waitingTask(this._current)) return; // waiting on the person: no spinner
         this._popup.setLoading(true);
         const stream = this._projection.streamFor(this._current);
         if (stream && (stream.text || stream.thinking)) this._popup.showStreamingResponse(stream.text, stream.thinking);
@@ -495,12 +530,6 @@ export class RuntimeChatController {
         } catch (e) {
             this._showFailure(e as RuntimeError);
         }
-    }
-
-    private _lastAssistant(): string {
-        const conv = this._current ? this._projection.loaded.get(this._current) : undefined;
-        const last = conv?.messages.filter(m => m.role === 'assistant').at(-1);
-        return last?.content ?? '';
     }
 
     private _showFailure(error: RuntimeError): void {

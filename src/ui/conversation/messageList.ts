@@ -19,6 +19,9 @@ import { addClickScale, copyToClipboard, wrapLabel } from '../effects.js';
 import { createMessageInfoPanel, styleMessageInfoPanel } from '../messageInfoPanel.js';
 import { createMessageActor, formatThinkingPreview, type MessageRole, type RenderedMessageActor } from '../messageRenderer.js';
 import type { SourceSet } from '../sources.js';
+import { outcomeLine } from '../../runtime/timeline.js';
+import type { ReplyDetails } from '../../runtime/timeline.js';
+import { checksPanel, stepsPanel } from './cards.js';
 import type { ListedItem } from './timelineView.js';
 
 export interface ListedMessage {
@@ -28,6 +31,10 @@ export interface ListedMessage {
     metadata?: ChatMessageMetadata;
     /** Plain text above the bubble, e.g. what "Ask about this" attached (never rendered as markdown). */
     note?: string;
+    /** A reply's steps and checks, behind its footer's icons. */
+    details?: ReplyDetails;
+    /** An interrupted reply, which Regenerate continues (the only reply it works for yet). */
+    resumable?: boolean;
 }
 
 export interface MessageListHost {
@@ -59,7 +66,6 @@ export class MessageList {
     private _expanded = false;
     private _loading = false;
     private _hasMessages = false;
-    private _lastReply = '';
     private _bubble?: St.BoxLayout;
     private _streaming?: StreamingBubble;
     private _thinkingOpen = true;
@@ -83,42 +89,14 @@ export class MessageList {
         return this._hasMessages;
     }
 
-    /** The latest reply shown in compact mode (for the header's Copy), or ''. */
-    get lastReply(): string {
-        return this._lastReply;
-    }
-
     setExpanded(expanded: boolean): void {
         this._expanded = expanded;
     }
 
-    /** Compact mode: the latest message alone. */
-    showMessage(role: 'user' | 'assistant', text: string): void {
-        this._box.destroy_all_children();
-        this._lastReply = role === 'assistant' ? text : '';
-        this._hasMessages = text.length > 0;
-        this.actor.visible = this._hasMessages;
-        if (!text) return;
-        this._box.add_child(this._messageActor(role, text).actor);
-        this._queueScroll('top');
-    }
-
-    /** Compact mode: a card that waits on the person (an approval or a question), alone. */
-    showCard(build: () => St.Widget): void {
-        if (this._loading) this._removeBubble();
-        this._box.destroy_all_children();
-        this._lastReply = '';
-        this._box.add_child(build());
-        this._hasMessages = true;
-        this.actor.visible = true;
-        this._queueScroll('top');
-    }
-
-    /** Expanded mode: the whole conversation with its cards, optionally fading in the last reply. */
+    /** The conversation or its latest reply, each reply with its details, optionally fading in the last one. */
     showItems(items: ListedItem[], fadeLastAssistant = false): void {
         if (this._loading) this._removeBubble();
         this._box.destroy_all_children();
-        this._lastReply = '';
         items.forEach((item, position) => {
             if (item.kind === 'card') {
                 this._box.add_child(item.build());
@@ -148,7 +126,6 @@ export class MessageList {
         this._box.destroy_all_children();
         this.actor.visible = false;
         this._hasMessages = false;
-        this._lastReply = '';
     }
 
     setLoading(loading: boolean): void {
@@ -216,53 +193,74 @@ export class MessageList {
                 x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START }));
         }
         container.add_child(this._messageActor(role, message.content).actor);
-        const info = role === 'assistant' ? createMessageInfoPanel(message.metadata, this._host.isDark()) : null;
-        container.add_child(this._actionBar(role, message.content, index, info));
-        if (info) container.add_child(info);
+        const details = role === 'assistant' ? message.details : undefined;
+        const panels: FooterPanel[] = [];
+        if (details && (details.steps.length || details.notes.length))
+            panels.push({ icon: 'view-list-bullet-symbolic', label: 'Steps', panel: stepsPanel(details) });
+        if (details?.outcome)
+            panels.push({ icon: CHECKS_ICON[outcomeLine(details.outcome).tone], label: 'Checks', panel: checksPanel(details.outcome) });
+        if (role === 'assistant')
+            panels.push({ icon: 'dialog-information-symbolic', label: 'Info', panel: createMessageInfoPanel(message.metadata, this._host.isDark()) });
+        container.add_child(this._footer(role, message.content, index, panels, Boolean(message.resumable)));
+        for (const { panel } of panels) {
+            panel.visible = false;
+            container.add_child(panel);
+        }
         return container;
     }
 
-    /** Copy for every message; ↻ and the info toggle for replies. */
-    private _actionBar(role: MessageRole, text: string, index: number, info: St.BoxLayout | null): St.BoxLayout {
+    /** Under a message: Copy; under a reply Steps, Checks and Info, each opening its panel below (one
+     * at a time), and Regenerate where it works. Labels show on hover or focus. */
+    private _footer(role: MessageRole, text: string, index: number, panels: FooterPanel[], resumable: boolean): St.BoxLayout {
         const bar = new St.BoxLayout({
             style_class: 'mei-action-bar',
             x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START,
         });
-        const copyIcon = actionIcon('edit-copy-symbolic');
-        const copy = actionButton(copyIcon, `Copy ${role === 'user' ? 'message' : 'response'}`);
+        const copy = footerButton('edit-copy-symbolic', 'Copy');
         copy.connect('clicked', () => {
             copyToClipboard(text);
-            copyIcon.icon_name = 'object-select-symbolic';
+            const icon = footerIcon(copy);
+            icon.icon_name = 'object-select-symbolic';
             this._sources.timeout(COPIED_FOR_MS, () => {
-                copyIcon.icon_name = 'edit-copy-symbolic';
+                icon.icon_name = 'edit-copy-symbolic';
                 return GLib.SOURCE_REMOVE;
             });
         });
         bar.add_child(copy);
         if (role !== 'assistant') return bar;
 
-        const reload = actionButton(actionIcon('view-refresh-symbolic'), 'Regenerate response');
-        reload.connect('clicked', () => this._host.onReload(index));
-        bar.add_child(reload);
-        const infoToggle = actionButton(actionIcon('dialog-information-symbolic'), 'Show response information', 'mei-info-btn');
-        infoToggle.connect('clicked', () => {
-            if (info) this._toggleInfo(info, infoToggle);
+        if (resumable) {
+            const reload = footerButton('view-refresh-symbolic', 'Regenerate');
+            reload.connect('clicked', () => this._host.onReload(index));
+            bar.add_child(reload);
+        }
+        const toggles = panels.map(({ icon, label, panel }) => {
+            const button = footerButton(icon, label);
+            button.connect('clicked', () => this._openPanel(panel, button, toggles));
+            bar.add_child(button);
+            return { button, panel };
         });
-        bar.add_child(infoToggle);
         return bar;
     }
 
-    private _toggleInfo(panel: St.BoxLayout, button: St.Button): void {
+    /** Open this panel (closing the reply's others), or close it if open. */
+    private _openPanel(panel: St.Widget, button: St.Button, group: { button: St.Button; panel: St.Widget }[]): void {
         const show = !panel.visible;
-        button.accessible_name = show ? 'Hide response information' : 'Show response information';
-        if (show) button.add_style_class_name('selected');
-        else button.remove_style_class_name('selected');
         this._host.animateHeight(() => {
-            panel.remove_all_transitions();
-            panel.opacity = show ? 0 : 255;
-            panel.visible = show;
-            if (show) panel.ease({ opacity: 255, duration: 120, mode: Clutter.AnimationMode.EASE_IN_QUAD });
+            for (const other of group) {
+                const on = show && other.panel === panel;
+                if (on) other.button.add_style_class_name('selected');
+                else other.button.remove_style_class_name('selected');
+                other.panel.remove_all_transitions();
+                other.panel.visible = on;
+                showLabel(other.button, on || other.button.hover);
+            }
+            if (show) {
+                panel.opacity = 0;
+                panel.ease({ opacity: 255, duration: 120, mode: Clutter.AnimationMode.EASE_IN_QUAD });
+            }
         });
+        button.accessible_name = `${show ? 'Hide' : 'Show'} ${footerLabel(button).text.toLowerCase()}`;
     }
 
     private _queueScroll(target: 'top' | 'bottom'): void {
@@ -374,22 +372,50 @@ function isRenderableRole(role: string): role is MessageRole {
     return role === 'user' || role === 'assistant';
 }
 
-function actionIcon(iconName: string): St.Icon {
-    return new St.Icon({ icon_name: iconName, icon_size: 12, x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER });
+interface FooterPanel {
+    icon: string;
+    label: string;
+    panel: St.Widget;
 }
 
-function actionButton(child: St.Widget, accessibleName: string, extraClass = ''): St.Button {
+const CHECKS_ICON: Record<string, string> = {
+    checked: 'checkbox-checked-symbolic', unchecked: 'checkbox-symbolic', problem: 'dialog-warning-symbolic',
+};
+
+/** An icon whose label slides out beside it on hover or keyboard focus. */
+function footerButton(iconName: string, label: string): St.Button {
+    const box = new St.BoxLayout({ y_align: Clutter.ActorAlign.CENTER });
+    box.add_child(new St.Icon({ icon_name: iconName, icon_size: 12, y_align: Clutter.ActorAlign.CENTER }));
+    box.add_child(new St.Label({ text: label, visible: false, style_class: 'mei-action-label', y_align: Clutter.ActorAlign.CENTER }));
     const button = new St.Button({
-        style_class: `mei-action-btn${extraClass ? ` ${extraClass}` : ''}`,
-        can_focus: true,
-        reactive: true,
-        track_hover: true,
-        accessible_name: accessibleName,
-        accessible_role: Atk.Role.PUSH_BUTTON,
-        child,
+        style_class: 'mei-action-btn', can_focus: true, reactive: true, track_hover: true, child: box,
+        accessible_name: label, accessible_role: Atk.Role.PUSH_BUTTON,
     });
+    const sync = () => showLabel(button, button.hover || button.has_key_focus() || button.has_style_class_name('selected'));
+    button.connect('notify::hover', sync);
+    button.connect('key-focus-in', sync);
+    button.connect('key-focus-out', sync);
     addClickScale(button);
     return button;
+}
+
+function footerIcon(button: St.Button): St.Icon {
+    return (button.child as St.BoxLayout).get_child_at_index(0) as St.Icon;
+}
+
+function footerLabel(button: St.Button): St.Label {
+    return (button.child as St.BoxLayout).get_child_at_index(1) as St.Label;
+}
+
+function showLabel(button: St.Button, show: boolean): void {
+    const label = footerLabel(button);
+    if (label.visible === show) return;
+    label.remove_all_transitions();
+    label.visible = show;
+    if (show) {
+        label.opacity = 0;
+        label.ease({ opacity: 255, duration: 120, mode: Clutter.AnimationMode.EASE_OUT_QUAD });
+    }
 }
 
 function thinkingToggle(open: boolean): St.Button {

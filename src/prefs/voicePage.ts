@@ -29,7 +29,7 @@ const SETTLE_MS = 600;
 export function voiceBasics(window: Gtk.Window, settings: RuntimeSettings): { groups: Adw.PreferencesGroup[]; destroy(): void } {
     const voice = new Adw.PreferencesGroup({ title: 'Voice' });
     const enabled = new Adw.SwitchRow({ title: 'Talk to Mei',
-        subtitle: 'Press Super+Alt+Space (or the mic button) and speak; Mei answers out loud' });
+        subtitle: 'Press Super+Alt+Space (or the voice button) and speak; Mei answers out loud. The mic button types what you say.' });
     const status = new Adw.ActionRow({ title: 'Status', subtitle: 'Checking…' });
     voice.add(enabled);
     voice.add(status);

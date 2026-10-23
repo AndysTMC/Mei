@@ -2,11 +2,12 @@
  * The chat popup under the panel button. It owns the menu, the two views (chat and history), the
  * compact/expanded mode and the animations between them; the parts inside are their own modules:
  *
- *   ┌ PopupHeader ──── Copy · Clear | New chat · History · Expand · Settings ┐
- *   │ MessageList ──── the latest message (compact) or the conversation       │
- *   │ Composer ─────── message box + Ask/Stop                                 │
- *   │ ErrorPill                                                                │
- *   └──────────────────────────────────────────────────────────────────────────┘
+ *   ┌ PopupHeader ──────── Clear | New chat · History · Expand · Settings ┐
+ *   │ MessageList ──────── the latest reply (compact) or the conversation  │
+ *   │ InteractionPanel ─── what Mei waits for, in place of the composer    │
+ *   │ Composer ─────────── message box + Ask/Stop · mic · voice            │
+ *   │ ErrorPill ────────── a notice: Close, and Set up or Copy             │
+ *   └───────────────────────────────────────────────────────────────────────┘
  *   HistoryPanel replaces all of it while the saved chats are listed.
  *
  * Settings aren't part of the popup: the gear opens Mei's Settings window.
@@ -15,6 +16,7 @@
  */
 
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
@@ -24,15 +26,15 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Logger, Tag } from '../utils/logger.js';
 import type { ThemeManager } from '../utils/theme.js';
 import { AttachmentChip } from './conversation/attachmentChip.js';
-import { VoiceBar } from './conversation/voiceBar.js';
-import type { VoiceLine } from '../runtime/voice.js';
+import { voiceLine, type VoiceView } from '../runtime/voice.js';
 import { Composer } from './conversation/composer.js';
 import type { ApprovalScope } from '../runtime/protocol.js';
-import type { TimelineItem } from '../runtime/timeline.js';
+import type { Interaction, TimelineItem } from '../runtime/timeline.js';
 import type { Answer, CardActions } from './conversation/cards.js';
+import { InteractionPanel } from './conversation/interaction.js';
 import { MessageList } from './conversation/messageList.js';
-import { listedItems, waitingCard } from './conversation/timelineView.js';
-import { ErrorPill } from './popup/errorPill.js';
+import { listedItems } from './conversation/timelineView.js';
+import { ErrorPill, type NoticeAction } from './popup/errorPill.js';
 import { PopupHeader } from './popup/header.js';
 import { HistoryPanel, type ChatSummary } from './popup/historyPanel.js';
 import { SourceSet } from './sources.js';
@@ -70,16 +72,18 @@ export class ChatPopup {
     onApprove: ((approvalId: string, scope: ApprovalScope) => void) | null = null;
     /** Called when the person denies an action on an approval card. */
     onDeny: ((approvalId: string) => void) | null = null;
+    /** Called when the person declines and tells Mei what to do instead. */
+    onDenyWith: ((approvalId: string, text: string) => void) | null = null;
     /** Called when the person answers one of Mei's questions. */
     onAnswer: ((requestId: string, value: Answer) => void) | null = null;
     /** Called when the person keeps a memory waiting for review. */
     onKeepMemory: ((memoryId: string) => void) | null = null;
     /** Called when the person undoes or discards a memory. */
     onForgetMemory: ((memoryId: string) => void) | null = null;
-    /** Called when the person presses the mic button (talk, or done talking). */
+    /** Called when the person presses the mic (dictate, or done). */
+    onDictate: (() => void) | null = null;
+    /** Called when the person presses voice (talk with Mei, or stop). */
     onVoice: (() => void) | null = null;
-    /** Called when the person stops voice from the voice bar. */
-    onVoiceStop: (() => void) | null = null;
     /** Called when the person drops what "Ask about this" attached. */
     onRemoveAttachment: (() => void) | null = null;
 
@@ -94,7 +98,7 @@ export class ChatPopup {
     private readonly _composer: Composer;
     private readonly _error: ErrorPill;
     private readonly _attachment: AttachmentChip;
-    private readonly _voice: VoiceBar;
+    private readonly _interaction: InteractionPanel;
     private readonly _history: HistoryPanel;
     private readonly _themeSignal: number;
     private _expanded = false;
@@ -103,7 +107,7 @@ export class ChatPopup {
     private _focusId = 0;
     private _destroyed = false;
 
-    constructor(anchor: St.Widget, private readonly _theme: ThemeManager) {
+    constructor(anchor: St.Widget, private readonly _theme: ThemeManager, extensionPath: string) {
         const screenHeight = Main.layoutManager.primaryMonitor?.height ?? 1080;
         const contentMaxHeight = Math.round(screenHeight * 0.60);
 
@@ -140,18 +144,19 @@ export class ChatPopup {
         this._composer = new Composer(this._sources, Math.round(screenHeight * 0.20), {
             onSend: text => this.onSend?.(text),
             onStop: () => this.onCancel?.(),
+            onDictate: () => this.onDictate?.(),
             onVoice: () => this.onVoice?.(),
-        });
+        }, Gio.FileIcon.new(Gio.File.new_for_path(`${extensionPath}/icons/mei-voice-symbolic.svg`)));
         this._error = new ErrorPill(this._sources);
         this._attachment = new AttachmentChip(() => this.onRemoveAttachment?.());
-        this._voice = new VoiceBar(() => this.onVoiceStop?.());
+        this._interaction = new InteractionPanel(this._cards());
         this._history = new HistoryPanel(this._sources, contentMaxHeight, {
             onBack: () => this.hideHistoryList(),
             onLoadChat: id => this.onLoadChat?.(id),
             onDeleteChat: id => this.onDeleteChat?.(id),
         });
 
-        for (const part of [this._messages.actor, this._attachment.actor, this._voice.actor, this._composer.actor,
+        for (const part of [this._messages.actor, this._attachment.actor, this._interaction.actor, this._composer.actor,
             this._error.actor])
             this._content.add_child(part);
         this._chatView.add_child(this._header.actor);
@@ -196,31 +201,33 @@ export class ChatPopup {
 
     // ── Conversation ─────────────────────────────────────────────────────────
 
-    /** Compact mode: show only this message. */
-    showMessage(role: 'user' | 'assistant', text: string): void {
-        this._messages.showMessage(role, text);
-        this._header.setCopyText(this._expanded ? '' : this._messages.lastReply);
-    }
-
-    /** Expanded mode: show the whole conversation, with the agent's cards in place. */
+    /** The conversation (expanded) or its latest reply (compact), each reply with its details. */
     showTimeline(items: TimelineItem[], fadeLastAssistant = false): void {
         this._messages.showItems(listedItems(items, this._cards()), fadeLastAssistant);
         this._header.setCopyText('');
     }
 
-    /** Compact mode: show the card the task waits on. Returns false if there is none. */
-    showWaitingCard(items: TimelineItem[]): boolean {
-        const build = waitingCard(items, this._cards());
-        if (!build) return false;
-        this._messages.showCard(build);
-        this._header.setCopyText('');
-        return true;
+    /** What Mei waits for takes the composer's place; nothing: the composer is back. */
+    showInteraction(interaction: Interaction | null): void {
+        const wasShowing = this._interaction.actor.visible;
+        if (!interaction && !wasShowing) return;
+        this._animateHeight(() => {
+            const shown = this._interaction.show(interaction);
+            this._composer.actor.visible = !shown;
+        });
+        if (interaction && !wasShowing && this.isOpen) this._interaction.focus();
+    }
+
+    /** The answer didn't reach Mei: the interaction can be answered again. */
+    retryInteraction(): void {
+        this._interaction.retry();
     }
 
     private _cards(): CardActions {
         return {
             onApprove: (id, scope) => this.onApprove?.(id, scope),
             onDeny: id => this.onDeny?.(id),
+            onDenyWith: (id, text) => this.onDenyWith?.(id, text),
             onAnswer: (id, value) => this.onAnswer?.(id, value),
             onKeepMemory: id => this.onKeepMemory?.(id),
             onForgetMemory: id => this.onForgetMemory?.(id),
@@ -246,11 +253,17 @@ export class ChatPopup {
         this._messages.showStreaming(content, thinking);
     }
 
-    /** What voice is doing, and what it has heard (the voice bar), and whether the mic button shows. */
-    showVoice(line: VoiceLine, available: boolean, listening: boolean): void {
-        if (line.visible !== this._voice.actor.visible) this._animateHeight(() => this._voice.show(line));
-        else this._voice.show(line);
-        this._composer.setVoice(available, listening);
+    /** Voice in the composer: the mic and voice buttons, and while talking, what it's doing and heard. */
+    showVoice(view: VoiceView): void {
+        const talking = ['listening', 'thinking', 'speaking'].includes(view.state) && !view.dictating;
+        const mode = view.dictating && view.state === 'listening' ? 'dictating' : talking ? 'talking' : 'idle';
+        this._composer.setVoice({ available: view.state !== 'off', mode, status: voiceLine(view).status,
+            transcript: talking && view.state !== 'speaking' ? view.transcript : '' });
+    }
+
+    /** Dictated words so far, into the message box. */
+    dictate(text: string): void {
+        this._composer.dictate(text);
     }
 
     /** Show what the next message will carry ("About: …"), or nothing. */
@@ -258,12 +271,13 @@ export class ChatPopup {
         this._animateHeight(() => this._attachment.show(label));
     }
 
-    showError(message: string): void {
-        this._error.show(message, this._theme.isDark);
+    /** A notice: closable; with an action when there's a way forward; `source` lets its cause clear it. */
+    showError(message: string, options: { action?: NoticeAction; source?: string } = {}): void {
+        this._error.show(message, this._theme.isDark, options);
     }
 
-    hideError(): void {
-        this._error.hide();
+    hideError(source?: string): void {
+        if (source === undefined || this._error.source === source) this._error.hide();
     }
 
     // ── History list ─────────────────────────────────────────────────────────

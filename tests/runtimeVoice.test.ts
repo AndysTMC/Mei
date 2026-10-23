@@ -9,12 +9,12 @@ test('the voice bar shows while Mei listens, thinks, or speaks, and offers Stop 
     assert.deepEqual(voiceLine({ state: 'thinking', note: '', transcript: 'turn on dark mode' }),
         { visible: true, status: 'Thinking…', transcript: 'turn on dark mode', stoppable: false });
     assert.equal(voiceLine({ state: 'speaking', note: '', transcript: 'x' }).transcript, '');
-    assert.equal(voiceLine({ state: 'speaking', note: '', transcript: '' }).stoppable, true);
+    assert.equal(voiceLine({ state: 'speaking', note: '', transcript: '', dictating: false }).stoppable, true);
 });
 
 test('idle and off are invisible; unavailable says why', () => {
-    assert.equal(voiceLine({ state: 'idle', note: '', transcript: '' }).visible, false);
-    assert.equal(voiceLine({ state: 'off', note: '', transcript: '' }).visible, false);
-    assert.equal(voiceLine({ state: 'unavailable', note: 'download the voice models first', transcript: '' }).status,
+    assert.equal(voiceLine({ state: 'idle', note: '', transcript: '', dictating: false }).visible, false);
+    assert.equal(voiceLine({ state: 'off', note: '', transcript: '', dictating: false }).visible, false);
+    assert.equal(voiceLine({ state: 'unavailable', note: 'download the voice models first', transcript: '', dictating: false }).status,
         'Voice isn\'t available: download the voice models first');
 });
