@@ -65,5 +65,8 @@ class ShellBridgeClient:
     async def monitors(self) -> list[dict]:
         return [m for m in (await self._call("GetMonitors", {})).get("monitors", []) if isinstance(m, dict)]
 
+    async def show_overlay(self, active: bool) -> None:
+        await self._call("ShowOverlay", {"active": active})
+
     async def idle_ms(self) -> int:
         return int((await self._call("GetIdleTime", {})).get("ms") or 0)

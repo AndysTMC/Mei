@@ -22,7 +22,8 @@ from mei.capabilities.base import Notifier
 from mei.core.engine import Engine
 from mei.obs import RECENT
 from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, ForgetMemoryArgs,
-                          GetLogsArgs, HelloArgs, ListModelsArgs, MemoriesArgs, ProtocolError, ResolveApprovalArgs,
+                          GetLogsArgs, HelloArgs, KillSwitchArgs, ListModelsArgs, MemoriesArgs, ProtocolError,
+                          ResolveApprovalArgs,
                           RevokeGrantArgs, SetupApplyArgs, SubmitInputArgs, TaskCommandArgs, TestProviderArgs,
                           UpdateConfigArgs, UpdateMemoryArgs, VoiceDownloadArgs, VoiceListenArgs, decode_args,
                           encode)
@@ -55,7 +56,7 @@ class RuntimeService:
                  setup: Setup | None = None,
                  test_provider: Callable[[str], Awaitable[dict]] | None = None,
                  is_shell: Callable[[str], Awaitable[bool]] | None = None,
-                 notifier: Notifier | None = None, voice=None) -> None:
+                 notifier: Notifier | None = None, voice=None, desktop=None) -> None:
         self._bus = bus
         self._engine = engine
         self._is_shell = is_shell or shell_check(bus)
@@ -65,6 +66,7 @@ class RuntimeService:
         self._setup = setup
         self._test_provider = test_provider
         self._voice = voice  # VoiceController, or None where voice can't run
+        self._desktop = desktop  # computer use's Desktop, or None where it can't run
         self._store = engine.store
         self.clients: dict[str, Client] = {}
         self._kinds: dict[str, str] = {}
@@ -82,6 +84,7 @@ class RuntimeService:
             "VoiceModels": self._voice_models, "VoiceDownload": self._voice_download, "VoiceCheckMic": self._voice_check_mic,
             "VoiceFixMic": self._voice_fix_mic, "VoiceTestSpeaker": self._voice_test_speaker,
             "VoiceDevices": self._voice_devices, "VoiceRemove": self._voice_remove,
+            "KillSwitch": self._kill_switch,
         }
 
     async def start(self) -> None:
@@ -346,6 +349,14 @@ class RuntimeService:
         if self._voice is None:
             raise ProtocolError("Unavailable", "voice isn't installed")
         return self._voice
+
+    async def _kill_switch(self, _sender: str, data: str) -> dict:
+        """Computer use's kill switch (§10.3). It goes first: no caller check and nothing awaited before
+        the worker is killed. Anyone may call it; the most a stranger can do is stop computer use."""
+        args = decode_args(data, KillSwitchArgs)
+        if self._desktop is not None:
+            await self._desktop.kill(args.reason or "the kill switch")
+        return {"stopped": self._engine.stop_computer_use()}
 
     async def _shell_only(self, sender: str, what: str) -> None:
         if not await self._is_shell(sender):

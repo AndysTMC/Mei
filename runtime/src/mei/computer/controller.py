@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from mei.ondemand import OnDemand
+
 from . import jail, wire
 
 log = logging.getLogger("mei.computer")
@@ -23,6 +25,9 @@ LEASE_VALID_MS = 600
 READY_TIMEOUT_S = 20
 TIMEOUTS_S = {wire.Observe: 25.0, wire.Act: 25.0, wire.OpenSession: 200.0, wire.CloseSession: 5.0}
 SOCKET_PATH_MAX = 108  # sun_path
+USE_IDLE_S = 30.0  # the Shell's chip and the screen session stay this long after the last look or act
+ACTIVE_MS = 1500  # the person used the pointer or keys this recently: they're at the computer
+OWN_INPUT_MARGIN_MS = 300  # Mei's own last event, as the Shell's idle clock saw it
 
 
 class DesktopError(Exception):
@@ -65,8 +70,10 @@ class _Worker:
 class Desktop:
     def __init__(self, bus_address: str, a11y_address: Callable[[], Awaitable[str]], tokens: TokenStore,
                  runtime_dir: Path, revoked: Callable[[str], None] = lambda _reason: None,
-                 argv: Callable[[Path, str], list[str]] = jail.worker_argv) -> None:
-        """`revoked(reason)`: the worker stopped input on its own (kill switch, the Shell gone, lease out)."""
+                 argv: Callable[[Path, str], list[str]] = jail.worker_argv,
+                 overlay: Callable[[bool], Awaitable[None]] | None = None) -> None:
+        """`revoked(reason)`: the worker stopped input on its own (kill switch, the Shell gone, lease out).
+        `overlay(active)`: show or hide the Shell's "using the computer" chip (§10.3)."""
         self._bus_address = bus_address
         self._a11y_address = a11y_address
         self._tokens = tokens
@@ -80,11 +87,18 @@ class Desktop:
         self._session_open = False
         self._generation = 0
         self._leasing: asyncio.Task | None = None
+        self._overlay = overlay
+        # A period of use: from the first look or act until USE_IDLE_S after the last. The chip shows
+        # for exactly that long, and the screen session closes with it.
+        self._use: OnDemand[bool] = OnDemand("computer use", self._begin_use, self._end_use, USE_IDLE_S)
+        self._last_input = 0.0  # when Mei last moved the pointer or typed (monotonic)
+        self.locked = False
         self.accessibility = False
 
     # ── What capabilities use ────────────────────────────────────────────────
 
     async def observe(self, window: dict, monitors: list, *, picture: bool, max_nodes: int = 250) -> dict:
+        await self._in_use()
         if picture:
             await self.ensure_session()
         data = await self._request(wire.Observe(id=0, window=window, monitors=monitors, image=picture,
@@ -94,15 +108,36 @@ class Desktop:
 
     async def act(self, token: str, action: str, *, element: str = "", point: list | None = None, text: str = "",
                   window: dict | None = None, monitors: list | None = None, needs_input: bool = True) -> dict:
+        await self._in_use()
         if needs_input:
             await self.ensure_session()
         before = self._seen.get(token)
-        async with self._lease(needs_input):
-            data = await self._request(wire.Act(id=0, token=token, action=action, element=element,
-                                                point=list(point or []), text=text, window=window or {},
-                                                monitors=list(monitors or [])))
+        try:
+            async with self._lease(needs_input):
+                data = await self._request(wire.Act(id=0, token=token, action=action, element=element,
+                                                    point=list(point or []), text=text, window=window or {},
+                                                    monitors=list(monitors or [])))
+        finally:
+            if needs_input:
+                self._last_input = asyncio.get_running_loop().time()
+            self._use.touch()
         self._remember(window or (before.window if before else {}), data)
         return data
+
+    def person_active(self, idle_ms: int) -> bool:
+        """Has the person used the pointer or keys lately? The Shell's idle time counts Mei's own input
+        too, so it's theirs only when it is shorter than the time since Mei's last event."""
+        since_mine_ms = (asyncio.get_running_loop().time() - self._last_input) * 1000
+        return idle_ms < ACTIVE_MS and idle_ms + OWN_INPUT_MARGIN_MS < since_mine_ms
+
+    async def set_locked(self, locked: bool) -> None:
+        """While the screen is locked nothing is observed or acted on, and the session closes (§10.3)."""
+        self.locked = locked
+        if locked and self._worker is not None:
+            with contextlib.suppress(ConnectionError, RuntimeError):
+                self._send(self._worker, wire.Revoke(reason="the screen locked"))
+            self._session_open = False
+            self._stop_leasing()
 
     def seen(self, token: str) -> Seen | None:
         """The snapshot, while it is still its window's latest (acting takes a new one)."""
@@ -127,14 +162,16 @@ class Desktop:
         worker, self._worker = self._worker, None
         self._session_open = False
         self._stop_leasing()
-        if worker is None:
-            return
-        with contextlib.suppress(ProcessLookupError):
-            worker.proc.kill()
+        if worker is not None:
+            with contextlib.suppress(ProcessLookupError):
+                worker.proc.kill()
         log.info("computer use stopped: %s", reason)
-        await self._reap(worker)
+        await self._use.close()
+        if worker is not None:
+            await self._reap(worker)
 
     async def stop(self) -> None:
+        await self._use.close()
         worker, self._worker = self._worker, None
         self._session_open = False
         self._stop_leasing()
@@ -147,6 +184,29 @@ class Desktop:
         except TimeoutError:
             worker.proc.kill()
         await self._reap(worker)
+
+    # ── A period of use ──────────────────────────────────────────────────────
+
+    async def _in_use(self) -> None:
+        if self.locked:
+            raise DesktopError("unavailable", "the screen is locked")
+        await self._use.get()
+
+    async def _begin_use(self) -> bool:
+        if self._overlay is not None:
+            with contextlib.suppress(Exception):  # no Shell to show it: computer use still works
+                await self._overlay(True)
+        return True
+
+    async def _end_use(self, _value: bool) -> None:
+        worker = self._worker
+        if self._session_open and worker is not None:
+            with contextlib.suppress(ConnectionError, RuntimeError, DesktopError):
+                await self._request(wire.CloseSession(id=0))
+        self._session_open = False
+        if self._overlay is not None:
+            with contextlib.suppress(Exception):
+                await self._overlay(False)
 
     # ── The control lease (§10.3) ────────────────────────────────────────────
 

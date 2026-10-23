@@ -107,6 +107,12 @@ export class RuntimeChatController {
         return this._current;
     }
 
+    /** The kill switch's call to the runtime: kill the desktop worker and stop the task using it. */
+    stopComputerUse(reason: string): void {
+        this._client.call('KillSwitch', { reason })
+            .catch((e: RuntimeError) => Logger.warn(Tag.Extension, `Kill switch: ${e.message}`));
+    }
+
     /** The unique bus name the runtime has now, the only caller the Shell bridge serves. */
     get runtimeOwner(): string | null {
         return this._client.owner;

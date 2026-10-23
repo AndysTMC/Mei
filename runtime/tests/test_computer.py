@@ -23,7 +23,7 @@ from mei.computer.geometry import Picture, Rect, Stream
 from mei.core.states import Execution, TaskState
 from mei.policy.engine import PRESETS, Facts, Subject, evaluate
 from mei.policy.paths import PathRules
-from mei.protocol import ComputerSettings, UpdateConfigArgs
+from mei.protocol import ComputerSettings, TaskCommandArgs, UpdateConfigArgs
 
 from agent_harness import Harness, call, turn
 
@@ -157,6 +157,11 @@ class FakeDesktop:
         self.nodes = nodes
         self.acts: list[tuple] = []
         self.observed = 0
+        self.locked = False
+        self.active = False
+
+    def person_active(self, idle_ms: int) -> bool:
+        return self.active
 
     async def observe(self, window, monitors, *, picture, max_nodes=250):
         self.observed += 1
@@ -183,6 +188,9 @@ class Bridge:
 
     async def monitors(self):
         return [{"x": 0, "y": 0, "width": 1920, "height": 1080, "scale": 1.0}]
+
+    async def idle_ms(self):
+        return 100
 
 
 def computer_harness(tmp_path, script, **kw) -> tuple[Harness, FakeDesktop]:
@@ -270,6 +278,8 @@ for line in sys.stdin:
     elif m["op"] == "act":  # answered later, as the real worker does while its reader keeps reading leases
         reply = json.dumps({"op": "reply", "id": m["id"], "ok": True, "data": {"changes": []}})
         threading.Timer(0.8, lambda r=reply: print(r, flush=True)).start()
+    elif m["op"] == "close_session":
+        print(json.dumps({"op": "reply", "id": m["id"], "ok": True, "data": {}}), flush=True)
     elif m["op"] == "open_session":
         print(json.dumps({"op": "reply", "id": m["id"], "ok": True, "data": {"restore_token": "next"}}), flush=True)
     elif m["op"] == "quit":
@@ -305,8 +315,14 @@ def fake_desktop(tmp_path, monkeypatch):
         return "unix:path=/nonexistent/at-spi/bus"
 
     run = Path(tempfile.mkdtemp(prefix="mei-t", dir="/tmp"))  # short: a socket's path is at most 108 bytes
+    shown: list[bool] = []
+
+    async def overlay(active: bool) -> None:
+        shown.append(active)
+
     desktop = Desktop("unix:path=/nonexistent", a11y, Tokens(), run, revoked=revoked.append,
-                      argv=lambda _socket, _a11y: [sys.executable, str(worker), str(log)])
+                      argv=lambda _socket, _a11y: [sys.executable, str(worker), str(log)], overlay=overlay)
+    desktop.shown = shown
     desktop.revoked_reasons = revoked
 
     def logged() -> list[dict]:
@@ -367,3 +383,57 @@ async def test_a_task_never_shows_the_portal_dialog(fake_desktop):
     await d.ensure_session(ask=True)  # setup may ask
     assert d._tokens.token == "next"
     await d.stop()
+
+
+async def test_the_chip_shows_for_a_period_of_use_and_the_person_counts_as_active(fake_desktop):
+    d = fake_desktop
+    await d.observe({"id": 1}, [], picture=False)
+    await d.act("s1", "press", element="e1", needs_input=True)
+    assert d.shown == [True]  # once for the whole period, not per act
+    assert not d.person_active(idle_ms=50)  # the Shell's idle clock saw Mei's own click
+    d._last_input -= 5  # five seconds since Mei's last event…
+    assert d.person_active(idle_ms=200)  # …but someone moved the pointer 0.2 s ago
+    assert not d.person_active(idle_ms=4000)
+    await d.set_locked(True)
+    with pytest.raises(DesktopError) as e:
+        await d.observe({"id": 1}, [], picture=False)
+    assert "locked" in e.value.message
+    await d.set_locked(False)
+    await d.stop()
+    assert d.shown == [True, False]
+
+
+async def reaches(h: Harness, task_id: str, state: str, timeout: float = 5.0) -> None:
+    async with asyncio.timeout(timeout):
+        while h.task(task_id)["state"] != state:
+            await asyncio.sleep(0.02)
+
+
+@pytest.mark.parametrize("how", ["they stop", "Resume"])
+async def test_a_pointer_act_waits_while_the_person_uses_the_computer(tmp_path, how):
+    h, desktop = computer_harness(tmp_path, [
+        turn(call("desktop_observe")), turn(call("desktop_act", snapshot="t1", action="click", element="e4")),
+        {"text": "Done."}])
+    desktop.active = True
+    r = h.submit("click Continue in Login")
+    assert await h.until(r["task_id"]) == S.WAITING_APPROVAL
+    h.approve(r["task_id"])
+    await reaches(h, r["task_id"], S.WAITING_RESOURCE)
+    assert h.task(r["task_id"])["error"] == "Paused while you use the computer" and desktop.acts == []
+    if how == "they stop":
+        desktop.active = False  # it goes on by itself
+    else:
+        h.engine.resume(TaskCommandArgs(command_id="c-resume", task_id=r["task_id"]))  # the person says go on now
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    assert [a[1] for a in desktop.acts] == ["click"]
+
+
+async def test_the_kill_switch_stops_the_tasks_that_used_the_computer(tmp_path):
+    h, desktop = computer_harness(tmp_path, [
+        turn(call("desktop_observe")), turn(call("desktop_act", snapshot="t1", action="press", element="e4")),
+        {"text": "Pressed."}])
+    r = h.submit("press Continue in Login")
+    assert await h.until(r["task_id"]) == S.WAITING_APPROVAL
+    assert h.engine.stop_computer_use() == [r["task_id"]]
+    assert h.task(r["task_id"])["state"] == S.CANCELLED and desktop.acts == []
+    assert h.engine.stop_computer_use() == []  # finished tasks aren't touched again

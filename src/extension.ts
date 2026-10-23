@@ -21,6 +21,7 @@ import { TaskNotifier } from './ui/notifier.js';
 import { ThemeManager } from './utils/theme.js';
 import { Logger, Tag } from './utils/logger.js';
 import { BRIDGE_PATH, ShellBridge, focusedContext } from './runtime/bridge.js';
+import { ComputerControl } from './runtime/control.js';
 import { RuntimeChatController } from './runtime/controller.js';
 
 export default class MeiExtension extends Extension {
@@ -29,6 +30,7 @@ export default class MeiExtension extends Extension {
     private _themeManager: ThemeManager | null = null;
     private _runtime: RuntimeChatController | null = null;
     private _bridge: ShellBridge | null = null;
+    private _control: ComputerControl | null = null;
     private _notifier: TaskNotifier | null = null;
     private _devHooks: { destroy(): void } | null = null;
     private _settings: Gio.Settings | null = null;
@@ -38,8 +40,11 @@ export default class MeiExtension extends Extension {
         this._themeManager = new ThemeManager();
         const runtime = new RuntimeChatController(BRIDGE_PATH);
         this._runtime = runtime;
+        // Computer use's chip and kill switch (§10.3): they work even when the runtime doesn't answer.
+        const control = new ComputerControl(reason => runtime.stopComputerUse(reason));
+        this._control = control;
         // What only the Shell can do (windows, launching apps) for the runtime, and no other caller.
-        this._bridge = new ShellBridge(() => runtime.runtimeOwner);
+        this._bridge = new ShellBridge(() => runtime.runtimeOwner, active => control.show(active));
         this._bridge.export();
 
         this._indicator = new MeiIndicator();
@@ -99,6 +104,9 @@ export default class MeiExtension extends Extension {
             if (!popup.isOpen) popup.open();
             runtime.voiceListen();
         });
+        // The kill switch for computer use: never through the popup, which may be what's being driven.
+        Main.wm.addKeybinding('stop-computer-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
+            modes | Shell.ActionMode.SYSTEM_MODAL, () => control.stop('Stopped with the keyboard shortcut'));
         // "Ask about this" (§18.4): the focused window and the selected text go with a new message.
         Main.wm.addKeybinding('ask-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT, modes, () => {
             focusedContext()
@@ -124,6 +132,7 @@ export default class MeiExtension extends Extension {
             Main.wm.removeKeybinding('open-shortcut');
             Main.wm.removeKeybinding('ask-shortcut');
             Main.wm.removeKeybinding('voice-shortcut');
+            Main.wm.removeKeybinding('stop-computer-shortcut');
         }
         this._settings = null;
         this._devHooks?.destroy();
@@ -134,6 +143,8 @@ export default class MeiExtension extends Extension {
         this._notifier = null;
         this._bridge?.destroy();
         this._bridge = null;
+        this._control?.destroy();
+        this._control = null;
         this._popup?.destroy();
         this._popup = null;
         this._indicator?.destroy();

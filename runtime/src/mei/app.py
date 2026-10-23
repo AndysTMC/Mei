@@ -192,7 +192,7 @@ class KeyringTokens:
             log.warning("couldn't keep the screen session token (the next session will ask again): %s", e)
 
 
-def desktop_controller(bus: MessageBus) -> Desktop | None:
+def desktop_controller(bus: MessageBus, bridge: Callable) -> Desktop | None:
     """Computer use, where it can run: bubblewrap, xdg-dbus-proxy and the system's Python. None otherwise."""
     missing = computer_jail.missing()
     address = os.environ.get("DBUS_SESSION_BUS_ADDRESS", "")
@@ -207,8 +207,13 @@ def desktop_controller(bus: MessageBus) -> Desktop | None:
             raise DesktopError("unavailable", "the accessibility bus isn't running")
         return str(reply.body[0])
 
+    async def overlay(active: bool) -> None:
+        shell = bridge()
+        if shell is not None:
+            await shell.show_overlay(active)
+
     runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
-    return Desktop(address, a11y_address, KeyringTokens(bus), runtime / "mei",
+    return Desktop(address, a11y_address, KeyringTokens(bus), runtime / "mei", overlay=overlay,
                    revoked=lambda reason: log.info("computer use stopped: %s", reason))
 
 
@@ -276,14 +281,15 @@ async def serve() -> int:
     async with httpx.AsyncClient(http2=False, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
         holder: list[RuntimeService] = []  # the service owns the Shell bridge; the env asks it when needed
         env = desktop_env(bus, lambda: holder[0].bridge if holder else None)
-        env.desktop = desktop = desktop_controller(bus)
+        env.desktop = desktop = desktop_controller(bus, env.bridge)
         engine = Engine(store, publisher=None, provider_factory=provider_factory(client, key_for),
                         registry=default_registry(), env=env)
         make_provider = provider_factory(client, key_for)
         setup = Setup(store, setup_probes(bus), data_dir(), RUNTIME_VERSION)
         voice = voice_controller(engine, lambda: holder[0] if holder else None, client, key_for)
         service = RuntimeService(bus, engine, list_models=model_lister(store, client, key_for), setup=setup,
-                                 test_provider=provider_tester(store, make_provider), notifier=env.notifier, voice=voice)
+                                 test_provider=provider_tester(store, make_provider), notifier=env.notifier, voice=voice,
+                                 desktop=desktop)
         # The service needs the engine and the engine publishes through it (and through voice).
         engine.publisher = Fanout(service, voice) if voice is not None else service
         holder.append(service)
@@ -291,7 +297,13 @@ async def serve() -> int:
         await service.start()
         if voice is not None:
             await voice.apply(repo.get_config(store)[1].voice)
-            await watch_lock(bus, voice.set_locked)
+        locked = [c.set_locked for c in (voice, desktop) if c is not None]
+        if locked:
+            async def lock_changed(is_locked: bool) -> None:
+                for changed in locked:
+                    await changed(is_locked)
+
+            await watch_lock(bus, lock_changed)
         retention = asyncio.ensure_future(retention_loop(engine))
         disconnected = asyncio.ensure_future(bus.wait_for_disconnect())
         stopped = asyncio.ensure_future(stop.wait())

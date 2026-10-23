@@ -35,6 +35,7 @@ from .ending import InFlight
 from .streaming import CALL_TIMEOUT_S, Reply, Stream, Streamer
 
 log = logging.getLogger("mei.loop")
+BUSY_POLL_S = 1.0
 E, S, V = Execution, TaskState, Verification
 MAX_ACTION_S = 600.0
 MORE_CALLS = 25
@@ -338,8 +339,34 @@ class TaskLoop:
             raise RuntimeError(f"action {action['id']} is authorized without a decision")
         if not await self._recheck(task, action):
             return S(repo.get_task(self.d.store, task["id"])["state"]) == S.RUNNING  # denied: go on; asked: wait
+        if not await self._until_free(task, cap, params):
+            return False
         await self._execute(task, agent.get_action(self.d.store, action["id"]), cap, params, flight)
         return True
+
+    async def _until_free(self, task, cap: Capability, params) -> bool:
+        """While the capability says the world is busy (the person took over the pointer), the task waits
+        in WAITING_RESOURCE; Resume goes on at once. False: it was stopped meanwhile."""
+        store, task_id = self.d.store, task["id"]
+        ctx = ActionContext(self.d.env, "", task["conversation_id"], task_id)
+        why = await cap.busy(params, ctx)
+        if not why:
+            return True
+        with store.tx() as tx:
+            repo.set_task_state(tx, task_id, S.WAITING_RESOURCE, error=why)
+        self.d.publish(tx.events)
+        while True:
+            await asyncio.sleep(BUSY_POLL_S)
+            state = S(repo.get_task(store, task_id)["state"])
+            if state == S.RUNNING:  # the person pressed Resume
+                return True
+            if state != S.WAITING_RESOURCE:
+                return False
+            if not await cap.busy(params, ctx):
+                with store.tx() as tx:
+                    repo.set_task_state(tx, task_id, S.RUNNING)
+                self.d.publish(tx.events)
+                return True
 
     async def _meta(self, task, action, cap: Capability, params) -> bool:
         store, taskd = self.d.store, repo.task_dict(task)

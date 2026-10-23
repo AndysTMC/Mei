@@ -145,6 +145,9 @@ class DesktopPort(Protocol):
     async def act(self, token: str, action: str, *, element: str = "", point: list | None = None, text: str = "",
                   window: dict | None = None, monitors: list | None = None, needs_input: bool = True) -> dict: ...
     def seen(self, token: str) -> "Seen | None": ...
+    def person_active(self, idle_ms: int) -> bool: ...  # has someone else used the pointer or keys lately?
+    @property
+    def locked(self) -> bool: ...
 
 
 class StatusPort(Protocol):
@@ -352,6 +355,11 @@ class Capability(ABC):
 
     async def run(self, p, ctx: ActionContext) -> ActionResult:
         raise NotImplementedError(f"{self.name} is handled by the loop")
+
+    async def busy(self, p, ctx: ActionContext) -> str:
+        """Why it shouldn't run just now, or "" when it may (§10.3: the person is using the pointer it
+        would move). The task waits (WAITING_RESOURCE) and asks again; it never runs over the person."""
+        return ""
 
     async def verify(self, p, result: ActionResult, ctx: ActionContext) -> CheckResult | None:
         """Did it do what it says (the postcondition)? None: nothing to check."""

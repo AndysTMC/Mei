@@ -23,6 +23,7 @@ export const BRIDGE_PATH = '/com/andystmc/Mei1/ShellBridge';
 const INTERFACE = 'com.andystmc.Mei1.ShellBridge';
 const METHODS = [
     'ListWindows', 'LaunchApp', 'FocusWindow', 'ClipboardGet', 'ClipboardSet', 'GetIdleTime', 'GetMonitors',
+    'ShowOverlay',
 ] as const;
 const XML = `<node><interface name="${INTERFACE}">${METHODS.map(m =>
     `<method name="${m}"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>`).join('')}
@@ -30,8 +31,9 @@ const XML = `<node><interface name="${INTERFACE}">${METHODS.map(m =>
 const MAX_CLIPBOARD = 20_000;
 
 type Handler = (args: Record<string, unknown>) => Promise<object> | object;
+type Handlers = Record<(typeof METHODS)[number], Handler>;
 
-const HANDLERS: Record<(typeof METHODS)[number], Handler> = {
+const HANDLERS: Omit<Handlers, 'ShowOverlay'> = {
     ListWindows: () => ({ windows: listWindows() }),
     LaunchApp: args => launchApp(args),
     FocusWindow: args => focusWindow(Number(args.id)),
@@ -72,8 +74,21 @@ interface MonitorInfo extends Rect {
 export class ShellBridge {
     private _id = 0;
 
-    /** `_runtime`: the runtime's current unique name, or null while it isn't running. */
-    constructor(private readonly _runtime: () => string | null) {}
+    private readonly _handlers: Handlers;
+
+    /**
+     * `_runtime`: the runtime's current unique name, or null while it isn't running.
+     * `overlay(active)`: show or hide the "using the computer" chip (§10.3).
+     */
+    constructor(private readonly _runtime: () => string | null, overlay: (active: boolean) => void) {
+        this._handlers = {
+            ...HANDLERS,
+            ShowOverlay: args => {
+                overlay(args.active === true);
+                return {};
+            },
+        };
+    }
 
     export(): void {
         const info = Gio.DBusNodeInfo.new_for_xml(XML).interfaces[0];
@@ -101,7 +116,7 @@ export class ShellBridge {
             invocation.return_dbus_error('org.freedesktop.DBus.Error.InvalidArgs', 'Expected one JSON object.');
             return;
         }
-        const handler = HANDLERS[method as (typeof METHODS)[number]];
+        const handler = this._handlers[method as (typeof METHODS)[number]];
         Promise.resolve()
             .then(() => handler(args))
             .then(result => invocation.return_value(new GLib.Variant('(s)', [JSON.stringify(result)])))

@@ -244,6 +244,10 @@ class VoiceDownloadArgs(msgspec.Struct):
     models: list[str]  # ids from VoiceModels (VoiceDownload and VoiceRemove)
 
 
+class KillSwitchArgs(msgspec.Struct):
+    reason: str = ""
+
+
 class VoiceListenArgs(msgspec.Struct):
     conversation_id: str | None = None  # the conversation the popup shows; None starts a new one
     # Dictation (the mic button): hear one utterance and hand its words back (voice.partial with

@@ -28,7 +28,7 @@ from mei.policy.engine import Subject, rules_for
 from mei.providers.base import Provider
 from mei.store import agent, repo
 from mei.store import memory as mem
-from mei.store.db import Store, Tx, now_ms
+from mei.store.db import Store, Tx, new_id, now_ms
 
 from . import finish, ledger, recovery, remember
 from .memories import StoreMemory
@@ -185,6 +185,9 @@ class Engine:
             row = repo.get_task(tx, args.task_id)
             if row is None:
                 raise ProtocolError("NotFound", "no such task")
+            if S(row["state"]) == S.WAITING_RESOURCE:  # paused while the person used the computer: go on now
+                repo.set_task_state(tx, args.task_id, S.RUNNING)
+                return {"task_id": args.task_id, "state": S.RUNNING}, []
             if S(row["state"]) != S.INTERRUPTED:
                 raise ProtocolError("Conflict", f"only interrupted tasks can be resumed (this one is {row['state']})")
             if repo.blocking_task(tx, row["conversation_id"]) is not None:
@@ -192,6 +195,17 @@ class Engine:
             return {"task_id": args.task_id, "state": S.INTERRUPTED}, [args.task_id]
 
         return self._command("Resume", args, apply)
+
+    def stop_computer_use(self) -> list[str]:
+        """The kill switch's second step (§10.3), after the worker is dead: cancel every unfinished task
+        that used the computer."""
+        marks = ",".join("?" for _ in TERMINAL)
+        rows = self.store.read(f"SELECT DISTINCT t.id FROM tasks t JOIN actions a ON a.task_id = t.id "
+                               f"WHERE a.tool LIKE 'desktop\\_%' ESCAPE '\\' AND t.state NOT IN ({marks})",
+                               tuple(TERMINAL))
+        for row in rows:
+            self.cancel(TaskCommandArgs(command_id=new_id(), task_id=row["id"]))
+        return [row["id"] for row in rows]
 
     def resolve_approval(self, args: ResolveApprovalArgs, decided_by: str) -> dict:
         """The person's answer on an approval card. Bound to the exact params it was asked for."""

@@ -183,6 +183,21 @@ class DesktopAct(Capability):
             return f"Scroll {name}{where}"
         return f"{p.action.capitalize()} {name}{where}"
 
+    async def busy(self, p: ActParams, ctx: ActionContext) -> str:
+        """Pointer and keys are shared with the person: while they use them, Mei waits (§10.3)."""
+        desktop, bridge = ctx.env.desktop, ctx.env.bridge()
+        if desktop is None or bridge is None:
+            return ""
+        if desktop.locked:
+            return "Paused while the screen is locked"
+        try:
+            _seen, node = _target(p, ctx.env)
+        except CapabilityError:
+            return ""  # refused when it runs, with the reason
+        if needs_input(p, node) and desktop.person_active(await bridge.idle_ms()):
+            return "Paused while you use the computer"
+        return ""
+
     async def run(self, p: ActParams, ctx: ActionContext) -> ActionResult:
         desktop = ctx.env.desktop
         assert desktop is not None
