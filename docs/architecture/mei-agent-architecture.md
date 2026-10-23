@@ -1143,7 +1143,15 @@ Throwaway code in `spikes/`, results written up. Only what durable chat needs:
 
 **Accept when:** reports with numbers; ADR-7 (0c), ADR-8 (0b), and ADR-11 (0d) accepted or revised.
 
-Progress (2026-10-22): **0c done**, except three measurements that need the owner at the machine: echo cancellation with the laptop speakers, false wakes on 8 h of room audio, and word error rate on the owner's voice (scripts ready in `spikes/0c/`). Results: `spikes/0c/REPORT.md`. ADR-7 accepted with revisions as decision 0017. Kroko streaming STT (12 % WER on synthetic voices, RTF 0.02 on the CPU) and Silero VAD work well. Piper speaks a first sentence in 0.1 s; Kokoro takes 1.3 s on the CPU and 0.45 s on the GPU. Audio goes through PipeWire's own protocol, since PortAudio needs the PulseAudio socket. sherpa's wake-word spotter misses the latency target (0.6 s), so push-to-talk comes first. 0b and 0d not started.
+Progress (2026-10-22): **0c done**, except three measurements that need the owner at the machine: echo cancellation with the laptop speakers, false wakes on 8 h of room audio, and word error rate on the owner's voice (scripts ready in `spikes/0c/`). Results: `spikes/0c/REPORT.md`. ADR-7 accepted with revisions as decision 0017. Kroko streaming STT (12 % WER on synthetic voices, RTF 0.02 on the CPU) and Silero VAD work well. Piper speaks a first sentence in 0.1 s; Kokoro takes 1.3 s on the CPU and 0.45 s on the GPU. Audio goes through PipeWire's own protocol, since PortAudio needs the PulseAudio socket. sherpa's wake-word spotter misses the latency target (0.6 s), so push-to-talk comes first. 0d not started.
+
+Progress (2026-10-23): **0b done.** Results: `spikes/0b/REPORT.md`. ADR-8 accepted with revisions as decision 0022.
+- **AT-SPI:** reads and acts on GTK4, Chrome (with its flag) and Electron.
+- **Screenshot portal:** refuses a background service.
+- **RemoteDesktop:** one consent, then its restore token starts sessions with no dialog in 0.02–0.06 s; a frame of its stream takes ~0.1 s.
+- **Pointer:** absolute positions are frame pixels, refused past the stream's logical size, so scaled screens need relative motion (logical units) for their edges.
+- **Worker profile:** the §5.4 profile with `xdg-dbus-proxy` works.
+- **Not measured:** Firefox (snap).
 
 ### Stage 1 — Runtime skeleton, protocol, durable chat (M) — **done 2026-10-20**
 

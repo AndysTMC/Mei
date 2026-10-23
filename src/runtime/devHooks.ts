@@ -34,6 +34,9 @@ const XML = `
     <method name="ClickButton"><arg type="s" direction="in" name="label"/><arg type="b" direction="out" name="found"/></method>
     <method name="HoverButton"><arg type="s" direction="in" name="name"/><arg type="b" direction="out" name="found"/></method>
     <method name="ClickNamed"><arg type="s" direction="in" name="name"/><arg type="b" direction="out" name="found"/></method>
+    <method name="ClickStageButton"><arg type="s" direction="in" name="label"/><arg type="b" direction="out" name="found"/></method>
+    <method name="StageText"><arg type="s" direction="out" name="json"/></method>
+    <method name="TypeText"><arg type="s" direction="in" name="text"/></method>
   </interface>
 </node>`;
 
@@ -180,6 +183,31 @@ export class DevHooks {
         St.Clipboard.get_default().set_text(St.ClipboardType.PRIMARY, text);
     }
 
+    /** Clicks a visible button with this label anywhere in the Shell (a portal's consent dialog). */
+    ClickStageButton(label: string): boolean {
+        const button = findButton(global.stage, label);
+        if (!button) return false;
+        const [x, y] = button.get_transformed_position();
+        const [w, h] = button.get_transformed_size();
+        this.Click(Math.round(x + w / 2), Math.round(y + h / 2));
+        return true;
+    }
+
+    /** Types text into whatever has keyboard focus, as a keyboard would. */
+    TypeText(text: string): void {
+        let t = GLib.get_monotonic_time();
+        for (const ch of text) {
+            const key = Clutter.unicode_to_keysym(ch.codePointAt(0) ?? 0);
+            this._keyboard.notify_keyval(t += 10_000, key, Clutter.KeyState.PRESSED);
+            this._keyboard.notify_keyval(t += 10_000, key, Clutter.KeyState.RELEASED);
+        }
+    }
+
+    /** All visible text in the Shell (dialogs included), for tests that look for a dialog. */
+    StageText(): string {
+        return JSON.stringify(visibleText(global.stage));
+    }
+
     private _press(keys: number[]): void {
         let t = GLib.get_monotonic_time();
         for (const key of keys) this._keyboard.notify_keyval(t += 10_000, key, Clutter.KeyState.PRESSED);
@@ -187,13 +215,23 @@ export class DevHooks {
     }
 
     State(): string {
-        const focus = global.display.focus_window?.get_frame_rect();
+        const focused = global.display.focus_window;
+        const focus = focused?.get_frame_rect();
+        const buffer = focused?.get_buffer_rect();
         return JSON.stringify({
             popup: { open: this._popup.isOpen, expanded: this._popup.isExpanded },
             // Where the focused window is (Settings opens wherever the Shell places it).
             // The Shell takes no input until its startup animation is over: drive it only after.
             startingUp: Main.layoutManager._startingUp,
-            window: focus ? { x: focus.x, y: focus.y, width: focus.width, height: focus.height } : null,
+            window: focus ? {
+                x: focus.x, y: focus.y, width: focus.width, height: focus.height,
+                buffer: buffer ? { x: buffer.x, y: buffer.y, width: buffer.width, height: buffer.height } : null,
+                monitor: focused?.get_monitor() ?? -1,
+                title: focused?.get_title() ?? '',
+            } : null,
+            monitors: Main.layoutManager.monitors.map(m => ({
+                x: m.x, y: m.y, width: m.width, height: m.height, scale: m.geometryScale,
+            })),
             clicks: this._clicks.slice(-5),
             shown: visibleText(this._popup.contentActor),
             controller: this._runtime.debugState(),

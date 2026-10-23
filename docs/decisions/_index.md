@@ -20,3 +20,4 @@
 | 0018 | Voice as built: push to talk first, cloud speech falls back to this computer, no echo cancellation yet | accepted; GPU part superseded by 0019 | 2026-10-22 | — (builds on 0017; narrows §11.4–11.5) |
 | 0019 | The GPU on demand: woken when used, let go when idle, with the CPU covering meanwhile | accepted | 2026-10-23 | 0018 (in part: the GPU) |
 | 0020 | The conversation is requests and replies; what Mei waits for is the input; details on demand | accepted | 2026-10-23 | — (narrows §18.2) |
+| 0022 | Computer use as measured: AT-SPI first; one RemoteDesktop session for pixels and input; the desktop worker behind a filtered bus | accepted | 2026-10-23 | — (revises ADR-8 in the architecture) |
