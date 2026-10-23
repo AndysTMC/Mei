@@ -21,3 +21,4 @@
 | 0019 | The GPU on demand: woken when used, let go when idle, with the CPU covering meanwhile | accepted | 2026-10-23 | 0018 (in part: the GPU) |
 | 0020 | The conversation is requests and replies; what Mei waits for is the input; details on demand | accepted | 2026-10-23 | — (narrows §18.2) |
 | 0022 | Computer use as measured: AT-SPI first; one RemoteDesktop session for pixels and input; the desktop worker behind a filtered bus | accepted | 2026-10-23 | — (revises ADR-8 in the architecture) |
+| 0023 | Computer use as built: Mei makes way before input, a stop from the Shell ends the task, and pictures reach models that see | accepted | 2026-10-23 | — (builds on 0022; narrows §10.3) |

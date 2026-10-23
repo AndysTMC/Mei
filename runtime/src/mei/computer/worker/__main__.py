@@ -120,8 +120,8 @@ class Worker:
         return {"png": frames.png(frame, crop, picture.width, picture.height), "width": picture.width,
                 "height": picture.height}
 
-    def _on_revoked(self, reason: str) -> None:  # any thread
-        self.out.send(wire.Revoked(reason=reason))
+    def _on_revoked(self, reason: str, by: str) -> None:  # any thread
+        self.out.send(wire.Revoked(reason=reason, by=by))
         GLib.idle_add(lambda: (self.session.close(), False)[1])
 
 

@@ -69,16 +69,19 @@ class _Worker:
 
 class Desktop:
     def __init__(self, bus_address: str, a11y_address: Callable[[], Awaitable[str]], tokens: TokenStore,
-                 runtime_dir: Path, revoked: Callable[[str], None] = lambda _reason: None,
+                 runtime_dir: Path, revoked: Callable[[str, bool], None] = lambda _reason, _by_person: None,
                  argv: Callable[[Path, str], list[str]] = jail.worker_argv,
-                 overlay: Callable[[bool], Awaitable[None]] | None = None) -> None:
-        """`revoked(reason)`: the worker stopped input on its own (kill switch, the Shell gone, lease out).
-        `overlay(active)`: show or hide the Shell's "using the computer" chip (§10.3)."""
+                 overlay: Callable[[bool], Awaitable[None]] | None = None,
+                 make_way: Callable[[int], Awaitable[None]] | None = None) -> None:
+        """`revoked(reason, by_person)`: the worker stopped input on its own. `by_person`: the kill switch, the
+        chip, or the Shell or Mei's extension going away, which end the task; else the lease ran out.
+        `overlay(active)`: show or hide the Shell's "using the computer" chip (§10.3). `make_way(window_id)`:
+        before injecting input, close Mei's popup (its grab would take the input) and raise the window."""
         self._bus_address = bus_address
         self._a11y_address = a11y_address
         self._tokens = tokens
         self._dir = runtime_dir
-        self._revoked = revoked
+        self.revoked = revoked  # settable: the app wires it once the engine exists
         self._argv = argv
         self._ids = itertools.count(1)
         self._worker: _Worker | None = None
@@ -88,6 +91,7 @@ class Desktop:
         self._generation = 0
         self._leasing: asyncio.Task | None = None
         self._overlay = overlay
+        self._make_way = make_way
         # A period of use: from the first look or act until USE_IDLE_S after the last. The chip shows
         # for exactly that long, and the screen session closes with it.
         self._use: OnDemand[bool] = OnDemand("computer use", self._begin_use, self._end_use, USE_IDLE_S)
@@ -111,6 +115,9 @@ class Desktop:
         await self._in_use()
         if needs_input:
             await self.ensure_session()
+            if self._make_way is not None:
+                with contextlib.suppress(Exception):  # no Shell to ask: the input goes where it goes
+                    await self._make_way(int((window or {}).get("id") or 0))
         before = self._seen.get(token)
         try:
             async with self._lease(needs_input):
@@ -334,7 +341,7 @@ class Desktop:
             elif isinstance(event, wire.Revoked):
                 self._session_open = False
                 self._stop_leasing()
-                self._revoked(event.reason)
+                self.revoked(event.reason, event.by == "shell")
         gone = ConnectionError("the desktop worker stopped")
         if not worker.ready.done():
             worker.ready.set_exception(gone)

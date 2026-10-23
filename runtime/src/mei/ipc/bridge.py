@@ -65,6 +65,10 @@ class ShellBridgeClient:
     async def monitors(self) -> list[dict]:
         return [m for m in (await self._call("GetMonitors", {})).get("monitors", []) if isinstance(m, dict)]
 
+    async def make_way(self, window_id: int) -> None:
+        """Before Mei clicks or types: its popup closed (its grab would take them), the window in front."""
+        await self._call("MakeWay", {"window_id": window_id})
+
     async def show_overlay(self, active: bool) -> None:
         await self._call("ShowOverlay", {"active": active})
 

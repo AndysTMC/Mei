@@ -30,6 +30,8 @@ const XML = `
     <method name="PressOpenShortcut"/>
     <method name="PressAskShortcut"/>
     <method name="PressVoiceShortcut"/>
+    <method name="PressStopShortcut"/>
+    <method name="ActivateWindow"><arg type="s" direction="in" name="title"/><arg type="b" direction="out" name="found"/></method>
     <method name="SetPrimarySelection"><arg type="s" direction="in" name="text"/></method>
     <method name="ClickButton"><arg type="s" direction="in" name="label"/><arg type="b" direction="out" name="found"/></method>
     <method name="HoverButton"><arg type="s" direction="in" name="name"/><arg type="b" direction="out" name="found"/></method>
@@ -178,6 +180,18 @@ export class DevHooks {
         this._press([Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_space]);
     }
 
+    /** Presses Super+Alt+Escape (the default stop-computer-shortcut, computer use's kill switch). */
+    PressStopShortcut(): void {
+        this._press([Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_Escape]);
+    }
+
+    /** Brings the window with this title to the front, as a person clicking it would. */
+    ActivateWindow(title: string): boolean {
+        const window = global.get_window_actors().map(a => a.get_meta_window()).find(w => w?.get_title() === title);
+        window?.activate(global.get_current_time());
+        return Boolean(window);
+    }
+
     /** Selects text as if the person had highlighted it in some app. */
     SetPrimarySelection(text: string): void {
         St.Clipboard.get_default().set_text(St.ClipboardType.PRIMARY, text);
@@ -230,7 +244,7 @@ export class DevHooks {
                 title: focused?.get_title() ?? '',
             } : null,
             monitors: Main.layoutManager.monitors.map(m => ({
-                x: m.x, y: m.y, width: m.width, height: m.height, scale: m.geometryScale,
+                x: m.x, y: m.y, width: m.width, height: m.height, scale: global.display.get_monitor_scale(m.index),
             })),
             clicks: this._clicks.slice(-5),
             shown: visibleText(this._popup.contentActor),

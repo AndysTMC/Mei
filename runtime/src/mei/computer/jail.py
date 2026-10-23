@@ -56,7 +56,8 @@ def worker_argv(proxy_socket: Path, a11y_address: str) -> list[str]:
             "--setenv", "DBUS_SESSION_BUS_ADDRESS", f"unix:path={BUS}", "--setenv", "GST_REGISTRY", "/tmp/gst.bin",
             "--ro-bind", "/usr", "/usr", "--ro-bind-try", "/lib", "/lib", "--ro-bind-try", "/lib64", "/lib64",
             "--ro-bind-try", "/bin", "/bin", "--ro-bind", "/etc/ld.so.cache", "/etc/ld.so.cache",
-            "--ro-bind-try", "/etc/pipewire", "/etc/pipewire",
+            "--ro-bind-try", "/etc/pipewire", "/etc/pipewire", "--ro-bind-try", "/etc/fonts", "/etc/fonts",
+            "--setenv", "XDG_CACHE_HOME", "/tmp/cache",
             "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--dir", "/run/mei",
             "--bind", str(proxy_socket), BUS, "--ro-bind", str(package), f"{CODE}/mei"]
     socket = a11y_socket(a11y_address)

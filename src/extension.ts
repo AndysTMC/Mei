@@ -44,7 +44,8 @@ export default class MeiExtension extends Extension {
         const control = new ComputerControl(reason => runtime.stopComputerUse(reason));
         this._control = control;
         // What only the Shell can do (windows, launching apps) for the runtime, and no other caller.
-        this._bridge = new ShellBridge(() => runtime.runtimeOwner, active => control.show(active));
+        this._bridge = new ShellBridge(() => runtime.runtimeOwner, active => control.show(active),
+            () => this._popup?.close());
         this._bridge.export();
 
         this._indicator = new MeiIndicator();

@@ -118,6 +118,7 @@ class Revoked:
 
     op: typing.ClassVar[str] = "revoked"
     reason: str
+    by: str = ""  # shell: the person (kill switch, chip) or the Shell going; lease: it ran out; core: the core asked
 
 
 COMMANDS = {c.op: c for c in (Observe, Act, OpenSession, CloseSession, Lease, Revoke, Quit)}

@@ -23,7 +23,7 @@ export const BRIDGE_PATH = '/com/andystmc/Mei1/ShellBridge';
 const INTERFACE = 'com.andystmc.Mei1.ShellBridge';
 const METHODS = [
     'ListWindows', 'LaunchApp', 'FocusWindow', 'ClipboardGet', 'ClipboardSet', 'GetIdleTime', 'GetMonitors',
-    'ShowOverlay',
+    'ShowOverlay', 'MakeWay',
 ] as const;
 const XML = `<node><interface name="${INTERFACE}">${METHODS.map(m =>
     `<method name="${m}"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>`).join('')}
@@ -33,7 +33,7 @@ const MAX_CLIPBOARD = 20_000;
 type Handler = (args: Record<string, unknown>) => Promise<object> | object;
 type Handlers = Record<(typeof METHODS)[number], Handler>;
 
-const HANDLERS: Omit<Handlers, 'ShowOverlay'> = {
+const HANDLERS: Omit<Handlers, 'ShowOverlay' | 'MakeWay'> = {
     ListWindows: () => ({ windows: listWindows() }),
     LaunchApp: args => launchApp(args),
     FocusWindow: args => focusWindow(Number(args.id)),
@@ -79,13 +79,20 @@ export class ShellBridge {
     /**
      * `_runtime`: the runtime's current unique name, or null while it isn't running.
      * `overlay(active)`: show or hide the "using the computer" chip (§10.3).
+     * `makeWay()`: close Mei's popup, whose grab would take the clicks and keys meant for an app.
      */
-    constructor(private readonly _runtime: () => string | null, overlay: (active: boolean) => void) {
+    constructor(private readonly _runtime: () => string | null, overlay: (active: boolean) => void,
+        makeWay: () => void) {
         this._handlers = {
             ...HANDLERS,
             ShowOverlay: args => {
                 overlay(args.active === true);
                 return {};
+            },
+            // Before Mei clicks or types: out of the way, with the window it acts on in front.
+            MakeWay: args => {
+                makeWay();
+                return Number(args.window_id) ? focusWindow(Number(args.window_id)) : {};
             },
         };
     }

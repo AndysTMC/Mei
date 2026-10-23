@@ -1353,6 +1353,27 @@ What differs from the plan above, and why (0018): push to talk is the way in and
 
 **Accept when:** in nested Shell, a GTK4 test app form is filled and submitted via AT-SPI only; a canvas-only test app is operated via the pixel fallback at 100% and 150% scaling; kill switch stops input in <200 ms with the core under `SIGSTOP`; input stops within 600 ms when the core is killed or the bridge vanishes; user mouse movement pauses a pixel action; a password field triggers hand-off rather than typing; stale element ids are rejected; an unclassifiable button asks under every preset; after setup, a computer-use task triggers no portal dialog (restore token reused).
 
+Progress (2026-10-23): **built**; `scripts/e2e-computer.sh` checks it in a nested Shell. See decisions 0022 and 0023.
+
+| Criterion | Evidence |
+|---|---|
+| A GTK4 form filled and submitted via AT-SPI only | e2e `form_filled_and_submitted_through_atspi_only`, run before the screen is allowed, so any pointer or key would fail. A GTK4 check box has no AT-SPI action: toggled by pointer after setup (`checkbox_toggled_by_pointer_after_setup`). |
+| A canvas-only app via the pixel fallback at 100 % and 150 % | e2e `canvas_clicked_from_a_picture_at_100`, `…_at_150`; geometry unit tests with spike 0b's numbers. |
+| Kill switch stops input in <200 ms with the core under SIGSTOP | e2e `kill_switch_stops_input_within_200ms_with_the_runtime_frozen`: no character after the shortcut; the task is cancelled when the runtime resumes. |
+| Input stops within 600 ms when the core is killed or the bridge vanishes | e2e `input_stops_within_600ms_when_the_runtime_is_killed`, `…_when_the_extension_goes_away`; the lease unit test. |
+| User mouse movement pauses a pixel action | e2e `pointer_act_waits_while_the_person_moves_the_mouse` (WAITING_RESOURCE, no click while moving, then the click); `test_a_pointer_act_waits_while_the_person_uses_the_computer` (by itself, and Resume). |
+| A password field triggers hand-off rather than typing | e2e `password_is_handed_to_the_person` (nothing typed into it); `test_a_password_field_is_handed_to_the_person`. |
+| Stale element ids are rejected | `test_turned_off_and_stale_snapshots_are_refused`; the worker keeps only each window's latest snapshot. |
+| An unclassifiable button asks under every preset | `test_an_unknown_effect_asks_under_every_preset`, `test_an_unfamiliar_button_asks_even_hands_off`. |
+| After setup, no portal dialog | e2e `setup_allows_the_screen_once`, `no_portal_dialog_after_setup`. |
+
+What differs from the plan above, and why (0023):
+- The kill switch is Super+Alt+Escape, since Super+Escape is mutter's.
+- Before pointer or keyboard input, Mei closes its popup (its grab took the input) and raises the target window.
+- A stop from the Shell ends the task even if the runtime was frozen.
+- The overlay is a top-bar chip that is also the Stop button.
+- Screenshots come from the RemoteDesktop session's stream, not the Screenshot portal (0022).
+
 ### Stage 7 — Browser automation and web (M)
 
 - Browser worker on Playwright under its profile; accessibility snapshot refs; navigation, click, type, extract; download quarantine; login hand-off (headed window); `web.fetch`, `web.search`; URL provenance checks; setup Browser step.

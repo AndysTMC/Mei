@@ -169,6 +169,14 @@ def desktop_env(bus: MessageBus, bridge: Callable) -> Env:
                media=Mpris(bus), status=SystemStatus(home))
 
 
+def computer_stopped(engine: Engine, reason: str, by_person: bool) -> None:
+    """The worker stopped input. From the Shell (the kill switch, the chip, the Shell or Mei's extension going),
+    the tasks using the computer end now, whatever the runtime was doing meanwhile (it may have been frozen)."""
+    log.info("computer use stopped: %s", reason)
+    if by_person:
+        engine.stop_computer_use()
+
+
 class KeyringTokens:
     """The screen session's restore token, in the keyring: whoever holds it can start a session with no
     dialog. A locked or missing keyring reads as no token, so the next session asks the person again."""
@@ -212,9 +220,13 @@ def desktop_controller(bus: MessageBus, bridge: Callable) -> Desktop | None:
         if shell is not None:
             await shell.show_overlay(active)
 
+    async def make_way(window_id: int) -> None:
+        shell = bridge()
+        if shell is not None:
+            await shell.make_way(window_id)
+
     runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
-    return Desktop(address, a11y_address, KeyringTokens(bus), runtime / "mei", overlay=overlay,
-                   revoked=lambda reason: log.info("computer use stopped: %s", reason))
+    return Desktop(address, a11y_address, KeyringTokens(bus), runtime / "mei", overlay=overlay, make_way=make_way)
 
 
 def voice_controller(engine: Engine, service_ref: Callable[[], RuntimeService | None], client: httpx.AsyncClient,
@@ -293,6 +305,8 @@ async def serve() -> int:
         # The service needs the engine and the engine publishes through it (and through voice).
         engine.publisher = Fanout(service, voice) if voice is not None else service
         holder.append(service)
+        if desktop is not None:
+            desktop.revoked = lambda reason, by_person: computer_stopped(engine, reason, by_person)
         engine.recover()
         await service.start()
         if voice is not None:

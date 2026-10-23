@@ -27,8 +27,8 @@ class ControlLost(Exception):
 
 
 class Control:
-    def __init__(self, revoked: Callable[[str], None]) -> None:
-        """`revoked(reason)` is called once each time input stops on its own (any thread)."""
+    def __init__(self, revoked: Callable[[str, str], None]) -> None:
+        """`revoked(reason, by)` is called once each time input stops (any thread); `by` is shell, lease or core."""
         self._revoked = revoked
         self._lock = threading.Lock()
         self._generation = -1
@@ -39,21 +39,25 @@ class Control:
     # ── From the core (the reader thread) ────────────────────────────────────
 
     def lease(self, generation: int, valid_ms: int) -> None:
+        """Renew control; `valid_ms` 0 ends it in good order (the act is done), which isn't a revoke."""
         with self._lock:
             if generation < self._generation:
                 return  # an old renewal arriving late
             if generation > self._generation:
                 self._why_not = ""  # a new period of control
             self._generation = generation
-            self._expires = time.monotonic() + max(0, valid_ms) / 1000
+            if valid_ms <= 0:
+                self._expires, self._why_not = 0.0, "no task holds the computer"
+                return
+            self._expires = time.monotonic() + valid_ms / 1000
 
-    def revoke(self, reason: str) -> None:
+    def revoke(self, reason: str, by: str = "core") -> None:
         with self._lock:
             ongoing = self._generation >= 0 and not self._why_not
             self._expires = 0.0
             self._why_not = reason or "control was revoked"
         if ongoing:
-            self._revoked(self._why_not)
+            self._revoked(self._why_not, by)
 
     # ── Before every injected event (the main thread) ────────────────────────
 
@@ -91,17 +95,17 @@ class Control:
             if name == SHELL and new != owner:
                 with self._lock:
                     self._shell_owner = None
-                self.revoke("the Shell went away")
+                self.revoke("the Shell went away", "shell")
 
         def control_revoked(_c, sender, _p, _i, _sig, params, _u) -> None:
             if sender == owner:  # only the Shell that was there when control began
-                self.revoke(params.unpack()[0] if params.n_children() else "stopped from the Shell")
+                self.revoke(params.unpack()[0] if params.n_children() else "stopped from the Shell", "shell")
 
         def tick() -> bool:
             with self._lock:
                 ran_out = self._generation >= 0 and not self._why_not and time.monotonic() >= self._expires
             if ran_out:
-                self.revoke("the core stopped renewing control")
+                self.revoke("the core stopped renewing control", "lease")
             return True
 
         bus.signal_subscribe("org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged", "/org/freedesktop/DBus",

@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -315,6 +316,9 @@ def fake_desktop(tmp_path, monkeypatch):
                         lambda _address, socket, fd: [sys.executable, str(proxy), f"--fd={fd}", str(socket)])
     revoked: list[str] = []
 
+    def on_revoked(reason: str, _by_person: bool) -> None:
+        revoked.append(reason)
+
     async def a11y() -> str:
         return "unix:path=/nonexistent/at-spi/bus"
 
@@ -324,7 +328,7 @@ def fake_desktop(tmp_path, monkeypatch):
     async def overlay(active: bool) -> None:
         shown.append(active)
 
-    desktop = Desktop("unix:path=/nonexistent", a11y, Tokens(), run, revoked=revoked.append,
+    desktop = Desktop("unix:path=/nonexistent", a11y, Tokens(), run, revoked=on_revoked,
                       argv=lambda _socket, _a11y: [sys.executable, str(worker), str(log)], overlay=overlay)
     desktop.shown = shown
     desktop.revoked_reasons = revoked
@@ -455,3 +459,32 @@ async def test_only_the_latest_picture_goes_to_the_model(tmp_path, vision):
     assert pictures == ([0, 1] if vision else [0, 0])
     kept = list((h.env.data_dir / "artifacts").rglob("*.png"))
     assert len(kept) == 2 and kept[0].read_bytes() == b"\x89PNG fake"  # kept with the conversation, not the ledger
+
+
+SYSTEM_GI = subprocess.run(["/usr/bin/python3", "-c", "import gi"], capture_output=True).returncode == 0 \
+    if Path("/usr/bin/python3").exists() else False
+
+
+@pytest.mark.skipif(not SYSTEM_GI, reason="the desktop worker runs on the system's Python with PyGObject")
+def test_control_ends_quietly_when_released_and_says_so_when_it_runs_out():
+    script = """
+import sys, time
+sys.path.insert(0, sys.argv[1])
+from mei.computer.worker.control import Control, ControlLost
+said = []
+c = Control(lambda reason, by: said.append(f"{by}: {reason}"))
+c._shell_owner = ":1.1"  # as if the Shell watcher found it
+c.lease(1, 600); c.check()
+c.lease(1, 0)  # the act is done
+try:
+    c.check(); print("still allowed")
+except ControlLost:
+    pass
+c.lease(2, 50); time.sleep(0.1)
+c.revoke("the core stopped renewing control", "lease")  # what the watcher does when a lease runs out
+c.revoke("again")  # once per period
+print(said)
+"""
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    out = subprocess.run(["/usr/bin/python3", "-c", script, src], capture_output=True, text=True, timeout=30)
+    assert out.stdout.strip() == "['lease: the core stopped renewing control']", out.stderr
