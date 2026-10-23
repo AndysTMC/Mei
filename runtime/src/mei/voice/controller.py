@@ -88,6 +88,7 @@ class VoiceController:
         self._fed = 0  # characters of that message given to `_sentences`
         self._sentences = Sentences()
         self._follow_up = False
+        self._dictating = False  # this utterance goes into the input box, not to Mei
         self._asking: str | None = None  # an approval Mei read out and waits on a spoken answer for
         self._locked = False
         self._stopping = False
@@ -287,8 +288,9 @@ class VoiceController:
 
     # ── What the person does ─────────────────────────────────────────────────
 
-    async def listen(self, conversation_id: str | None) -> None:
-        """The voice shortcut or mic button: start listening; while listening, done talking."""
+    async def listen(self, conversation_id: str | None, *, dictate: bool = False) -> None:
+        """The voice shortcut or voice button: start listening, to talk with Mei; `dictate` (the mic
+        button): only to write down what's said. While listening: done talking."""
         if self.state == "listening":
             await self._send(wire.DoneTalking())
             return
@@ -296,11 +298,12 @@ class VoiceController:
             raise ProtocolError("Unavailable", self.note or f"voice is {self.state}")
         self._conversation = conversation_id
         self._follow_up = False
+        self._dictating = dictate
         await self._send(wire.Listen())
 
     async def hush(self) -> None:
         """Stop listening or speaking (Esc, the Stop button)."""
-        self._follow_up = False
+        self._follow_up = self._dictating = False
         if self.state == "listening":
             await self._send(wire.CancelListen())
             self._set("idle")
@@ -374,12 +377,16 @@ class VoiceController:
             case wire.Listening():
                 self._set("listening")
             case wire.Partial(text=text):
-                self._emit("voice.partial", {"text": text, "final": False})
+                self._emit("voice.partial", {"text": text, "final": False, "dictation": self._dictating})
             case wire.Final(text=text):
-                self._emit("voice.partial", {"text": text, "final": True})
-                await self._heard(text)
+                self._emit("voice.partial", {"text": text, "final": True, "dictation": self._dictating})
+                if self._dictating:  # the words go into the input box; the person sends them
+                    self._dictating = False
+                    self._set("idle")
+                else:
+                    await self._heard(text)
             case wire.NoSpeech():
-                self._follow_up = False
+                self._follow_up = self._dictating = False
                 self._set("idle")
             case wire.Speaking():
                 self._set("speaking")

@@ -246,6 +246,9 @@ class VoiceDownloadArgs(msgspec.Struct):
 
 class VoiceListenArgs(msgspec.Struct):
     conversation_id: str | None = None  # the conversation the popup shows; None starts a new one
+    # Dictation (the mic button): hear one utterance and hand its words back (voice.partial with
+    # "dictation"), to go into the input box; nothing is sent and nothing is said.
+    dictate: bool = False
 
 
 class Config(msgspec.Struct, kw_only=True):

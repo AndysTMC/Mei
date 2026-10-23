@@ -1,7 +1,7 @@
 {
  "description": "Mei saves what the person asked it to remember (memory.saved, user_stated), and the person undoes it (memory.deleted).",
  "attach": {
-  "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
+  "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
   "seq": 1,
   "mode": "snapshot",
   "snapshot": {
@@ -13,64 +13,64 @@
   {
    "v": 2,
    "type": "conversation.created",
-   "event_id": "b7624492-3fb8-4c65-8370-00e4ab30d1c8",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.102Z",
+   "event_id": "c364e874-1f7a-43f6-bd96-57a553208247",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.971Z",
    "required": true,
    "seq": 2,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
    "task_id": null,
    "payload": {
     "conversation": {
-     "id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
+     "id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
      "title": "Remember that my invoices go in Documents/Invoices",
-     "created_at": 1792677474102,
-     "updated_at": 1792677474102
+     "created_at": 1792751134971,
+     "updated_at": 1792751134971
     }
    }
   },
   {
    "v": 2,
    "type": "message.completed",
-   "event_id": "6d48cf5c-d51e-48e0-a67d-311163a4d25c",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.103Z",
+   "event_id": "37641524-3fb1-423a-9c94-94cfb288b756",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.971Z",
    "required": true,
    "seq": 3,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
    "task_id": null,
    "payload": {
     "message": {
-     "id": "4c4ddea7-4c7d-43bf-901b-c5225d0aef22",
-     "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
+     "id": "046e17d5-8186-488c-aa20-758fcbdaf997",
+     "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
      "task_id": null,
      "role": "user",
      "content": "Remember that my invoices go in Documents/Invoices",
      "thinking": null,
      "metadata": {},
-     "created_at": 1792677474102
+     "created_at": 1792751134971
     }
    }
   },
   {
    "v": 2,
    "type": "task.accepted",
-   "event_id": "789e1374-d2be-409b-94af-7425a24e6be9",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.103Z",
+   "event_id": "4b1600dd-0282-41a1-b322-862e5775ff0a",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.972Z",
    "required": true,
    "seq": 4,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
     "task": {
-     "id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
-     "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
+     "id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
+     "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
      "state": "ACCEPTED",
-     "input_message_id": "4c4ddea7-4c7d-43bf-901b-c5225d0aef22",
+     "input_message_id": "046e17d5-8186-488c-aa20-758fcbdaf997",
      "error": null,
-     "created_at": 1792677474103,
-     "updated_at": 1792677474103,
+     "created_at": 1792751134971,
+     "updated_at": 1792751134971,
      "mode": "INTERACTIVE",
      "plan": {},
      "outcome": null
@@ -80,15 +80,15 @@
   {
    "v": 2,
    "type": "task.state_changed",
-   "event_id": "98f31eb2-9a34-4752-acaf-7b512c4c2fd0",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.103Z",
+   "event_id": "67116003-67b1-431c-b7f7-ebfddd2ad856",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.972Z",
    "required": true,
    "seq": 5,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
-    "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+    "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
     "from": "ACCEPTED",
     "to": "RUNNING",
     "error": null
@@ -97,18 +97,18 @@
   {
    "v": 2,
    "type": "model.started",
-   "event_id": "7a895cd0-45b7-4c64-9f3c-aa6a9cde1037",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.104Z",
+   "event_id": "64049d2a-c021-475a-bbf3-f210542311d6",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.973Z",
    "required": true,
    "seq": 6,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
-    "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
-    "turn_id": "12311b54-61c6-44a6-a555-0cfc023f22d5",
+    "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
+    "turn_id": "0a998fed-00db-4d4d-b0bc-50bdd33b2934",
     "attempt": 1,
-    "message_id": "1dd687f4-3aff-425f-bf46-c290fb22fb96",
+    "message_id": "9db0a1d0-4820-4297-95ba-ba2371df0cc0",
     "provider": {
      "id": "fake",
      "label": "Fake",
@@ -119,18 +119,18 @@
   {
    "v": 2,
    "type": "message.completed",
-   "event_id": "d054da0e-9492-4763-9da1-74c2425be1bc",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.109Z",
+   "event_id": "7dc95c71-2a00-46b2-8f4c-6c7014f3d318",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.979Z",
    "required": true,
    "seq": 7,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
     "message": {
-     "id": "1dd687f4-3aff-425f-bf46-c290fb22fb96",
-     "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-     "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+     "id": "9db0a1d0-4820-4297-95ba-ba2371df0cc0",
+     "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+     "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
      "role": "assistant",
      "content": "",
      "thinking": null,
@@ -140,30 +140,30 @@
       "model": "fake-1",
       "duration_ms": 5,
       "tokens": {
-       "input": 2001,
+       "input": 1999,
        "output": 0
       }
      },
-     "created_at": 1792677474109
+     "created_at": 1792751134979
     }
    }
   },
   {
    "v": 2,
    "type": "action.proposed",
-   "event_id": "ea6214db-f5e7-4c6b-8a95-6178f0d0db56",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.110Z",
+   "event_id": "0f9bd4b7-4efd-44d0-934d-5cf3d7e6495f",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.979Z",
    "required": false,
    "seq": 8,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
     "action": {
-     "id": "b8b02453-89bd-4898-9eed-a593ebc4e0b0",
-     "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
-     "batch_id": "4b4fa02f-8786-4a2e-bbee-c029c048b0cb",
-     "message_id": "1dd687f4-3aff-425f-bf46-c290fb22fb96",
+     "id": "29127cc9-641d-4fb6-8bf7-ae7f4e44ccc0",
+     "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
+     "batch_id": "cb37d8fc-6393-4b81-8670-b27ac4ea12c8",
+     "message_id": "9db0a1d0-4820-4297-95ba-ba2371df0cc0",
      "position": 0,
      "tool": "memory_save",
      "capability": null,
@@ -178,7 +178,7 @@
      "effects": null,
      "resources": [],
      "undo_recorded": false,
-     "created_at": 1792677474110,
+     "created_at": 1792751134979,
      "finished_at": null
     }
    }
@@ -186,19 +186,19 @@
   {
    "v": 2,
    "type": "policy.decided",
-   "event_id": "b17b0fe1-a788-4cd1-9f14-9871d593b40d",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.112Z",
+   "event_id": "85dc5918-e0f3-4c62-8510-aeb5491f73c3",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.984Z",
    "required": false,
    "seq": 9,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
     "action": {
-     "id": "b8b02453-89bd-4898-9eed-a593ebc4e0b0",
-     "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
-     "batch_id": "4b4fa02f-8786-4a2e-bbee-c029c048b0cb",
-     "message_id": "1dd687f4-3aff-425f-bf46-c290fb22fb96",
+     "id": "29127cc9-641d-4fb6-8bf7-ae7f4e44ccc0",
+     "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
+     "batch_id": "cb37d8fc-6393-4b81-8670-b27ac4ea12c8",
+     "message_id": "9db0a1d0-4820-4297-95ba-ba2371df0cc0",
      "position": 0,
      "tool": "memory_save",
      "capability": "memory.save",
@@ -219,7 +219,7 @@
      },
      "resources": [],
      "undo_recorded": false,
-     "created_at": 1792677474110,
+     "created_at": 1792751134979,
      "finished_at": null
     }
    }
@@ -227,19 +227,19 @@
   {
    "v": 2,
    "type": "action.started",
-   "event_id": "61f19188-6283-467b-82b3-7c74b2e19a52",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.113Z",
+   "event_id": "ea34101a-bc3a-45b9-b1cc-fa45e6d222e6",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.985Z",
    "required": false,
    "seq": 10,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
     "action": {
-     "id": "b8b02453-89bd-4898-9eed-a593ebc4e0b0",
-     "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
-     "batch_id": "4b4fa02f-8786-4a2e-bbee-c029c048b0cb",
-     "message_id": "1dd687f4-3aff-425f-bf46-c290fb22fb96",
+     "id": "29127cc9-641d-4fb6-8bf7-ae7f4e44ccc0",
+     "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
+     "batch_id": "cb37d8fc-6393-4b81-8670-b27ac4ea12c8",
+     "message_id": "9db0a1d0-4820-4297-95ba-ba2371df0cc0",
      "position": 0,
      "tool": "memory_save",
      "capability": "memory.save",
@@ -260,7 +260,7 @@
      },
      "resources": [],
      "undo_recorded": false,
-     "created_at": 1792677474110,
+     "created_at": 1792751134979,
      "finished_at": null
     }
    }
@@ -268,27 +268,27 @@
   {
    "v": 2,
    "type": "memory.saved",
-   "event_id": "c9d1c839-3793-4edc-a626-d0e16d1cec7c",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.113Z",
+   "event_id": "71041cc3-130f-4fca-8e4b-c30eb81d6f17",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.985Z",
    "required": true,
    "seq": 11,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
     "memory": {
-     "id": "375c7eba-b45d-4cb1-a9e0-c0f04535b6b1",
+     "id": "b607cb16-ee4b-4cd7-b5b3-899b075e0042",
      "kind": "profile",
      "text": "Invoices go in Documents/Invoices",
      "provenance": "user_stated",
      "status": "active",
      "sensitivity": "normal",
      "pinned": false,
-     "source_task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
-     "source_conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
+     "source_task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
+     "source_conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
      "use_count": 0,
-     "created_at": 1792677474113,
-     "updated_at": 1792677474113,
+     "created_at": 1792751134985,
+     "updated_at": 1792751134985,
      "last_used_at": null
     }
    }
@@ -296,19 +296,19 @@
   {
    "v": 2,
    "type": "action.finished",
-   "event_id": "98bbac14-67c2-45e9-8433-09c601df59f4",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.113Z",
+   "event_id": "20e161ed-0123-4f8f-b045-63cb2b69a0e2",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.986Z",
    "required": false,
    "seq": 12,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
     "action": {
-     "id": "b8b02453-89bd-4898-9eed-a593ebc4e0b0",
-     "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
-     "batch_id": "4b4fa02f-8786-4a2e-bbee-c029c048b0cb",
-     "message_id": "1dd687f4-3aff-425f-bf46-c290fb22fb96",
+     "id": "29127cc9-641d-4fb6-8bf7-ae7f4e44ccc0",
+     "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
+     "batch_id": "cb37d8fc-6393-4b81-8670-b27ac4ea12c8",
+     "message_id": "9db0a1d0-4820-4297-95ba-ba2371df0cc0",
      "position": 0,
      "tool": "memory_save",
      "capability": "memory.save",
@@ -329,26 +329,26 @@
      },
      "resources": [],
      "undo_recorded": false,
-     "created_at": 1792677474110,
-     "finished_at": 1792677474113
+     "created_at": 1792751134979,
+     "finished_at": 1792751134985
     }
    }
   },
   {
    "v": 2,
    "type": "model.started",
-   "event_id": "20649950-9648-4e4e-bb60-2d815101027b",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.114Z",
+   "event_id": "f9b37914-6612-4290-9645-dc2cdd90ce3c",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.987Z",
    "required": true,
    "seq": 13,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
-    "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
-    "turn_id": "40444b8e-6eb8-4ebc-97a2-be4081c403d1",
+    "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
+    "turn_id": "0b33e502-c4ed-4ec1-a33c-c092f63a8781",
     "attempt": 2,
-    "message_id": "b40b860b-f173-4f6c-bc8e-472214417506",
+    "message_id": "891c02b0-9d34-4c45-847c-0cfab010c06d",
     "provider": {
      "id": "fake",
      "label": "Fake",
@@ -359,15 +359,15 @@
   {
    "v": 2,
    "type": "message.delta",
-   "event_id": "357b9f7d-ace8-4d3b-933d-06b83be10350",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.119Z",
+   "event_id": "a135b01a-5375-4912-9e3f-7765071b298f",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.992Z",
    "required": false,
    "seq": null,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
-    "message_id": "b40b860b-f173-4f6c-bc8e-472214417506",
+    "message_id": "891c02b0-9d34-4c45-847c-0cfab010c06d",
     "chunk": 1,
     "text": "Got it.",
     "thinking": ""
@@ -376,18 +376,18 @@
   {
    "v": 2,
    "type": "message.completed",
-   "event_id": "9ea64dd5-aec2-46a7-9ce3-64ce270f4337",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.120Z",
+   "event_id": "3c9be7fd-6c93-499a-a275-6e5d277d17de",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.993Z",
    "required": true,
    "seq": 14,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
     "message": {
-     "id": "b40b860b-f173-4f6c-bc8e-472214417506",
-     "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-     "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+     "id": "891c02b0-9d34-4c45-847c-0cfab010c06d",
+     "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+     "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
      "role": "assistant",
      "content": "Got it.",
      "thinking": null,
@@ -397,26 +397,26 @@
       "model": "fake-1",
       "duration_ms": 5,
       "tokens": {
-       "input": 2133,
+       "input": 2131,
        "output": 7
       }
      },
-     "created_at": 1792677474119
+     "created_at": 1792751134993
     }
    }
   },
   {
    "v": 2,
    "type": "task.state_changed",
-   "event_id": "59feba3b-7f09-45e9-b8ba-6f1e4a19ca83",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.120Z",
+   "event_id": "cf4d41ac-b3da-4e5a-ad19-ce8d166b9f57",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.993Z",
    "required": true,
    "seq": 15,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
-    "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+    "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
     "from": "RUNNING",
     "to": "COMPLETED",
     "error": null
@@ -425,15 +425,15 @@
   {
    "v": 2,
    "type": "task.finished",
-   "event_id": "34edae91-f159-436d-a249-f687606aaed5",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.120Z",
+   "event_id": "818e7dd0-e8f5-4abb-aa65-026b4ffde957",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.994Z",
    "required": true,
    "seq": 16,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-   "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+   "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
    "payload": {
-    "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
+    "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
     "state": "COMPLETED",
     "error": null
    }
@@ -441,23 +441,23 @@
   {
    "v": 2,
    "type": "memory.deleted",
-   "event_id": "b6a6ebf0-c25d-4775-a0c1-cb11e15356c0",
-   "epoch": "e0bb04d1-77bf-43ea-85e8-cf862518d536",
-   "at": "2026-10-22T13:57:54.120Z",
+   "event_id": "5e2974d3-2447-463e-b434-0957cf9bf65c",
+   "epoch": "ed920ce4-d798-498d-87f5-6b7754c0cd3f",
+   "at": "2026-10-23T10:25:34.994Z",
    "required": true,
    "seq": 17,
-   "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
+   "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
    "task_id": null,
    "payload": {
-    "memory_id": "375c7eba-b45d-4cb1-a9e0-c0f04535b6b1"
+    "memory_id": "b607cb16-ee4b-4cd7-b5b3-899b075e0042"
    }
   }
  ],
  "undone_at": 16,
  "expect": {
-  "conversation_id": "5f6ea8b1-fd7a-4fa3-ad50-67d67fd87f71",
-  "task_id": "92f36c38-3d8e-4a5d-a661-bdb48ae23212",
-  "memory_id": "375c7eba-b45d-4cb1-a9e0-c0f04535b6b1",
+  "conversation_id": "10df0d28-4101-4404-8121-b28fe33d5c9c",
+  "task_id": "2a062d30-1aa9-49e6-8c0a-928945c7bc6e",
+  "memory_id": "b607cb16-ee4b-4cd7-b5b3-899b075e0042",
   "text": "Invoices go in Documents/Invoices",
   "provenance": "user_stated"
  }

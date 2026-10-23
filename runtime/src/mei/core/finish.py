@@ -98,11 +98,18 @@ def outcome(checked: list[Checked], p: FinishParams | None, *, note: str = "") -
             "open_issues": list(p.open_issues) if p else [], "note": note}
 
 
-def complete(tx: Tx, task: dict, result: dict, *, text: str, blocked: bool = False) -> None:
-    """End the task with its outcome, and show the summary as Mei's reply."""
-    if text:
+def complete(tx: Tx, task: dict, result: dict, *, text: str, blocked: bool = False, turn: str | None = None) -> None:
+    """End the task with its outcome. The summary becomes Mei's reply only when the model's
+    finishing turn (`turn`, its message) said nothing itself: one request, one reply, carrying that
+    turn's model details."""
+    said, details = False, {}
+    if turn is not None:
+        row = tx.one("SELECT content, metadata FROM messages WHERE id = ?", (turn,))
+        if row is not None:
+            said, details = bool(row["content"].strip()), json.loads(row["metadata"] or "{}")
+    if text and not said:
         repo.add_message(tx, task["conversation_id"], "assistant", text, task_id=task["id"],
-                         metadata={"outcome": result["kind"]})
+                         metadata={**details, "outcome": result["kind"]})
     tx.execute("UPDATE tasks SET outcome = ? WHERE id = ?", (json.dumps(result), task["id"]))
     final = repo.set_task_state(tx, task["id"], S.BLOCKED if blocked else S.COMPLETED,
                                 error=text if blocked else None)
@@ -119,4 +126,4 @@ def finished(tx: Tx, task: dict, action, p: FinishParams, checked: list[Checked]
         if c["index"] < len(plan.get("criteria") or []):
             plan["criteria"][c["index"]]["status"] = c["status"]
     agent.set_plan(tx, task["id"], plan)
-    complete(tx, task, result, text=p.summary, blocked=p.blocked)
+    complete(tx, task, result, text=p.summary, blocked=p.blocked, turn=action["message_id"])

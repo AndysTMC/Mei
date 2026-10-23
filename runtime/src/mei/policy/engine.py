@@ -44,6 +44,7 @@ class Subject(msgspec.Struct, frozen=True, kw_only=True):
     role: str = ""
     provenance: Provenance = "model"
     named: bool = False  # the person named this item itself, not only a folder holding it
+    label: str = ""  # how people know it, when its value is an id (a memory's text)
 
 
 class GrantRule(msgspec.Struct, frozen=True, kw_only=True):
@@ -127,8 +128,10 @@ def evaluate(facts: Facts, preset: Preset, grants: list[Grant], rules: PathRules
             return Decision("allow", "hands_off")
     scopes: tuple[Scope, ...] = ("once", "task", "always") if e.mutates == "local" and e.undo == "recorded" \
         else ("once", "task")
-    after_reading = facts.tainted and all(s.provenance == "user" for s in facts.subjects)
-    return _ask("after_reading" if after_reading else "needs_approval", preset, scopes=scopes)
+    theirs = all(s.provenance == "user" for s in facts.subjects)
+    # Why it asks, truthfully: everything here was named by the person, so it's the setting asking.
+    reason = "after_reading" if facts.tainted and theirs else "asks_first" if theirs else "needs_approval"
+    return _ask(reason, preset, scopes=scopes)
 
 
 def covers(grant: Grant, facts: Facts) -> bool:

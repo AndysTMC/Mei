@@ -172,7 +172,8 @@ class RunSpec:
     cwd: Path
     timeout_s: float
     spill: Path  # where the full output goes
-    workspace: Path | None = None  # the conversation's scratch folder, writable, also $HOME inside the jail
+    workspace: Path | None = None  # the conversation's scratch folder, writable; tools' caches go there
+    home: Path | None = None  # the person's home: $HOME inside the jail, so ~/Desktop is theirs (if named)
     workspace_fd: int | None = None  # the workspace held open, bound by fd
     cwd_fd: int | None = None  # host commands: the judged folder held open, run there
     mounts: tuple[Mount, ...] = ()

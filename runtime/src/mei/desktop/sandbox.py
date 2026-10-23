@@ -2,7 +2,8 @@
 `shell.run_host`) in a scope alone.
 
 The jail sees /usr and /etc read-only, a private /tmp, the task's workspace, and only the folders
-the action names (each read-only unless marked writable). Folders come as descriptors Mei holds
+the action names (each read-only unless marked writable). `$HOME` is the person's home path, of
+which only those folders exist; tools' caches and settings (the XDG folders) go to the workspace. Folders come as descriptors Mei holds
 open and are bound with `--bind-fd`, which checks that what it mounted is that very folder, so a
 link swapped in after policy's check can't put another folder in the jail (decision 0015). There is no network unless asked for, no
 home folder, no session bus, and a cleared environment. The scope caps memory, CPU, and process
@@ -136,12 +137,20 @@ def jail_args(spec: RunSpec) -> list[str]:
     args += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
     if spec.network:
         args.append("--share-net")
+    if spec.home is not None and spec.workspace is not None:
+        args += ["--dir", str(spec.home)]  # an empty, throwaway home: only the named folders appear in it
     for mount in spec.mounts:
         args += _bind(mount.path, mount.fd, writable=mount.writable)
     for secret in spec.hidden:  # an empty folder or an empty file in place of each
         args += ["--tmpfs", str(secret)] if secret.is_dir() else ["--ro-bind", "/dev/null", str(secret)]
     if spec.workspace is not None:
-        args += [*_bind(spec.workspace, spec.workspace_fd, writable=True), "--setenv", "HOME", str(spec.workspace)]
+        args += _bind(spec.workspace, spec.workspace_fd, writable=True)
+        # `~` is the person's home, as they and the model mean it (only named folders are there);
+        # tools' caches and settings go to the workspace, which lasts with the conversation.
+        args += ["--setenv", "HOME", str(spec.home or spec.workspace)]
+        for var, sub in (("XDG_CACHE_HOME", ".cache"), ("XDG_CONFIG_HOME", ".config"), ("XDG_DATA_HOME", ".local/share"),
+                         ("XDG_STATE_HOME", ".local/state")):
+            args += ["--setenv", var, str(spec.workspace / sub)]
     return args + ["--chdir", str(spec.cwd)]
 
 

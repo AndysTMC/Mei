@@ -36,6 +36,7 @@ _REASONS = {
     "runs_code": "a file written here runs later (at login or in a terminal)",
     "host_command": "this runs on your computer outside Mei's sandbox",
     "needs_approval": "this changes something you didn't name",
+    "asks_first": "your approval setting asks before Mei changes things",
     "after_reading": "Mei read a document in this task, and you didn't name this exactly",
 }
 
@@ -109,7 +110,7 @@ def _subject(r: Resource, anchored: list[Path], seen: Seen, env: Env) -> Subject
         else:
             where = "untrusted" if any(_says(t, r.value) for t in seen.untrusted_content) else "model"
         return Subject(kind=r.kind, value=r.value, access=r.access, role=r.role, provenance=where,
-                       named=where == "user")
+                       named=where == "user", label=r.aliases[0] if r.aliases else "")
     if r.value == WORKSPACE or (seen.workspace and provenance.inside(_real(Path(r.value)), _real(seen.workspace))):
         value = seen.workspace if r.value == WORKSPACE else Path(r.value)
         return Subject(kind="path", value=str(_real(value)), access=r.access, role=r.role, provenance="user",
@@ -174,8 +175,8 @@ def card(env: Env, proposal: Proposal, decision: Decision, *, why: str, read_fro
         effects.append("Sends data off this computer")
     if proposal.content and cloud:
         effects.append(f"What it reads is sent to {provider_label}")
-    resources = [{"role": s.role, "kind": s.kind, "value": env.show(s.value) if s.kind == "path" else s.value,
-                  "provenance": s.provenance} for s in proposal.subjects]
+    resources = [{"role": s.role, "kind": s.kind, "provenance": s.provenance,
+                  "value": env.show(s.value) if s.kind == "path" else s.label or s.value} for s in proposal.subjects]
     scope_text = {"once": "Allow once"}
     if "task" in decision.scopes:
         scope_text["task"] = _grant_text(env, proposal, "for the rest of this task")

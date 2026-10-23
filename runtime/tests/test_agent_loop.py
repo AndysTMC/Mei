@@ -255,7 +255,7 @@ async def test_a_task_grant_covers_the_rest_of_the_task(tmp_path):
     h.approve(r["task_id"], scope="task")
     assert await h.until(r["task_id"]) == S.COMPLETED
     assert h.rec.types().count("approval.requested") == 1
-    assert [a["decision_reason"] for a in h.actions(r["task_id"])] == ["needs_approval", "granted"]
+    assert [a["decision_reason"] for a in h.actions(r["task_id"])] == ["asks_first", "granted"]  # named, so the setting asks
 
 
 async def test_changing_params_after_approval_invalidates_it(tmp_path):
@@ -404,3 +404,27 @@ async def test_criteria_given_only_as_checks_are_kept_and_named(tmp_path):
     plan = h.task(r["task_id"])["plan"]
     assert [c["text"] for c in plan["criteria"]] == ["file exists: ~/Documents/a.txt"]
     assert h.task(r["task_id"])["outcome"]["kind"] == "outcome_verified"
+
+
+async def test_one_request_gets_one_reply_with_its_model_details(tmp_path):
+    """The summary of task_finish becomes the reply only when the model's finishing turn said nothing;
+    then it carries that turn's details (which model, how long), like any reply."""
+    from mei.store import repo
+
+    def replies(h, conversation_id):
+        return [m for m in repo.history(h.store, conversation_id) if m["role"] == "assistant" and m["content"].strip()]
+
+    h = Harness(tmp_path / "said", script=[
+        turn(call("fs_write_text", path="~/Documents/notes.txt", text="hi")),
+        turn(call("task_finish", summary="Wrote notes.txt."), text="I've written notes.txt for you.")])
+    r = h.submit("write a note in Documents saying hi")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    assert [m["content"] for m in replies(h, r["conversation_id"])] == ["I've written notes.txt for you."]
+
+    h = Harness(tmp_path / "silent", script=[
+        turn(call("fs_write_text", path="~/Documents/notes.txt", text="hi")),
+        turn(call("task_finish", summary="Wrote notes.txt."))])
+    r = h.submit("write a note in Documents saying hi")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    [reply] = replies(h, r["conversation_id"])
+    assert reply["content"] == "Wrote notes.txt." and reply["metadata"]["id"] == "fake" and reply["metadata"]["outcome"]

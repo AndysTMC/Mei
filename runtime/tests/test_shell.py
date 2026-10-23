@@ -30,7 +30,7 @@ def output(h: Harness) -> str:
 
 
 async def test_the_jail_sees_no_home_no_network_and_nothing_writable_but_the_workspace(tmp_path):
-    attempt = ("echo hi > ~/out.txt; cat out.txt; "
+    attempt = ("echo hi > out.txt; cat out.txt; echo kept > ~/kept.txt; "
                f"touch {tmp_path}/home/escaped 2>&1; touch /usr/escaped 2>&1; ls {tmp_path}/home/Documents 2>&1; "
                "getent hosts example.com >/dev/null && echo NET || echo nonet; "
                "cat /proc/1/cmdline | tr '\\0' ' '; echo; ls /run/user 2>&1 | head -1")
@@ -42,7 +42,24 @@ async def test_the_jail_sees_no_home_no_network_and_nothing_writable_but_the_wor
     assert "hi" in seen and "nonet" in seen and "NET\n" not in seen and "PRIVATE" not in seen
     assert not (h.env.home / "escaped").exists() and "Read-only file system" in seen
     assert (h.env.workspace(r["conversation_id"]) / "out.txt").read_text() == "hi\n"
+    assert not (h.env.home / "kept.txt").exists()  # ~ is their home's path, but nothing written there gets out
     assert "approval.requested" not in h.rec.types()  # only Mei's own workspace: no card
+
+
+async def test_tilde_is_the_persons_home_so_named_folders_are_where_they_expect(tmp_path):
+    """A model writes ~/Desktop/notes.md as the person would; with ~/Desktop named, that's their file.
+    Tools' caches still go to the workspace."""
+    h = Harness(tmp_path, script=run_script("cp ~/Desktop/notes.md ~/Downloads/ && echo copied; echo $XDG_CACHE_HOME",
+                                            folders=[{"path": "~/Desktop"}, {"path": "~/Downloads", "write": True}]))
+    put(h.env, "~/Desktop/notes.md", "NOTES")
+    (h.env.home / "Downloads").mkdir(exist_ok=True)
+    r = h.submit("copy notes.md from my Desktop to Downloads")
+    if await h.until(r["task_id"]) == S.WAITING_APPROVAL:  # writing into Downloads may ask, by the preset
+        h.approve(r["task_id"])
+        await h.until(r["task_id"])
+    seen = output(h)
+    assert "copied" in seen and h.env.path("~/Downloads/notes.md").read_text() == "NOTES"
+    assert str(h.env.workspace(r["conversation_id"])) in seen  # caches: the workspace
 
 
 async def test_network_needs_a_card(tmp_path):

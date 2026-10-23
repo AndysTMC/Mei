@@ -43,6 +43,20 @@ async def until(check, timeout: float = 40.0) -> None:
             await asyncio.sleep(0.05)
 
 
+async def test_dictation_hands_back_the_words_and_sends_nothing(tmp_path, models, voice):
+    """The mic button: what's said goes into the input box; no request, no spoken reply."""
+    h = Harness(tmp_path, script=[{"text": "This must not be asked."}])
+    v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "Remind me to buy milk.", 3.0))
+    await v.apply(VoiceSettings(enabled=True))
+    await v.wait_ready()
+    await v.listen(None, dictate=True)
+    await until(lambda: any(kind == "voice.partial" and p["final"] for kind, p in seen) and states(seen)[-1] == "idle")
+    final = next(p for kind, p in seen if kind == "voice.partial" and p["final"])
+    assert final["dictation"] and "milk" in final["text"].lower()
+    assert repo.list_conversations(h.store) == [] and "thinking" not in states(seen)
+    await v.stop()
+
+
 async def test_a_spoken_question_is_answered_out_loud_then_mei_listens_a_moment_more(tmp_path, models, voice):
     h = Harness(tmp_path, script=[{"text": "It will be sunny tomorrow. Around eighteen degrees."}])
     v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "What's the weather like tomorrow?", 8.0))

@@ -31,8 +31,9 @@ class RunParams(msgspec.Struct, kw_only=True):
     command: Annotated[str, msgspec.Meta(min_length=1, max_length=MAX_COMMAND,
                                          description="A shell command line, run with /bin/sh -c")]
     folders: Annotated[list[Folder], msgspec.Meta(max_length=8, description=(
-        "Folders the command may see, read-only unless write is true. Nothing else of the home folder is "
-        "visible; a scratch workspace (also $HOME) always is."))] = msgspec.field(default_factory=list)
+        "Folders the command may see, read-only unless write is true. ~ is the person's home, but nothing of it is "
+        "visible except these folders; a scratch workspace (the default working folder) always is."))] = \
+        msgspec.field(default_factory=list)
     cwd: Annotated[str, msgspec.Meta(description="Where to run: one of the folders, or the workspace (default)")] = ""
     network: Annotated[bool, msgspec.Meta(description="Allow network access (off by default)")] = False
     timeout_s: Annotated[int, msgspec.Meta(ge=1, le=MAX_TIMEOUT_S)] = 120
@@ -106,6 +107,7 @@ class ShellRun(Capability):
             if cwd != workspace and not any(cwd == m.path or m.path in cwd.parents for m in mounts):
                 raise CapabilityError("invalid", "cwd must be one of the folders, or the workspace")
             spec = RunSpec(command=p.command, cwd=cwd, timeout_s=p.timeout_s, workspace=workspace,
+                           home=Path(os.path.realpath(env.home)),
                            workspace_fd=space.fd, mounts=tuple(mounts), hidden=tuple(hidden), network=p.network,
                            spill=_spill(ctx), secret=lambda path: env.rules.sensitive(path) or env.rules.denied(path))
             result = await env.runner.run(spec)
