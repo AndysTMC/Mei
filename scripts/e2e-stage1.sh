@@ -35,6 +35,17 @@ main() {
     export MEI_VOICE_SOURCE_FILE="$out/voice/heard.f32" MEI_VOICE_SINK_FILE="$out/voice/played.f32"
     /usr/bin/gsettings set org.gnome.shell disable-user-extensions false
     /usr/bin/gsettings set org.gnome.shell enabled-extensions "['mei@andystmc.com']"
+    # A private runtime dir too: the nested session's sockets (Wayland, the accessibility bus) must not
+    # land in, or replace, the real session's (at-spi/bus there is the person's accessibility bus).
+    # Short, for socket paths' 108-byte limit. Nothing of the real one is linked in: not even PipeWire,
+    # so nothing here can reach the person's microphone, camera or speakers.
+    local run
+    run=$(mktemp -d /tmp/mei-rt.XXXXXX)
+    chmod 700 "$run"
+    unset PIPEWIRE_REMOTE PIPEWIRE_RUNTIME_DIR PULSE_SERVER PULSE_RUNTIME_PATH
+    export XDG_RUNTIME_DIR="$run"
+    # Expanded now (run is local). The private document portal's FUSE mount may outlive the session.
+    trap "fusermount3 -uz '$run/doc' 2>/dev/null; rm -rf '$run'" EXIT
     echo "e2e output: $out"
     dbus-run-session -- "$py" "$root/runtime/tests/e2e/shell_e2e.py" "$out" "$port" 2>"$out/e2e.stderr"
 }
