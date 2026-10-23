@@ -47,7 +47,7 @@ export interface LiveStream extends StreamView {
 
 export type ApplyResult = 'applied' | 'duplicate' | 'gap' | 'ignored';
 
-const WAITING: ReadonlySet<string> = new Set(['WAITING_APPROVAL', 'WAITING_INPUT']);
+const WAITING: ReadonlySet<string> = new Set(['WAITING_APPROVAL', 'WAITING_INPUT', 'WAITING_RESOURCE']);
 const MEMORY_EVENTS = new Set(['memory.saved', 'memory.pending_review', 'memory.updated', 'memory.deleted']);
 const ACTION_EVENTS = new Set(['action.proposed', 'policy.decided', 'action.started', 'action.updated', 'action.finished']);
 /** Events that change a conversation's loaded messages or tasks (skipped while it isn't loaded). */

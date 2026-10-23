@@ -5,12 +5,12 @@
  */
 
 import type {
-    ApprovalPreset, AudioDevice, CloudFiles, MemoryView, MicLevelReply, ModelsStep, ServiceStep, SttChoice, TestProviderReply,
-    TtsChoice, VoiceModelView, VoiceOption, VoiceSettingsDoc, VoiceStateName,
+    ApprovalPreset, AudioDevice, CloudFiles, ComputerStatusReply, MemoryView, MicLevelReply, ModelsStep, ServiceStep,
+    SttChoice, TestProviderReply, TtsChoice, VoiceModelView, VoiceOption, VoiceSettingsDoc, VoiceStateName,
 } from '../runtime/protocol.js';
 
 export interface StepInfo {
-    id: 'service' | 'models' | 'approvals' | 'memory' | 'voice' | 'privacy' | 'shortcuts';
+    id: 'service' | 'models' | 'approvals' | 'memory' | 'voice' | 'computer' | 'privacy' | 'shortcuts';
     title: string;
     skippable: boolean;
 }
@@ -22,6 +22,7 @@ export const SETUP_STEPS: StepInfo[] = [
     { id: 'approvals', title: 'Approvals', skippable: true },
     { id: 'memory', title: 'Memory', skippable: true },
     { id: 'voice', title: 'Voice', skippable: true },
+    { id: 'computer', title: 'Using the computer', skippable: true },
     { id: 'privacy', title: 'Privacy', skippable: true },
     { id: 'shortcuts', title: 'Shortcuts', skippable: true },
 ];
@@ -191,4 +192,22 @@ export function micText(level: MicLevelReply): string {
         return `Too loud even in silence (${level.db.toFixed(0)} dB, ${level.clipped_pct.toFixed(1)}% clipped): Mei will mishear. Fix lowers the microphone’s level.`;
     }
     return `Sounds right (${level.db.toFixed(0)} dB in silence)`;
+}
+
+/** What computer use can do and what it never does (§10.3), where it is turned on. */
+export const COMPUTER_ABOUT = 'Mei can look at app windows and press, type, and click in them for you. It asks before '
+    + 'anything it can’t judge, never types into password fields, and pauses while you use the mouse or keyboard. '
+    + 'What it sees in a window goes to your model. Super+Alt+Escape, or the button in the top bar, stops it at once.';
+
+/** The computer-use rows' subtitles, from the runtime's ComputerStatus. */
+export function computerText(status: ComputerStatusReply): { accessibility: string; screen: string } {
+    if (!status.available) {
+        const why = `Not available here: ${status.reason}`;
+        return { accessibility: why, screen: why };
+    }
+    return {
+        accessibility: status.accessibility ? 'On' : 'Off: apps don’t show Mei their buttons and fields',
+        screen: status.screen ? 'Allowed'
+            : 'Not allowed yet: needed to click where there’s no button, and for pictures of windows',
+    };
 }

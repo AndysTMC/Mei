@@ -108,3 +108,16 @@ test('the outcome line claims only what checks established, in one quiet line', 
     assert.deepEqual(outcomeLine({ ...base, note: "the model didn't report" }),
         { tone: 'unchecked', text: "Not checked by Mei: the model didn't report" });
 });
+
+test('a task paused for the person shows in the input area until it goes on', () => {
+    const p = replay();
+    const id = fx.expect.conversation_id;
+    const conv = p.loaded.get(id)!;
+    const task = conv.tasks.get(fx.expect.task_id)!;
+    task.state = 'WAITING_RESOURCE';
+    task.error = 'Paused while you use the computer';
+    assert.deepEqual(pendingInteraction(conv), { kind: 'paused', taskId: task.id, note: 'Paused while you use the computer' });
+    task.state = 'RUNNING';
+    task.error = null;
+    assert.equal(pendingInteraction(conv), null);
+});

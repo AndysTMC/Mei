@@ -6,6 +6,7 @@ be emitted, so nothing falls between the snapshot and live delivery.
 """
 
 import asyncio
+import contextlib
 import inspect
 import logging
 import os
@@ -19,6 +20,8 @@ from dbus_fast.constants import NameFlag, RequestNameReply
 
 from mei import protocol
 from mei.capabilities.base import Notifier
+from mei.computer import jail as computer_jail
+from mei.computer.controller import DesktopError
 from mei.core.engine import Engine
 from mei.obs import RECENT
 from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, ForgetMemoryArgs,
@@ -35,6 +38,7 @@ from .bridge import ShellBridgeClient
 from .notices import Notices
 from .peers import shell_check
 
+A11Y_KEY = ("org.gnome.desktop.interface", "toolkit-accessibility")
 log = logging.getLogger("mei.ipc")
 MAX_REPLAY_EVENTS = 5000
 RUNTIME_VERSION = "0.1.0"
@@ -84,7 +88,8 @@ class RuntimeService:
             "VoiceModels": self._voice_models, "VoiceDownload": self._voice_download, "VoiceCheckMic": self._voice_check_mic,
             "VoiceFixMic": self._voice_fix_mic, "VoiceTestSpeaker": self._voice_test_speaker,
             "VoiceDevices": self._voice_devices, "VoiceRemove": self._voice_remove,
-            "KillSwitch": self._kill_switch,
+            "KillSwitch": self._kill_switch, "ComputerStatus": self._computer_status,
+            "ComputerAllowScreen": self._computer_allow_screen,
         }
 
     async def start(self) -> None:
@@ -357,6 +362,28 @@ class RuntimeService:
         if self._desktop is not None:
             await self._desktop.kill(args.reason or "the kill switch")
         return {"stopped": self._engine.stop_computer_use()}
+
+    async def _computer_status(self, _sender: str, _data: str) -> dict:
+        """For setup and Settings: can computer use run here, is accessibility on, was the screen allowed?"""
+        if self._desktop is None:
+            return {"available": False, "reason": computer_jail.missing() or "the session bus isn't reachable",
+                    "accessibility": False, "screen": False}
+        accessibility = False
+        if self._engine.env.gsettings is not None:
+            with contextlib.suppress(Exception):
+                accessibility = (await self._engine.env.gsettings.get(*A11Y_KEY)).strip() == "true"
+        return {"available": True, "reason": "", "accessibility": accessibility,
+                "screen": await self._desktop.screen_allowed()}
+
+    async def _computer_allow_screen(self, _sender: str, _data: str) -> dict:
+        """Setup's one consent: GNOME's own dialog asks the person, so any caller may start it."""
+        if self._desktop is None:
+            raise ProtocolError("Unavailable", "computer use isn't available here")
+        try:
+            await self._desktop.allow_screen()
+        except DesktopError as e:
+            return {"ok": False, "error": e.message}
+        return {"ok": True, "error": ""}
 
     async def _shell_only(self, sender: str, what: str) -> None:
         if not await self._is_shell(sender):

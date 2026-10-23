@@ -200,6 +200,11 @@
     margin-left: 4px;
 }
 
+/* Computer use's chip (§10.3): quiet, like the Shell's own sharing indicator; it is also the Stop button. */
+.mei-computer-chip StLabel {
+    margin-left: 4px;
+}
+
 /* ── Copy button ────────────────────────────────── */
 .mei-copy-btn {
     border-radius: 8px;

@@ -218,7 +218,8 @@ export interface InputRequestView {
     id: string;
     task_id: string;
     action_id: string | null;
-    kind: 'question' | 'continue' | 'in_doubt';
+    /** handoff: a step only the person may do, such as a password field (§10.3). */
+    kind: 'question' | 'continue' | 'in_doubt' | 'handoff';
     spec: { question: string; choices: string[]; fields: FormField[] };
     state: 'pending' | 'answered' | 'superseded';
     created_at: number;
@@ -362,8 +363,22 @@ export interface ConfigDoc {
     approvals?: { preset: ApprovalPreset; [field: string]: unknown };
     memory?: { enabled: boolean; auto_save: boolean; [field: string]: unknown };
     voice?: VoiceSettingsDoc;
+    computer?: { enabled: boolean; [field: string]: unknown };
     /** Fields a newer runtime added; kept as they are when this client writes the config back. */
     [field: string]: unknown;
+}
+
+/** Computer use (§10, decision 0022): can it run here, is accessibility on, was the screen allowed? */
+export interface ComputerStatusReply {
+    available: boolean;
+    reason: string;
+    accessibility: boolean;
+    screen: boolean;
+}
+
+export interface ComputerAllowReply {
+    ok: boolean;
+    error: string;
 }
 
 export interface ConfigReply {

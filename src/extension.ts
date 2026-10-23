@@ -76,6 +76,8 @@ export default class MeiExtension extends Extension {
         popup.onDeny = id => runtime.deny(id);
         popup.onDenyWith = (id, text) => runtime.denyWith(id, text);
         popup.onAnswer = (id, value) => runtime.answer(id, value);
+        popup.onResume = id => runtime.resume(id);
+        popup.onStopTask = id => runtime.stopTask(id);
         popup.onRemoveAttachment = () => runtime.removeAttachment();
         popup.onDictate = () => runtime.dictate();
         popup.onVoice = () => runtime.voiceToggle();

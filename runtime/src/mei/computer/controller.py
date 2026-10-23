@@ -157,6 +157,18 @@ class Desktop:
             await self._tokens.put(str(data["restore_token"]))
         self._session_open = True
 
+    async def allow_screen(self) -> None:
+        """Setup's one consent (decision 0022): the portal's dialog, then the session closes again. Its
+        restore token is kept, so tasks never see the dialog."""
+        self._session_open = False
+        await self.ensure_session(ask=True)
+        with contextlib.suppress(DesktopError):
+            await self._request(wire.CloseSession(id=0))
+        self._session_open = False
+
+    async def screen_allowed(self) -> bool:
+        return bool(await self._tokens.get())
+
     async def kill(self, reason: str) -> None:
         """The kill switch's last step (§10.3): stop input and kill the worker, before anything else waits."""
         worker, self._worker = self._worker, None

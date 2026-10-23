@@ -17,6 +17,7 @@ import { GrantsPage } from './prefs/grantsPage.js';
 import { LogsPage } from './prefs/logsPage.js';
 import { MemoryPage } from './prefs/memoryPage.js';
 import { VoicePage } from './prefs/voicePage.js';
+import { ComputerPage } from './prefs/computerPage.js';
 import { ProviderPage } from './prefs/providerPage.js';
 import { buildApprovalRow, buildCloudFilesRow, buildRetentionRow, buildShortcutRow } from './prefs/rows.js';
 import { buildSetupAssistant, type Call } from './prefs/setupAssistant.js';
@@ -50,12 +51,14 @@ export default class MeiPreferences extends ExtensionPreferences {
         const grants = new GrantsPage(window, settings);
         const memory = new MemoryPage(window, settings);
         const voice = new VoicePage(window, settings);
+        const computer = new ComputerPage(window, settings, call);
         const preset = buildApprovalRow(settings);
         const retention = buildRetentionRow(window, settings);
         const cloudFiles = buildCloudFilesRow(settings);
         const shortcut = buildShortcutRow(window, this.getSettings(), 'open-shortcut', 'Open Mei');
         const askShortcut = buildShortcutRow(window, this.getSettings(), 'ask-shortcut', 'Ask about this');
         const voiceShortcut = buildShortcutRow(window, this.getSettings(), 'voice-shortcut', 'Talk to Mei');
+        const stopShortcut = buildShortcutRow(window, this.getSettings(), 'stop-computer-shortcut', 'Stop Mei using the computer');
 
         const page = new Adw.PreferencesPage({ title: 'Mei', icon_name: 'preferences-system-symbolic' });
         const mei = new Adw.PreferencesGroup({ title: 'Mei' });
@@ -71,9 +74,12 @@ export default class MeiPreferences extends ExtensionPreferences {
         const logsRow = navRow('Logs', 'What the Mei service has been doing', 'format-justify-left-symbolic');
         const memoryRow = navRow('Memory', 'What Mei remembers about you', 'user-bookmarks-symbolic');
         const voiceRow = navRow('Voice', 'Talk to Mei and hear it answer', 'audio-input-microphone-symbolic');
+        const computerRow = navRow('Using the computer', 'Let Mei press, type, and click in app windows',
+            'input-mouse-symbolic');
         more.add(providerRow);
         more.add(memoryRow);
         more.add(voiceRow);
+        more.add(computerRow);
         more.add(logsRow);
         page.add(more);
         const approvals = new Adw.PreferencesGroup({ title: 'Approvals', description: APPROVAL_FLOOR });
@@ -88,6 +94,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         const shortcuts = group('Shortcuts', shortcut.row);
         shortcuts.add(askShortcut.row);
         shortcuts.add(voiceShortcut.row);
+        shortcuts.add(stopShortcut.row);
         page.add(shortcuts);
         window.add(page);
 
@@ -105,6 +112,7 @@ export default class MeiPreferences extends ExtensionPreferences {
         grantsRow.connect('activated', () => window.push_subpage(grants.page));
         memoryRow.connect('activated', () => window.push_subpage(memory.page));
         voiceRow.connect('activated', () => window.push_subpage(voice.page));
+        computerRow.connect('activated', () => window.push_subpage(computer.page));
 
         const setup = buildSetupAssistant({
             window, call, settings, gsettings: this.getSettings(),
@@ -143,7 +151,7 @@ export default class MeiPreferences extends ExtensionPreferences {
             sources.destroy();
             settings.disconnect(saveFailed);
             for (const part of [providers, logs, setup, preset, retention, cloudFiles, shortcut, askShortcut, voiceShortcut,
-                memory, voice]) part.destroy();
+                stopShortcut, memory, voice, computer]) part.destroy();
         });
     }
 }

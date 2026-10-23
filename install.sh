@@ -101,6 +101,18 @@ check_system() {
         miss "keyring (Secret Service), where Mei keeps API keys" keyring
     fi
     if ! have curl && { [ -z "$wheel" ] || [ ! -x "$(uv_cmd)" ]; }; then miss "curl (to download Mei and uv)" curl; fi
+    # Optional: computer use runs its desktop worker on the system's Python, in a jail (decision 0022).
+    local computer=()
+    [ -x /usr/bin/bwrap ] || computer+=(bubblewrap)
+    [ -x /usr/bin/xdg-dbus-proxy ] || computer+=(xdg-dbus-proxy)
+    /usr/bin/python3 -c 'import gi; gi.require_version("Atspi", "2.0"); gi.require_version("Gst", "1.0")
+from gi.repository import Gst; Gst.init(None); assert Gst.ElementFactory.find("pipewiresrc")' 2>/dev/null ||
+        computer+=("PyGObject with AT-SPI and GStreamer's PipeWire plugin (python3-gi gir1.2-atspi-2.0 gstreamer1.0-pipewire)")
+    if [ ${#computer[@]} -eq 0 ]; then
+        ok "computer use (optional)"
+    else
+        printf '  note  computer use (optional) needs: %s\n' "${computer[*]}"
+    fi
 
     if [ ${#problems[@]} -gt 0 ]; then
         echo; echo "Mei can't be installed here:"; printf '  - %s\n' "${problems[@]}"

@@ -278,6 +278,25 @@ export class RuntimeChatController {
             });
     }
 
+    /** A task paused while the person used the computer: go on now. */
+    resume(taskId: string): void {
+        this._popup.hideError();
+        this._client.call('Resume', { command_id: GLib.uuid_string_random(), task_id: taskId })
+            .catch((e: RuntimeError) => {
+                this._popup.retryInteraction();
+                this._showFailure(e);
+            });
+    }
+
+    stopTask(taskId: string): void {
+        this._popup.hideError();
+        this._client.call('Cancel', { command_id: GLib.uuid_string_random(), task_id: taskId })
+            .catch((e: RuntimeError) => {
+                this._popup.retryInteraction();
+                this._showFailure(e);
+            });
+    }
+
     /** From the popup, which only the Shell process can show: no "Mei will now remember" notification. */
     keepMemory(memoryId: string): void {
         this._popup.hideError();
