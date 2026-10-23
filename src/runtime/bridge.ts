@@ -21,7 +21,9 @@ import type { Attachment } from './protocol.js';
 
 export const BRIDGE_PATH = '/com/andystmc/Mei1/ShellBridge';
 const INTERFACE = 'com.andystmc.Mei1.ShellBridge';
-const METHODS = ['ListWindows', 'LaunchApp', 'FocusWindow', 'ClipboardGet', 'ClipboardSet', 'GetIdleTime'] as const;
+const METHODS = [
+    'ListWindows', 'LaunchApp', 'FocusWindow', 'ClipboardGet', 'ClipboardSet', 'GetIdleTime', 'GetMonitors',
+] as const;
 const XML = `<node><interface name="${INTERFACE}">${METHODS.map(m =>
     `<method name="${m}"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>`).join('')}
 </interface></node>`;
@@ -39,13 +41,32 @@ const HANDLERS: Record<(typeof METHODS)[number], Handler> = {
         return {};
     },
     GetIdleTime: () => ({ ms: global.backend.get_core_idle_monitor().get_idletime() }),
+    GetMonitors: () => ({ monitors: listMonitors() }),
 };
+
+interface Rect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
 
 export interface WindowInfo {
     id: number;
     app_id: string;
     title: string;
     focused: boolean;
+    pid: number;
+    // Stage coordinates. Computer use anchors AT-SPI's window-relative extents at the buffer's origin
+    // (decision 0022): the frame leaves out the client-side shadow.
+    buffer: Rect;
+    frame: Rect;
+    monitor: number;
+}
+
+interface MonitorInfo extends Rect {
+    index: number;
+    scale: number;
 }
 
 export class ShellBridge {
@@ -102,7 +123,24 @@ export function listWindows(): WindowInfo[] {
         app_id: tracker.get_window_app(w)?.get_id() ?? '',
         title: w.get_title() ?? '',
         focused: w.has_focus(),
+        pid: w.get_pid(),
+        buffer: rect(w.get_buffer_rect()),
+        frame: rect(w.get_frame_rect()),
+        monitor: w.get_monitor(),
     }));
+}
+
+function listMonitors(): MonitorInfo[] {
+    const display = global.display;
+    return Array.from({ length: display.get_n_monitors() }, (_, index) => ({
+        index,
+        ...rect(display.get_monitor_geometry(index)),
+        scale: display.get_monitor_scale(index),
+    }));
+}
+
+function rect(r: { x: number; y: number; width: number; height: number }): Rect {
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
 }
 
 function focusWindow(id: number): Record<string, never> {

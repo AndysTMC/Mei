@@ -2,6 +2,7 @@
 
 from .apps import AppsLaunch, AppsList
 from .base import Capability
+from .computer import DesktopAct, DesktopObserve
 from .fs_read import FsList, FsReadText, FsSearch
 from .fs_write import FsEdit, FsMakeDir, FsMove, FsTrash, FsWriteText
 from .memory import HistorySearch, MemoryForget, MemorySave, MemorySearch
@@ -29,6 +30,10 @@ def desktop_capabilities() -> list[Capability]:
             NotifySend()]
 
 
+def computer_capabilities() -> list[Capability]:
+    return [DesktopObserve(), DesktopAct()]
+
+
 def meta_capabilities() -> list[Capability]:
     return [PlanUpdate(), AskUser(), TaskFinish()]
 
@@ -38,8 +43,9 @@ def memory_capabilities() -> list[Capability]:
 
 
 MEMORY_TOOLS = frozenset({"memory.save", "memory.search", "memory.forget"})  # hidden while memory is off
+COMPUTER_TOOLS = frozenset({"desktop.observe", "desktop.act"})  # hidden until computer use is allowed
 
 
 def default_registry() -> Registry:
     return Registry([*meta_capabilities(), *memory_capabilities(), *file_capabilities(), *shell_capabilities(),
-                     *desktop_capabilities()])
+                     *desktop_capabilities(), *computer_capabilities()])

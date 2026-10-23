@@ -7,6 +7,7 @@ an observation before that observation is stored (invariant 5).
 """
 
 import asyncio
+import base64
 import datetime
 import json
 import logging
@@ -17,13 +18,14 @@ from dataclasses import dataclass, field
 import msgspec
 
 from mei.capabilities.base import ActionContext, ActionResult, Capability, CapabilityError, CheckResult, Env
+from mei.capabilities.computer import HANDOFF_DONE, HANDOFF_SKIP
 from mei.capabilities.registry import Registry
 from mei.core.states import ACTION_TERMINAL, TERMINAL, Disposition, Execution, TaskState, Verification
 from mei.obs import redact
 from mei.protocol import Envelope, ProviderConfig
 from mei.providers.base import IncompleteResponse, Provider, ProviderError
 from mei.providers.factory import label_of
-from mei.capabilities.catalog import MEMORY_TOOLS
+from mei.capabilities.catalog import COMPUTER_TOOLS, MEMORY_TOOLS
 from mei.store import agent, repo
 from mei.store import memory as mem
 from mei.store.db import Store
@@ -109,7 +111,7 @@ class TaskLoop:
             earlier = memories.episodes(store, task)
         request = context.build(context.Inputs(
             store, self.d.env, self.d.registry, config.privacy, cfg, self.d.now(), memories=tuple(recalled),
-            episodes=tuple(earlier), hidden_tools=frozenset() if config.memory.enabled else MEMORY_TOOLS), task)
+            episodes=tuple(earlier), hidden_tools=hidden_tools(config)), task)
         label = {"id": cfg.id, "label": label_of(cfg), "model": cfg.model}
         with store.tx() as tx:
             turn = repo.begin_turn(tx, task["id"], store.epoch, label)
@@ -221,12 +223,15 @@ class TaskLoop:
         for r in rows:
             result = json.loads(r["result"])
             if result.get("trust") == "untrusted":
-                (content if result.get("data_class") == "file_content" else other).append(r["content"])
+                (content if result.get("data_class") in ("file_content", "screen") else other).append(r["content"])
         return decide.Seen(texts, content, other, workspace=self.d.env.workspace(task["conversation_id"]))
 
     def _proposal(self, task, action) -> decide.Proposal:
         cfg = msgspec.convert(json.loads(task["provider"]), ProviderConfig)
         _revision, config = repo.get_config(self.d.store)
+        cap = self.d.registry.by_wire(action["tool"])
+        if cap is not None and cap.name in hidden_tools(config):  # offered or not, a turned-off tool doesn't run
+            raise decide.Refused(f"{action['tool']} is turned off in Mei's Settings.")
         proposal = decide.prepare(self.d.registry, self.d.env, action, self._seen(task))
         return decide.for_provider(proposal, cloud=context.is_cloud(cfg), cloud_files=config.privacy.cloud_files)
 
@@ -424,6 +429,10 @@ class TaskLoop:
             result = ActionResult(ok=False, observation="It failed inside Mei (see the Mei runtime log).",
                                   error_class="failed", summary="Failed")
         self.d.boundary("action_ran")
+        if result.ok and result.handoff:
+            self._hand_off(task, action, result.handoff)
+            flight.action_id = None
+            return
         check: CheckResult | None = None
         if result.ok:
             try:
@@ -435,6 +444,16 @@ class TaskLoop:
         flight.action_id = None
         self.d.boundary("action_recorded")
 
+    def _hand_off(self, task, action, question: str) -> None:
+        """A step only the person may do (§10.3: a password field): the action stays started, and the
+        task waits for them to say Done (engine.answer_input finishes it)."""
+        with self.d.store.tx() as tx:
+            agent.create_input_request(tx, repo.task_dict(task), "handoff",
+                                       {"question": question, "choices": [HANDOFF_DONE, HANDOFF_SKIP], "fields": []},
+                                       action_id=action["id"])
+            repo.set_task_state(tx, task["id"], S.WAITING_INPUT)
+        self.d.publish(tx.events)
+
     def _record(self, task, action, result: ActionResult, check: CheckResult | None, elapsed_ms: int) -> None:
         mutating = (json.loads(action["effects"]) or {}).get("mutates", "no") != "no"
         observation = result.observation if result.ok else f"Error ({result.error_class or 'failed'}): {result.observation}"
@@ -442,6 +461,7 @@ class TaskLoop:
             observation += f"\n(Mei checked afterwards: it didn't take effect. {check.detail})"
         stored = msgspec.to_builtins(result)
         stored.pop("observation")
+        stored["images"] = self._keep_images(task, action, stored.pop("images"))
         if check is not None:
             stored["check"] = check.detail
         with self.d.store.tx() as tx:
@@ -450,11 +470,25 @@ class TaskLoop:
                                  verification=check.status if check else V.NOT_APPLICABLE,
                                  disposition=Disposition.CONFIRMED if result.ok and mutating else Disposition.NONE,
                                  error=None if result.ok else result.observation[:500])
-            # Content others wrote (a document, later a web page) taints the task; a folder listing doesn't.
-            taints = result.trust == "untrusted" and result.data_class == "file_content"
+            # Content others wrote (a document, a screen) taints the task; a folder listing doesn't.
+            taints = result.trust == "untrusted" and result.data_class in ("file_content", "screen")
             tx.execute("UPDATE tasks SET active_ms = active_ms + ?, tainted = MAX(tainted, ?) WHERE id = ?",
                        (elapsed_ms, int(taints), task["id"]))
         self.d.publish(tx.events)
+
+    def _keep_images(self, task, action, images: list[str]) -> list[str]:
+        """Pictures go to the conversation's artifacts (deleted with it), not into the ledger."""
+        paths = []
+        folder = self.d.env.artifacts(task["conversation_id"])
+        for i, data in enumerate(images[:2]):
+            try:
+                folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+                path = folder / f"{action['id']}-{i}.png"
+                path.write_bytes(base64.b64decode(data, validate=True))
+                paths.append(str(path))
+            except (OSError, ValueError) as e:
+                log.warning("couldn't keep a picture: %s", e, extra={"task_id": task["id"]})
+        return paths
 
     async def _settle_in_doubt(self, task, action, flight: InFlight) -> bool:
         """An action that was running when Mei died (§15): re-run it if that's safe, else probe the
@@ -485,6 +519,12 @@ class TaskLoop:
                 ledger.ask_in_doubt(tx, taskd, action)
         self.d.publish(tx.events)
         return disposition != Disposition.UNKNOWN
+
+
+def hidden_tools(config) -> frozenset[str]:
+    """Tools a setting turns off: memory's while memory is off, computer use's until it's allowed."""
+    return (frozenset() if config.memory.enabled else MEMORY_TOOLS) | \
+        (frozenset() if config.computer.enabled else COMPUTER_TOOLS)
 
 
 def _judged(action) -> dict[str, tuple[str, ...]]:

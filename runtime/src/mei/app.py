@@ -10,12 +10,14 @@ from contextlib import aclosing
 from pathlib import Path
 
 import httpx
-from dbus_fast import BusType
+from dbus_fast import BusType, Message, MessageType
 from dbus_fast.aio import MessageBus
 
 from mei import legacy
 from mei.capabilities.base import App, Env
 from mei.capabilities.catalog import default_registry
+from mei.computer import jail as computer_jail
+from mei.computer.controller import Desktop, DesktopError
 from mei.core.engine import Engine
 from mei.desktop import apps as desktop_apps
 from mei.desktop.gsettings import GSETTINGS, GSettingsCli
@@ -35,8 +37,8 @@ from mei.providers import factory, models
 from mei.providers.base import ChatTurn, ModelRequest, Provider, ProviderError, TextDelta
 from mei.providers.factory import label_of
 from mei.providers.profiles import PROFILES
-from mei.secrets import (KeyringLocked, KeyringUnavailable, keyring_state, lookup_provider_key, store_provider_key,
-                         unlock_keyring)
+from mei.secrets import (KeyringLocked, KeyringUnavailable, keyring_state, lookup_provider_key, lookup_secret,
+                         store_provider_key, store_secret, unlock_keyring)
 from mei.setup import Probes, Setup
 from mei.store import repo
 from mei.store.db import Store, iso_now, new_id
@@ -167,6 +169,49 @@ def desktop_env(bus: MessageBus, bridge: Callable) -> Env:
                media=Mpris(bus), status=SystemStatus(home))
 
 
+class KeyringTokens:
+    """The screen session's restore token, in the keyring: whoever holds it can start a session with no
+    dialog. A locked or missing keyring reads as no token, so the next session asks the person again."""
+
+    NAME = "screen-session"
+
+    def __init__(self, bus: MessageBus) -> None:
+        self._bus = bus
+
+    async def get(self) -> str:
+        try:
+            return await lookup_secret(self._bus, self.NAME) or ""
+        except (KeyringLocked, KeyringUnavailable) as e:
+            log.info("no screen session token: %s", e)
+            return ""
+
+    async def put(self, token: str) -> None:
+        try:
+            await store_secret(self._bus, self.NAME, "Mei screen session", token)
+        except (KeyringLocked, KeyringUnavailable) as e:
+            log.warning("couldn't keep the screen session token (the next session will ask again): %s", e)
+
+
+def desktop_controller(bus: MessageBus) -> Desktop | None:
+    """Computer use, where it can run: bubblewrap, xdg-dbus-proxy and the system's Python. None otherwise."""
+    missing = computer_jail.missing()
+    address = os.environ.get("DBUS_SESSION_BUS_ADDRESS", "")
+    if missing or not address:
+        log.info("computer use isn't available here: %s", missing or "no session bus address")
+        return None
+
+    async def a11y_address() -> str:
+        reply = await bus.call(Message(destination="org.a11y.Bus", path="/org/a11y/bus", interface="org.a11y.Bus",
+                                       member="GetAddress"))
+        if reply.message_type != MessageType.METHOD_RETURN:
+            raise DesktopError("unavailable", "the accessibility bus isn't running")
+        return str(reply.body[0])
+
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
+    return Desktop(address, a11y_address, KeyringTokens(bus), runtime / "mei",
+                   revoked=lambda reason: log.info("computer use stopped: %s", reason))
+
+
 def voice_controller(engine: Engine, service_ref: Callable[[], RuntimeService | None], client: httpx.AsyncClient,
                      key_for):
     """Voice, where it can run: the local engine installed (the optional `voice` extra, imported only
@@ -231,6 +276,7 @@ async def serve() -> int:
     async with httpx.AsyncClient(http2=False, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
         holder: list[RuntimeService] = []  # the service owns the Shell bridge; the env asks it when needed
         env = desktop_env(bus, lambda: holder[0].bridge if holder else None)
+        env.desktop = desktop = desktop_controller(bus)
         engine = Engine(store, publisher=None, provider_factory=provider_factory(client, key_for),
                         registry=default_registry(), env=env)
         make_provider = provider_factory(client, key_for)
@@ -251,6 +297,8 @@ async def serve() -> int:
         stopped = asyncio.ensure_future(stop.wait())
         done, _ = await asyncio.wait({disconnected, stopped}, return_when=asyncio.FIRST_COMPLETED)
         retention.cancel()
+        if desktop is not None:
+            await desktop.stop()
         if voice is not None:
             await voice.stop()
         await engine.shutdown()

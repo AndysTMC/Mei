@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 import msgspec
 
 from mei.capabilities.base import Env, backups_dir
+from mei.capabilities.computer import HANDOFF_DONE
 from mei.capabilities.registry import Registry
 from mei.core.states import TERMINAL, Disposition, Execution, TaskState
 from mei.protocol import (MAX_INPUT_CHARS, AnswerInputArgs, Attachment, Config, ConversationCommandArgs, ForgetMemoryArgs,
@@ -258,6 +259,13 @@ class Engine:
             agent.update_action(tx, action["id"], E.STARTED, epoch=self.store.epoch)
             ledger.finish_action(tx, task, action, E.SUCCEEDED, finish.answer_text(json.loads(request["spec"]), value),
                                  is_error=False, result={"ok": True, "summary": "Asked you a question"})
+            return
+        if request["kind"] == "handoff":  # the person did a step Mei may not (a password field)
+            done = value == HANDOFF_DONE
+            ledger.finish_action(tx, task, action, E.SUCCEEDED if done else E.FAILED,
+                                 "The person filled it in themselves. Observe the window again before going on."
+                                 if done else "The person didn't fill it in.", is_error=not done,
+                                 result={"ok": done, "summary": "You filled in a field" if done else "Skipped a field"})
             return
         yes, no, _unsure = ledger.IN_DOUBT_CHOICES  # an action in doubt after a restart (§15)
         if value == yes:

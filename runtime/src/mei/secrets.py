@@ -22,6 +22,7 @@ SERVICE = "org.freedesktop.secrets"
 SERVICE_PATH = "/org/freedesktop/secrets"
 SERVICE_IFACE = "org.freedesktop.Secret.Service"
 SCHEMA = "com.andystmc.mei.provider-api-key"
+OWN_SCHEMA = "com.andystmc.mei.secret"  # Mei's own secrets, not provider keys
 
 
 class KeyringLocked(Exception):
@@ -65,7 +66,25 @@ async def _session(bus: MessageBus) -> AsyncIterator[tuple[str, Transport]]:
 
 
 async def lookup_provider_key(bus: MessageBus, provider_id: str) -> str | None:
-    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_UUID, "provider": provider_id}
+    return await _lookup(bus, {"xdg:schema": SCHEMA, "extension": EXTENSION_UUID, "provider": provider_id})
+
+
+async def store_provider_key(bus: MessageBus, provider_id: str, value: str) -> None:
+    """Store (or replace) a provider key in the default collection. Raises KeyringLocked if locked."""
+    await _store(bus, {"xdg:schema": SCHEMA, "extension": EXTENSION_UUID, "provider": provider_id},
+                 f"Mei {provider_id} API key", value)
+
+
+async def lookup_secret(bus: MessageBus, name: str) -> str | None:
+    """One of Mei's own secrets (the screen session's restore token), not a provider key."""
+    return await _lookup(bus, {"xdg:schema": OWN_SCHEMA, "extension": EXTENSION_UUID, "name": name})
+
+
+async def store_secret(bus: MessageBus, name: str, label: str, value: str) -> None:
+    await _store(bus, {"xdg:schema": OWN_SCHEMA, "extension": EXTENSION_UUID, "name": name}, label, value)
+
+
+async def _lookup(bus: MessageBus, attrs: dict[str, str]) -> str | None:
     async with _session(bus) as (session, transport):
         unlocked, locked = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "SearchItems", "a{ss}", [attrs])
         if unlocked:
@@ -81,14 +100,12 @@ async def lookup_provider_key(bus: MessageBus, provider_id: str) -> str | None:
         return None
 
 
-async def store_provider_key(bus: MessageBus, provider_id: str, value: str) -> None:
-    """Store (or replace) a provider key in the default collection. Raises KeyringLocked if locked."""
-    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_UUID, "provider": provider_id}
+async def _store(bus: MessageBus, attrs: dict[str, str], label: str, value: str) -> None:
     async with _session(bus) as (session, transport):
         collection = await _default_collection(bus)
         if collection is None:
             raise KeyringUnavailable("no default keyring collection")
-        props = {"org.freedesktop.Secret.Item.Label": Variant("s", f"Mei {provider_id} API key"),
+        props = {"org.freedesktop.Secret.Item.Label": Variant("s", label),
                  "org.freedesktop.Secret.Item.Attributes": Variant("a{ss}", attrs)}
         params, sealed = transport.seal(value.encode())
         try:
@@ -104,17 +121,19 @@ async def store_provider_key(bus: MessageBus, provider_id: str, value: str) -> N
 
 
 async def delete_provider_keys(bus: MessageBus) -> tuple[int, int]:
-    """Delete every Mei key (uninstall --purge). Returns (deleted, left); locked items are left."""
-    attrs = {"xdg:schema": SCHEMA, "extension": EXTENSION_UUID}
-    unlocked, locked = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "SearchItems", "a{ss}", [attrs])
-    deleted, left = 0, len(locked)
-    for item in unlocked:
-        (prompt,) = await _call(bus, item, "org.freedesktop.Secret.Item", "Delete")
-        if prompt == "/":
-            deleted += 1
-        else:
-            await _call(bus, prompt, "org.freedesktop.Secret.Prompt", "Dismiss")
-            left += 1
+    """Delete every Mei key and secret (uninstall --purge). Returns (deleted, left); locked items are left."""
+    deleted, left = 0, 0
+    for schema in (SCHEMA, OWN_SCHEMA):
+        unlocked, locked = await _call(bus, SERVICE_PATH, SERVICE_IFACE, "SearchItems", "a{ss}",
+                                       [{"xdg:schema": schema, "extension": EXTENSION_UUID}])
+        left += len(locked)
+        for item in unlocked:
+            (prompt,) = await _call(bus, item, "org.freedesktop.Secret.Item", "Delete")
+            if prompt == "/":
+                deleted += 1
+            else:
+                await _call(bus, prompt, "org.freedesktop.Secret.Prompt", "Dismiss")
+                left += 1
     return deleted, left
 
 

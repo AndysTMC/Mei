@@ -251,6 +251,11 @@ class VoiceListenArgs(msgspec.Struct):
     dictate: bool = False
 
 
+class ComputerSettings(msgspec.Struct, kw_only=True):
+    # Computer use (§10, decision 0022). Off until the person allows it in setup or Settings.
+    enabled: bool = False
+
+
 class Config(msgspec.Struct, kw_only=True):
     active: str = ""  # provider id used for new tasks
     providers: dict[str, ProviderSettings] = msgspec.field(default_factory=dict)
@@ -259,6 +264,7 @@ class Config(msgspec.Struct, kw_only=True):
     clients: Clients = msgspec.field(default_factory=Clients)
     memory: MemorySettings = msgspec.field(default_factory=MemorySettings)
     voice: VoiceSettings = msgspec.field(default_factory=VoiceSettings)
+    computer: ComputerSettings = msgspec.field(default_factory=ComputerSettings)
 
 
 def active_provider(config: Config) -> ProviderConfig:
