@@ -60,7 +60,9 @@ export interface VoiceSettingsDoc {
     device: VoiceDevice;
     gpu_idle_min: number; // let the GPU go after this long unused
     barge_in: boolean;
+    echo_cancel: boolean; // with speakers, the barge-in watch hears Mei's voice taken out (decision 0021)
     wake_word: boolean;
+    wake_pause: boolean; // stop listening for "Hey Mei" while another app records (decision 0023)
     end_silence_ms: number;
     mic: string; // a PipeWire node name; '' = the system default
     output: string;

@@ -203,7 +203,8 @@ async def test_settings_tools_are_hidden_without_gsettings(env):
 
 
 async def test_audio_devices_come_from_the_graph_by_node_name(tmp_path):
-    """Microphones and speakers from `pw-dump`; other nodes (apps' streams, video) are left out."""
+    """Microphones and speakers from `pw-dump`; other nodes (apps' streams, video, Mei's own echo
+    canceller) are left out."""
     import json
     from mei.desktop.sound import audio_devices
     graph = [
@@ -214,6 +215,8 @@ async def test_audio_devices_come_from_the_graph_by_node_name(tmp_path):
         {"id": 40, "type": "PipeWire:Interface:Node", "info": {"props": {
             "media.class": "Stream/Output/Audio", "node.name": "Firefox"}}},
         {"id": 41, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "cam"}}},
+        {"id": 42, "type": "PipeWire:Interface:Node", "info": {"props": {
+            "media.class": "Audio/Source", "node.name": "mei.echo-cancel.1a2b3c4d.source"}}},
         {"id": 50, "type": "PipeWire:Interface:Port", "info": {"props": {"media.class": "Audio/Sink", "node.name": "x"}}},
     ]
     fake = tmp_path / "pw-dump"

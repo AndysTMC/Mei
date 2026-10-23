@@ -363,11 +363,13 @@ export class RuntimeSettings {
 }
 
 export type VoiceField = 'enabled' | 'speak_replies' | 'stt' | 'tts' | 'voice' | 'cloud_voice' | 'kokoro_speaker'
-    | 'speed' | 'device' | 'gpu_idle_min' | 'barge_in' | 'wake_word' | 'end_silence_ms' | 'mic' | 'output';
+    | 'speed' | 'device' | 'gpu_idle_min' | 'barge_in' | 'echo_cancel' | 'wake_word' | 'wake_pause' | 'end_silence_ms' | 'mic' | 'output';
 
 const VOICE_DEFAULTS: VoiceSettingsDoc = {
     enabled: false, speak_replies: true, stt: 'local', tts: 'piper', voice: 'amy', cloud_voice: '', kokoro_speaker: 0,
-    speed: 1.0, device: 'auto', gpu_idle_min: 5, barge_in: false, wake_word: false, end_silence_ms: 500, mic: '', output: '',
+    speed: 1.0, device: 'auto', gpu_idle_min: 5, barge_in: false, echo_cancel: true, wake_word: false, wake_pause: true,
+    end_silence_ms: 500,
+    mic: '', output: '',
 };
 
 function voiceOf(doc: ConfigDoc): VoiceSettingsDoc {

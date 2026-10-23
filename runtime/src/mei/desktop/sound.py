@@ -8,6 +8,9 @@ from .run import ToolFailed, checked
 
 WPCTL = "/usr/bin/wpctl"
 PW_DUMP = "/usr/bin/pw-dump"
+# Mei's own echo canceller's source, there while Mei talks (decision 0021): not a microphone to choose.
+# The same prefix as voice/pipewire.py's CANCELLER_NODES (the core doesn't import the voice engine).
+MEI_NODES = "mei.echo-cancel."
 SINK = "@DEFAULT_AUDIO_SINK@"
 SOURCE = "@DEFAULT_AUDIO_SOURCE@"
 _VOLUME = re.compile(r"Volume:\s*([0-9.]+)(\s*\[MUTED\])?")
@@ -44,7 +47,8 @@ async def audio_devices(tool: str = PW_DUMP) -> dict[str, list[dict]]:
         kind = str(props.get("media.class", ""))
         key = "mics" if kind.startswith("Audio/Source") else "outputs" if kind.startswith("Audio/Sink") else ""
         name = props.get("node.name")
-        if obj.get("type") != "PipeWire:Interface:Node" or not key or not isinstance(name, str):
+        if obj.get("type") != "PipeWire:Interface:Node" or not key or not isinstance(name, str) \
+                or name.startswith(MEI_NODES):
             continue
         found[key].append({"id": obj.get("id"), "name": name,
                            "label": str(props.get("node.description") or props.get("node.nick") or name)})

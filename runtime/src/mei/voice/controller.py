@@ -33,6 +33,7 @@ from mei.desktop.sound import SOURCE, Wpctl, audio_devices
 
 from . import download, gpu_engine, jail, remote, wire
 from .cloud import TTS, CloudSpeech
+from .mic_users import MicUsers
 from .models import CATALOG, KOKORO, KOKORO_VOICES, KROKO, KWS, PIPER, SILERO, have, kokoro_label, models_dir
 from .parts import VoiceError
 from .speakable import Sentences
@@ -50,6 +51,9 @@ CLOUD_FALLBACK = {"hearing": "this computer wrote down what you said", "speaking
 OVERDRIVEN_DB = -20.0  # silence louder than this, or any real clipping, breaks voice detection (spike 0c)
 OVERDRIVEN_CLIP_PCT = 0.5
 FIXED_LEVEL_PCT = 50  # spike 0c: the laptop mic was clean at 51 %
+
+PAUSED_NOTE = "Paused while another app uses the microphone"
+MIC_USERS_NOTES = (PAUSED_NOTE, "“Hey Mei” isn't paused for other apps")
 
 States = ("off", "unavailable", "starting", "idle", "listening", "thinking", "speaking", "suspended")
 
@@ -94,6 +98,9 @@ class VoiceController:
         self._stopping = False
         self._restarts = 0
         self._ready = asyncio.Event()
+        # "Hey Mei" pauses while another app records (decision 0023).
+        self._mic_users = MicUsers(self._others_recording, self._mic_users_trouble)
+        self._paused = False
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -105,6 +112,12 @@ class VoiceController:
             await self.stop()
             self._set("off")
             return
+        try:
+            await self._apply(settings, changed)
+        finally:
+            await self._follow_mic_users()
+
+    async def _apply(self, settings: VoiceSettings, changed: bool) -> None:
         missing = [m.part for m in self.needed() if not have(m, self._models)]
         if missing:
             await self.stop()
@@ -127,6 +140,7 @@ class VoiceController:
         return (SILERO, KROKO, *speech, *([KWS] if s.wake_word else []))
 
     async def stop(self) -> None:
+        await self._mic_users.stop()
         proc, self._proc = self._proc, None
         if proc is None:
             return
@@ -167,6 +181,7 @@ class VoiceController:
         tts = s.tts if s.tts in ("piper", "kokoro") else "core"
         await self._send(wire.Load(models=str(self._models), stt=stt, tts=tts, voice=s.voice, speaker=s.kokoro_speaker,
                                    speed=s.speed, device=s.device, wake=s.wake_word, barge_in=s.barge_in,
+                                   echo_cancel=s.echo_cancel,
                                    end_silence_s=s.end_silence_ms / 1000, mic=s.mic, output=s.output,
                                    gpu_engine=str(self._gpu_engine or ""), gpu_idle_s=s.gpu_idle_min * 60,
                                    **self._load_extra))
@@ -314,6 +329,7 @@ class VoiceController:
     async def set_locked(self, locked: bool) -> None:
         """The screen locked or unlocked: nothing listens while it is locked."""
         self._locked = locked
+        await self._follow_mic_users()
         if self._proc is None:
             return
         await self._send(wire.Suspend() if locked else wire.Resume())
@@ -371,6 +387,8 @@ class VoiceController:
                 self._ready.set()
                 if self._locked:
                     await self._send(wire.Suspend())
+                if self._paused:  # the load re-armed the wake word
+                    await self._send(wire.Arm(on=False))
             case wire.Failed(part=part, message=message):
                 self._set("unavailable" if not self._ready.is_set() else self.state, f"{part}: {message}")
                 self._ready.set()
@@ -538,6 +556,34 @@ class VoiceController:
             await self._send(cmd)
         except ProtocolError as e:
             log.warning("voice: couldn't send %s: %s", type(cmd).__name__, e.message)
+
+    # ── Another app recording: "Hey Mei" pauses (decision 0023) ──────────────
+
+    async def _follow_mic_users(self) -> None:
+        """Watch for other apps recording only while the wake word is armed: never otherwise."""
+        s = self._settings
+        if s.enabled and s.wake_word and s.wake_pause and not self._locked and self._proc is not None:
+            self._mic_users.start()
+        elif self._mic_users.running:
+            await self._mic_users.stop()
+            if self.note.startswith(MIC_USERS_NOTES):
+                self._set(self.state, "")
+
+    def _others_recording(self, others: bool) -> None:
+        """Another app started or stopped recording: let go of the microphone, or take it back.
+        Push to talk still works meanwhile; only the wake word waits."""
+        self._paused = others
+        asyncio.ensure_future(self._send_quietly(wire.Arm(on=not others)))
+        if others:
+            self._set(self.state, PAUSED_NOTE)
+        elif self.note == PAUSED_NOTE:
+            self._set(self.state, "")
+
+    def _mic_users_trouble(self, message: str) -> None:
+        if message:
+            self._set(self.state, f"“Hey Mei” isn't paused for other apps: {message}")
+        elif self.note.startswith(MIC_USERS_NOTES[1]):
+            self._set(self.state, "")
 
     def _set(self, state: str, note: str | None = None) -> None:
         if note is not None:

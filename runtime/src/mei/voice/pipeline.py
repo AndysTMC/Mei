@@ -94,17 +94,20 @@ class Listener:
         """The person says they're done (pressed the shortcut again): end the utterance now."""
         self._done.set()
 
-    async def listen(self, preroll: list[np.ndarray] | None = None) -> AsyncIterator[Heard]:
-        """One utterance. `preroll`: audio already heard (the start of a barge-in). The microphone
-        is open only while this runs."""
+    async def listen(self, preroll: list[np.ndarray] | None = None,
+                     source: AudioSource | None = None) -> AsyncIterator[Heard]:
+        """One utterance. `preroll`: audio already heard (the start of a barge-in), on `source`
+        when it isn't the usual microphone (the echo-cancelled one). The microphone is open only
+        while this runs."""
+        source = source or self._source
         self._done.clear()
         self._vad.reset()
         text = self._stt.open()
         heard = False
         total = 0.0
-        await self._source.start()
+        await source.start()
         try:
-            chunks = self._source.chunks()
+            chunks = source.chunks()
             for chunk in preroll or []:
                 heard = heard or self._vad.is_speech(chunk)
                 if (partial := await text.accept(chunk)) is not None:
@@ -126,7 +129,7 @@ class Listener:
                 if total >= self._ep.max_s:
                     break
         finally:
-            await self._source.stop()
+            await source.stop()
         await text.accept(np.zeros(int(self._ep.tail_s * SAMPLE_RATE), np.float32))
         final = await text.finish()
         yield Final(final) if final else NoSpeech()

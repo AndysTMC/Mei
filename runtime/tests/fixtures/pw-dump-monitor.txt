@@ -1,0 +1,1201 @@
+[
+  {
+    "id": 2,
+    "type": "PipeWire:Interface:SecurityContext",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x"
+    ],
+    "props": {
+      "object.serial": 2
+    }
+  },
+  {
+    "id": 14,
+    "type": "PipeWire:Interface:Metadata",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x"
+    ],
+    "props": {
+      "factory.id": 4,
+      "metadata.name": "default",
+      "module.id": 3,
+      "object.serial": 14
+    },
+    "metadata": [
+      {
+        "subject": 0,
+        "key": "default.audio.sink",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "lab.speaker"
+        }
+      },
+      {
+        "subject": 0,
+        "key": "default.audio.source",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "lab.mic"
+        }
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "audio.position": "[ MONO ]",
+        "audio.rate": 48000,
+        "clock.quantum-limit": 8192,
+        "factory.id": 11,
+        "factory.name": "support.null-audio-sink",
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.class": "Audio/Sink",
+        "node.description": "Lab speaker",
+        "node.driver": true,
+        "node.loop.name": "data-loop.0",
+        "node.name": "lab.speaker",
+        "object.id": 15,
+        "object.linger": true,
+        "object.serial": 15,
+        "port.group": "stream.0",
+        "priority.driver": 20000,
+        "priority.session": 1000
+      }
+    }
+  },
+  {
+    "id": 16,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "audio.position": "[ MONO ]",
+        "audio.rate": 48000,
+        "clock.quantum-limit": 8192,
+        "factory.id": 11,
+        "factory.name": "support.null-audio-sink",
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.class": "Audio/Sink",
+        "node.description": "Lab talker",
+        "node.driver": true,
+        "node.loop.name": "data-loop.0",
+        "node.name": "lab.talker",
+        "object.id": 16,
+        "object.linger": true,
+        "object.serial": 16,
+        "port.group": "stream.0",
+        "priority.session": 10
+      }
+    }
+  },
+  {
+    "id": 17,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "audio.position": "[ MONO ]",
+        "audio.rate": 48000,
+        "clock.quantum-limit": 8192,
+        "factory.id": 11,
+        "factory.name": "support.null-audio-sink",
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.class": "Audio/Source/Virtual",
+        "node.description": "Lab mic",
+        "node.driver": true,
+        "node.driver-id": 16,
+        "node.loop.name": "data-loop.0",
+        "node.name": "lab.mic",
+        "object.id": 17,
+        "object.linger": true,
+        "object.serial": 17,
+        "port.group": "stream.0",
+        "priority.session": 2000
+      }
+    }
+  },
+  {
+    "id": 18,
+    "type": "PipeWire:Interface:Metadata",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x"
+    ],
+    "props": {
+      "metadata.name": "settings",
+      "object.serial": 18
+    },
+    "metadata": [
+      {
+        "subject": 0,
+        "key": "log.level",
+        "type": "",
+        "value": 2
+      },
+      {
+        "subject": 0,
+        "key": "clock.rate",
+        "type": "",
+        "value": 48000
+      },
+      {
+        "subject": 0,
+        "key": "clock.allowed-rates",
+        "type": "",
+        "value": "[ 48000 ]"
+      },
+      {
+        "subject": 0,
+        "key": "clock.quantum",
+        "type": "",
+        "value": 1024
+      },
+      {
+        "subject": 0,
+        "key": "clock.min-quantum",
+        "type": "",
+        "value": 32
+      },
+      {
+        "subject": 0,
+        "key": "clock.max-quantum",
+        "type": "",
+        "value": 2048
+      },
+      {
+        "subject": 0,
+        "key": "clock.force-quantum",
+        "type": "",
+        "value": 0
+      },
+      {
+        "subject": 0,
+        "key": "clock.force-rate",
+        "type": "",
+        "value": 0
+      }
+    ]
+  },
+  {
+    "id": 20,
+    "type": "PipeWire:Interface:Metadata",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x"
+    ],
+    "props": {
+      "client.id": 19,
+      "factory.id": 4,
+      "metadata.name": "schema-sm-settings",
+      "module.id": 3,
+      "object.serial": 21
+    },
+    "metadata": [
+      {
+        "subject": 0,
+        "key": "bluetooth.use-persistent-storage",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Persistent storage",
+          "description": "Remember and restore Bluetooth headset mode status",
+          "type": "bool",
+          "default": true
+        }
+      },
+      {
+        "subject": 0,
+        "key": "bluetooth.autoswitch-to-headset-profile",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Auto-switch to headset profile",
+          "description": "Always show microphone for Bluetooth headsets, and switch to headset mode when recording",
+          "type": "bool",
+          "default": true
+        }
+      },
+      {
+        "subject": 0,
+        "key": "device.restore-profile",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Restore profile",
+          "description": "Remember and restore device profiles",
+          "type": "bool",
+          "default": true
+        }
+      },
+      {
+        "subject": 0,
+        "key": "device.restore-routes",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Restore routes",
+          "description": "Remember and restore device routes",
+          "type": "bool",
+          "default": true
+        }
+      },
+      {
+        "subject": 0,
+        "key": "device.routes.default-sink-volume",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Default sink volume",
+          "description": "The default volume for audio sinks",
+          "type": "float",
+          "default": 0.064,
+          "min": 0.0,
+          "max": 1.0
+        }
+      },
+      {
+        "subject": 0,
+        "key": "device.routes.default-source-volume",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Default source volume",
+          "description": "The default volume for audio sources",
+          "type": "float",
+          "default": 1.0,
+          "min": 0.0,
+          "max": 1.0
+        }
+      },
+      {
+        "subject": 0,
+        "key": "device.routes.mute-on-alsa-playback-removed",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Auto-mute on wired audio disconnect",
+          "description": "Automatically mute all audio devices when active wired headphones/speakers are disconnected to prevent unintended sound output",
+          "type": "bool",
+          "default": false
+        }
+      },
+      {
+        "subject": 0,
+        "key": "device.routes.mute-on-bluetooth-playback-removed",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Auto-mute on Bluetooth audio disconnect",
+          "description": "Automatically mute all audio devices when active Bluetooth headphones/speakers are disconnected to prevent unintended sound output",
+          "type": "bool",
+          "default": false
+        }
+      },
+      {
+        "subject": 0,
+        "key": "linking.role-based.duck-level",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Ducking level",
+          "description": "The volume level to apply when ducking (= reducing volume for a higher priority stream to be audible) in the role-based linking policy",
+          "type": "float",
+          "default": 0.3,
+          "min": 0.0,
+          "max": 1.0
+        }
+      },
+      {
+        "subject": 0,
+        "key": "linking.allow-moving-streams",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Allow moving streams",
+          "description": "Streams may be moved by adding PipeWire metadata at runtime",
+          "type": "bool",
+          "default": true
+        }
+      },
+      {
+        "subject": 0,
+        "key": "linking.follow-default-target",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Follow default target",
+          "description": "Streams connected to the default device follow when default changes",
+          "type": "bool",
+          "default": true
+        }
+      },
+      {
+        "subject": 0,
+        "key": "linking.pause-playback",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Pause playback if output removed",
+          "description": "Pause media players if their target sink is removed",
+          "type": "bool",
+          "default": true
+        }
+      },
+      {
+        "subject": 0,
+        "key": "monitor.camera-discovery-timeout",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Discovery timeout",
+          "description": "The camera discovery timeout in milliseconds",
+          "type": "int",
+          "default": 1000,
+          "min": 0,
+          "max": 60000
+        }
+      },
+      {
+        "subject": 0,
+        "key": "monitor.alsa.autodetect-hdmi-channels",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Automatically detect HDMI channels (experimental)",
+          "description": "Automatically detect channel count and positions for HDMI devices (experimental)",
+          "type": "bool",
+          "default": false
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.features.audio.no-dsp",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "No DSP",
+          "description": "Do not convert audio to F32 format",
+          "type": "bool",
+          "default": false
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.features.audio.monitor-ports",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Monitor ports",
+          "description": "Enable monitor ports on audio nodes",
+          "type": "bool",
+          "default": true
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.features.audio.control-port",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Control ports",
+          "description": "Enable control ports on audio nodes",
+          "type": "bool",
+          "default": false
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.features.audio.mono",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Mono",
+          "description": "Configure all audio device sink nodes in MONO",
+          "type": "bool",
+          "default": false
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.stream.restore-props",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Restore properties",
+          "description": "Remember and restore properties of streams",
+          "type": "bool",
+          "default": true
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.stream.restore-target",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Restore target",
+          "description": "Remember and restore stream targets",
+          "type": "bool",
+          "default": true
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.stream.default-playback-volume",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Default playback volume",
+          "description": "The default volume for playback nodes",
+          "type": "float",
+          "default": 1.0,
+          "min": 0.0,
+          "max": 1.0
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.stream.default-capture-volume",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Default capture volume",
+          "description": "The default volume for capture nodes",
+          "type": "float",
+          "default": 1.0,
+          "min": 0.0,
+          "max": 1.0
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.stream.default-media-role",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Default media role",
+          "description": "Default media.role to assign on streams that do not specify it",
+          "type": "string",
+          "default": "null"
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.filter.forward-format",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Forward format",
+          "description": "Forward format on filter nodes or not",
+          "type": "bool",
+          "default": false
+        }
+      },
+      {
+        "subject": 0,
+        "key": "node.restore-default-targets",
+        "type": "Spa:String:JSON",
+        "value": {
+          "name": "Restore default target",
+          "description": "Remember and restore default audio/video input/output devices",
+          "type": "bool",
+          "default": true
+        }
+      }
+    ]
+  },
+  {
+    "id": 22,
+    "type": "PipeWire:Interface:Metadata",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x"
+    ],
+    "props": {
+      "client.id": 19,
+      "factory.id": 4,
+      "metadata.name": "sm-settings",
+      "module.id": 3,
+      "object.serial": 23
+    },
+    "metadata": [
+      {
+        "subject": 0,
+        "key": "bluetooth.use-persistent-storage",
+        "type": "Spa:String:JSON",
+        "value": true
+      },
+      {
+        "subject": 0,
+        "key": "bluetooth.autoswitch-to-headset-profile",
+        "type": "Spa:String:JSON",
+        "value": true
+      },
+      {
+        "subject": 0,
+        "key": "device.restore-profile",
+        "type": "Spa:String:JSON",
+        "value": true
+      },
+      {
+        "subject": 0,
+        "key": "device.restore-routes",
+        "type": "Spa:String:JSON",
+        "value": true
+      },
+      {
+        "subject": 0,
+        "key": "device.routes.default-sink-volume",
+        "type": "Spa:String:JSON",
+        "value": 0.064
+      },
+      {
+        "subject": 0,
+        "key": "device.routes.default-source-volume",
+        "type": "Spa:String:JSON",
+        "value": 1.0
+      },
+      {
+        "subject": 0,
+        "key": "device.routes.mute-on-alsa-playback-removed",
+        "type": "Spa:String:JSON",
+        "value": false
+      },
+      {
+        "subject": 0,
+        "key": "device.routes.mute-on-bluetooth-playback-removed",
+        "type": "Spa:String:JSON",
+        "value": false
+      },
+      {
+        "subject": 0,
+        "key": "linking.role-based.duck-level",
+        "type": "Spa:String:JSON",
+        "value": 0.3
+      },
+      {
+        "subject": 0,
+        "key": "linking.allow-moving-streams",
+        "type": "Spa:String:JSON",
+        "value": true
+      },
+      {
+        "subject": 0,
+        "key": "linking.follow-default-target",
+        "type": "Spa:String:JSON",
+        "value": true
+      },
+      {
+        "subject": 0,
+        "key": "linking.pause-playback",
+        "type": "Spa:String:JSON",
+        "value": true
+      },
+      {
+        "subject": 0,
+        "key": "monitor.camera-discovery-timeout",
+        "type": "Spa:String:JSON",
+        "value": 1000
+      },
+      {
+        "subject": 0,
+        "key": "monitor.alsa.autodetect-hdmi-channels",
+        "type": "Spa:String:JSON",
+        "value": false
+      },
+      {
+        "subject": 0,
+        "key": "node.features.audio.no-dsp",
+        "type": "Spa:String:JSON",
+        "value": false
+      },
+      {
+        "subject": 0,
+        "key": "node.features.audio.monitor-ports",
+        "type": "Spa:String:JSON",
+        "value": true
+      },
+      {
+        "subject": 0,
+        "key": "node.features.audio.control-port",
+        "type": "Spa:String:JSON",
+        "value": false
+      },
+      {
+        "subject": 0,
+        "key": "node.features.audio.mono",
+        "type": "Spa:String:JSON",
+        "value": false
+      },
+      {
+        "subject": 0,
+        "key": "node.stream.restore-props",
+        "type": "Spa:String:JSON",
+        "value": true
+      },
+      {
+        "subject": 0,
+        "key": "node.stream.restore-target",
+        "type": "Spa:String:JSON",
+        "value": true
+      },
+      {
+        "subject": 0,
+        "key": "node.stream.default-playback-volume",
+        "type": "Spa:String:JSON",
+        "value": 1.0
+      },
+      {
+        "subject": 0,
+        "key": "node.stream.default-capture-volume",
+        "type": "Spa:String:JSON",
+        "value": 1.0
+      },
+      {
+        "subject": 0,
+        "key": "node.stream.default-media-role",
+        "type": "Spa:String:JSON",
+        "value": "null"
+      },
+      {
+        "subject": 0,
+        "key": "node.filter.forward-format",
+        "type": "Spa:String:JSON",
+        "value": false
+      },
+      {
+        "subject": 0,
+        "key": "node.restore-default-targets",
+        "type": "Spa:String:JSON",
+        "value": true
+      }
+    ]
+  }
+]
+[
+  {
+    "id": 35,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "adapt.follower.spa-node": "",
+        "application.name": "pw-record",
+        "client.id": 34,
+        "clock.quantum-limit": 8192,
+        "factory.id": 9,
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.category": "Capture",
+        "media.class": "Stream/Input/Audio",
+        "media.filename": "/dev/null",
+        "media.name": "/dev/null",
+        "media.role": "Music",
+        "media.type": "Audio",
+        "node.async": true,
+        "node.autoconnect": true,
+        "node.loop.class": "main",
+        "node.loop.name": "main-loop",
+        "node.name": "mei.microphone",
+        "node.rate": "1/48000",
+        "node.want-driver": true,
+        "object.id": 35,
+        "object.register": false,
+        "object.serial": 40,
+        "port.group": "stream.0",
+        "stream.is-live": true,
+        "target.object": "lab.mic"
+      }
+    }
+  }
+]
+[
+  {
+    "id": 35,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "adapt.follower.spa-node": "",
+        "application.name": "pw-record",
+        "client.id": 34,
+        "clock.quantum-limit": 8192,
+        "factory.id": 9,
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.category": "Capture",
+        "media.class": "Stream/Input/Audio",
+        "media.filename": "/dev/null",
+        "media.name": "/dev/null",
+        "media.role": "Music",
+        "media.type": "Audio",
+        "node.async": true,
+        "node.autoconnect": true,
+        "node.loop.class": "main",
+        "node.loop.name": "main-loop",
+        "node.name": "mei.microphone",
+        "node.rate": "1/48000",
+        "node.want-driver": true,
+        "object.id": 35,
+        "object.register": false,
+        "object.serial": 40,
+        "port.group": "stream.0",
+        "stream.is-live": true,
+        "target.object": "lab.mic"
+      }
+    }
+  }
+]
+[
+  {
+    "id": 17,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "audio.position": "[ MONO ]",
+        "audio.rate": 48000,
+        "clock.quantum-limit": 8192,
+        "factory.id": 11,
+        "factory.name": "support.null-audio-sink",
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.class": "Audio/Source/Virtual",
+        "node.description": "Lab mic",
+        "node.driver": true,
+        "node.driver-id": 16,
+        "node.loop.name": "data-loop.0",
+        "node.name": "lab.mic",
+        "object.id": 17,
+        "object.linger": true,
+        "object.serial": 17,
+        "port.group": "stream.0",
+        "priority.session": 2000
+      }
+    }
+  },
+  {
+    "id": 35,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "adapt.follower.spa-node": "",
+        "application.name": "pw-record",
+        "client.id": 34,
+        "clock.quantum-limit": 8192,
+        "factory.id": 9,
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.category": "Capture",
+        "media.class": "Stream/Input/Audio",
+        "media.filename": "/dev/null",
+        "media.name": "/dev/null",
+        "media.role": "Music",
+        "media.type": "Audio",
+        "node.async": true,
+        "node.autoconnect": true,
+        "node.loop.class": "main",
+        "node.loop.name": "main-loop",
+        "node.name": "mei.microphone",
+        "node.rate": "1/48000",
+        "node.want-driver": true,
+        "object.id": 35,
+        "object.register": false,
+        "object.serial": 40,
+        "port.group": "stream.0",
+        "stream.is-live": true,
+        "target.object": "lab.mic"
+      }
+    }
+  }
+]
+[
+  {
+    "id": 14,
+    "type": "PipeWire:Interface:Metadata",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x"
+    ],
+    "props": {
+      "factory.id": 4,
+      "metadata.name": "default",
+      "module.id": 3,
+      "object.serial": 14
+    },
+    "metadata": [
+      {
+        "subject": 35,
+        "key": "target.node",
+        "type": "Spa:Id",
+        "value": -1
+      }
+    ]
+  },
+  {
+    "id": 35,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "adapt.follower.spa-node": "",
+        "application.name": "pw-record",
+        "client.id": 34,
+        "clock.quantum-limit": 8192,
+        "factory.id": 9,
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.category": "Capture",
+        "media.class": "Stream/Input/Audio",
+        "media.filename": "/dev/null",
+        "media.name": "/dev/null",
+        "media.role": "Music",
+        "media.type": "Audio",
+        "node.async": true,
+        "node.autoconnect": true,
+        "node.driver-id": 16,
+        "node.loop.class": "main",
+        "node.loop.name": "main-loop",
+        "node.name": "mei.microphone",
+        "node.rate": "1/48000",
+        "node.want-driver": true,
+        "object.id": 35,
+        "object.register": false,
+        "object.serial": 40,
+        "port.group": "stream.0",
+        "stream.is-live": true,
+        "target.object": "lab.mic"
+      }
+    }
+  }
+]
+[
+  {
+    "id": 38,
+    "info": null
+  }
+]
+[
+  {
+    "id": 36,
+    "info": null
+  }
+]
+[
+  {
+    "id": 37,
+    "info": null
+  }
+]
+[
+  {
+    "id": 35,
+    "info": null
+  }
+]
+[
+  {
+    "id": 34,
+    "info": null
+  }
+]
+[
+  {
+    "id": 14,
+    "type": "PipeWire:Interface:Metadata",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x"
+    ],
+    "props": {
+      "factory.id": 4,
+      "metadata.name": "default",
+      "module.id": 3,
+      "object.serial": 14
+    },
+    "metadata": []
+  }
+]
+[
+  {
+    "id": 35,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "adapt.follower.spa-node": "",
+        "application.name": "pw-record",
+        "client.id": 34,
+        "clock.quantum-limit": 8192,
+        "factory.id": 9,
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.category": "Capture",
+        "media.class": "Stream/Input/Audio",
+        "media.filename": "/dev/null",
+        "media.name": "/dev/null",
+        "media.role": "Music",
+        "media.type": "Audio",
+        "node.async": true,
+        "node.autoconnect": true,
+        "node.loop.class": "main",
+        "node.loop.name": "main-loop",
+        "node.name": "otherapp",
+        "node.rate": "1/48000",
+        "node.want-driver": true,
+        "object.id": 35,
+        "object.register": false,
+        "object.serial": 45,
+        "port.group": "stream.0",
+        "stream.is-live": true,
+        "target.object": "lab.mic"
+      }
+    }
+  }
+]
+[
+  {
+    "id": 35,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "adapt.follower.spa-node": "",
+        "application.name": "pw-record",
+        "client.id": 34,
+        "clock.quantum-limit": 8192,
+        "factory.id": 9,
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.category": "Capture",
+        "media.class": "Stream/Input/Audio",
+        "media.filename": "/dev/null",
+        "media.name": "/dev/null",
+        "media.role": "Music",
+        "media.type": "Audio",
+        "node.async": true,
+        "node.autoconnect": true,
+        "node.loop.class": "main",
+        "node.loop.name": "main-loop",
+        "node.name": "otherapp",
+        "node.rate": "1/48000",
+        "node.want-driver": true,
+        "object.id": 35,
+        "object.register": false,
+        "object.serial": 45,
+        "port.group": "stream.0",
+        "stream.is-live": true,
+        "target.object": "lab.mic"
+      }
+    }
+  }
+]
+[
+  {
+    "id": 35,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "adapt.follower.spa-node": "",
+        "application.name": "pw-record",
+        "client.id": 34,
+        "clock.quantum-limit": 8192,
+        "factory.id": 9,
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.category": "Capture",
+        "media.class": "Stream/Input/Audio",
+        "media.filename": "/dev/null",
+        "media.name": "/dev/null",
+        "media.role": "Music",
+        "media.type": "Audio",
+        "node.async": true,
+        "node.autoconnect": true,
+        "node.loop.class": "main",
+        "node.loop.name": "main-loop",
+        "node.name": "otherapp",
+        "node.rate": "1/48000",
+        "node.want-driver": true,
+        "object.id": 35,
+        "object.register": false,
+        "object.serial": 45,
+        "port.group": "stream.0",
+        "stream.is-live": true,
+        "target.object": "lab.mic"
+      }
+    }
+  }
+]
+[
+  {
+    "id": 35,
+    "type": "PipeWire:Interface:Node",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x",
+      "m"
+    ],
+    "info": {
+      "props": {
+        "adapt.follower.spa-node": "",
+        "application.name": "pw-record",
+        "client.id": 34,
+        "clock.quantum-limit": 8192,
+        "factory.id": 9,
+        "library.name": "audioconvert/libspa-audioconvert",
+        "media.category": "Capture",
+        "media.class": "Stream/Input/Audio",
+        "media.filename": "/dev/null",
+        "media.name": "/dev/null",
+        "media.role": "Music",
+        "media.type": "Audio",
+        "node.async": true,
+        "node.autoconnect": true,
+        "node.driver-id": 16,
+        "node.loop.class": "main",
+        "node.loop.name": "main-loop",
+        "node.name": "otherapp",
+        "node.rate": "1/48000",
+        "node.want-driver": true,
+        "object.id": 35,
+        "object.register": false,
+        "object.serial": 45,
+        "port.group": "stream.0",
+        "stream.is-live": true,
+        "target.object": "lab.mic"
+      }
+    }
+  }
+]
+[
+  {
+    "id": 14,
+    "type": "PipeWire:Interface:Metadata",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x"
+    ],
+    "props": {
+      "factory.id": 4,
+      "metadata.name": "default",
+      "module.id": 3,
+      "object.serial": 14
+    },
+    "metadata": [
+      {
+        "subject": 35,
+        "key": "target.node",
+        "type": "Spa:Id",
+        "value": -1
+      }
+    ]
+  }
+]
+[
+  {
+    "id": 38,
+    "info": null
+  }
+]
+[
+  {
+    "id": 37,
+    "info": null
+  }
+]
+[
+  {
+    "id": 36,
+    "info": null
+  }
+]
+[
+  {
+    "id": 35,
+    "info": null
+  }
+]
+[
+  {
+    "id": 34,
+    "info": null
+  }
+]
+[
+  {
+    "id": 14,
+    "type": "PipeWire:Interface:Metadata",
+    "version": 3,
+    "permissions": [
+      "r",
+      "w",
+      "x"
+    ],
+    "props": {
+      "factory.id": 4,
+      "metadata.name": "default",
+      "module.id": 3,
+      "object.serial": 14
+    },
+    "metadata": []
+  }
+]

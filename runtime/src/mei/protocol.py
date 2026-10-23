@@ -233,8 +233,14 @@ class VoiceSettings(msgspec.Struct, kw_only=True):
     # downloaded, woken while the person talks, let go after gpu_idle_min unused; "cpu", never.
     device: Literal["auto", "cpu", "gpu"] = "auto"
     gpu_idle_min: Annotated[int, msgspec.Meta(ge=1, le=60)] = 5
-    barge_in: bool = False  # interrupt by talking over Mei: reliable with earphones only (spike 0c)
+    # Interrupt by talking over Mei. Off by default: with speakers it relies on echo cancellation,
+    # which hasn't been measured in a real room (decision 0021); with earphones it is reliable.
+    barge_in: bool = False
+    # While Mei speaks, hear the microphone with Mei's own voice taken out (PipeWire's echo
+    # canceller), so talking over it works with speakers too (decision 0021).
+    echo_cancel: bool = True
     wake_word: bool = False  # "Hey Mei": off by default, it misses the latency target (decision 0017)
+    wake_pause: bool = True  # stop listening for "Hey Mei" while another app records (decision 0023)
     end_silence_ms: Annotated[int, msgspec.Meta(ge=300, le=2000)] = 500
     mic: str = ""  # a PipeWire node name; "" follows the system default
     output: str = ""

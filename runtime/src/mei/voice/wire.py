@@ -29,7 +29,10 @@ class Load(Command, tag="load"):
     gpu_idle_s: float = 300.0
     wake: bool = False
     wake_threshold: float = 0.25
-    barge_in: bool = False  # interrupt by talking: only with earphones (spike 0c)
+    barge_in: bool = False  # interrupt by talking
+    # While Mei speaks with barge_in on, hear the microphone through PipeWire's echo canceller, so
+    # talking over Mei works with speakers too (decision 0021). Without it, only with earphones.
+    echo_cancel: bool = True
     end_silence_s: float = 0.5
     mic: str = ""  # PipeWire node; "" = the default
     output: str = ""
@@ -115,8 +118,9 @@ class Ready(Event, tag="ready"):
     stt: str
     tts: str
     device: str  # where speech is synthesized: "cpu" or "gpu"
-    note: str = ""  # why not the GPU, if it was wanted
+    note: str = ""  # why not the GPU, or no echo cancellation, if wanted
     wake: bool = False
+    echo_cancel: bool = False  # the barge-in watch hears through the echo canceller
 
 
 class Failed(Event, tag="error"):
