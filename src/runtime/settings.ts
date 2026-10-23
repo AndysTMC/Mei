@@ -16,13 +16,14 @@ import { getProviderProfile, resolveProviderId } from '../providers/profiles.js'
 import type { ProviderId } from '../providers/types.js';
 import { Logger, Tag } from '../utils/logger.js';
 import type {
-    ApprovalPreset, CloudFiles, ConfigDoc, ConfigReply, GrantView, LogEntry, MemoriesReply, MemoryPatch, MicLevelReply,
+    ApprovalPreset, CloudFiles, ComputerStatusReply, ConfigDoc, ConfigReply, GrantView, LogEntry, MemoriesReply, MemoryPatch,
+    MicLevelReply,
     ModelsReply, ProviderSettings, VoiceDevicesReply, VoiceModelsReply, VoiceSettingsDoc,
 } from './protocol.js';
 
 export type Call = <T>(method: string, args?: object) => Promise<T>;
 /** What changed, for `changed` and `changed::<key>`. */
-export type SettingsKey = 'active' | 'providers' | 'privacy' | 'approvals' | 'memory' | 'voice';
+export type SettingsKey = 'active' | 'providers' | 'privacy' | 'approvals' | 'memory' | 'voice' | 'computer';
 /** `detail` is the changed key for `changed`/`changed::<key>`, the error message for `save-failed`. */
 type Listener = (settings: RuntimeSettings, detail: string) => void;
 type Mutation = (doc: ConfigDoc) => void;
@@ -35,7 +36,7 @@ export interface ModelListResult {
     requiresApiKey: boolean;
 }
 
-const KEYS: SettingsKey[] = ['active', 'providers', 'privacy', 'approvals', 'memory', 'voice'];
+const KEYS: SettingsKey[] = ['active', 'providers', 'privacy', 'approvals', 'memory', 'voice', 'computer'];
 const MAX_CONFLICT_RETRIES = 3;
 
 export class RuntimeSettings {
@@ -181,6 +182,18 @@ export class RuntimeSettings {
         }, 'memory');
     }
 
+    /** Whether Mei may look at and use app windows (§10); off until the person allows it. */
+    get computerEnabled(): boolean {
+        return this._doc.computer?.enabled ?? false;
+    }
+
+    setComputerEnabled(enabled: boolean): void {
+        if (!this._writable() || enabled === this.computerEnabled) return;
+        this._mutate(doc => {
+            doc.computer = { ...doc.computer, enabled };
+        }, 'computer');
+    }
+
     setVoice<K extends VoiceField>(field: K, value: VoiceSettingsDoc[K]): void {
         if (!this._writable() || this.voice[field] === value) return;
         this._mutate(doc => {
@@ -213,6 +226,10 @@ export class RuntimeSettings {
 
     async testSpeaker(): Promise<void> {
         await this._call('VoiceTestSpeaker');
+    }
+
+    async computerStatus(): Promise<ComputerStatusReply> {
+        return this._call<ComputerStatusReply>('ComputerStatus');
     }
 
     /** The microphones and speakers PipeWire knows (listing them opens no audio). */

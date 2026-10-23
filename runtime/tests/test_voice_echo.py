@@ -1,4 +1,4 @@
-"""Echo cancellation for barge-in (decision 0021).
+"""Echo cancellation for barge-in (decision 0024).
 
 With stand-ins for PipeWire's programs: the canceller's configuration, its failures (it exits, or
 gives no audio), and that the worker then falls back to the plain microphone, saying so.
@@ -7,7 +7,7 @@ In a private PipeWire with null devices (pipewire_lab.py): the real worker, in i
 only that PipeWire's socket, hears Mei's own reply come back from the speaker through a simulated
 laptop on a desk, at speaker-like level. With the canceller it doesn't stop itself; without it, it
 does; and a person talking over it still stops it, and is heard. Not within §4's 350 ms: through
-the canceller it takes ~0.37 s at the median and up to ~0.75 s (decision 0021; voice_bench.py
+the canceller it takes ~0.37 s at the median and up to ~0.75 s (decision 0024; voice_bench.py
 --only echo measures it). Nothing plays aloud and no real microphone opens. Skipped where
 PipeWire's echo canceller or the voice models aren't installed.
 """
@@ -36,7 +36,7 @@ REPLY = ("Here is a long answer about the weather this week. It will be mostly s
          "Thursday evening.")
 TALKER_GAIN = 0.5  # the person's voice at the microphone about as loud as Mei's echo there (both ≈ −27 dBFS)
 ECHO_GAIN = 0.5  # Mei's voice back into the microphone 6 dB below its playback level
-# §4's target is 0.35 s; through the canceller the lab measured up to ~0.75 s (decision 0021).
+# §4's target is 0.35 s; through the canceller the lab measured up to ~0.75 s (decision 0024).
 # This bound catches it getting worse, or the person not being heard at all.
 BARGE_IN_LIMIT_S = 1.0
 

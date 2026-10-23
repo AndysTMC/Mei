@@ -130,7 +130,12 @@ def _assistant_content(turn: ChatTurn) -> str | list[dict]:
 
 
 def _tool_result(turn: ChatTurn) -> dict:
-    block = {"type": "tool_result", "tool_use_id": turn.tool_call_id, "content": turn.content}
+    content: str | list[dict] = turn.content
+    if turn.images:
+        content = [{"type": "text", "text": turn.content},
+                   *({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
+                     for data in turn.images)]
+    block = {"type": "tool_result", "tool_use_id": turn.tool_call_id, "content": content}
     if turn.is_error:
         block["is_error"] = True
     return block

@@ -76,6 +76,8 @@ export class ChatPopup {
     onDenyWith: ((approvalId: string, text: string) => void) | null = null;
     /** Called when the person answers one of Mei's questions. */
     onAnswer: ((requestId: string, value: Answer) => void) | null = null;
+    onResume: ((taskId: string) => void) | null = null;
+    onStopTask: ((taskId: string) => void) | null = null;
     /** Called when the person keeps a memory waiting for review. */
     onKeepMemory: ((memoryId: string) => void) | null = null;
     /** Called when the person undoes or discards a memory. */
@@ -229,6 +231,8 @@ export class ChatPopup {
             onDeny: id => this.onDeny?.(id),
             onDenyWith: (id, text) => this.onDenyWith?.(id, text),
             onAnswer: (id, value) => this.onAnswer?.(id, value),
+            onResume: id => this.onResume?.(id),
+            onStopTask: id => this.onStopTask?.(id),
             onKeepMemory: id => this.onKeepMemory?.(id),
             onForgetMemory: id => this.onForgetMemory?.(id),
         };

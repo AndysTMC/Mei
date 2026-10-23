@@ -41,7 +41,9 @@ export type TimelineItem =
 /** What a task waits on the person for: it replaces the input area until answered. */
 export type Interaction =
     | { kind: 'approval'; taskId: string; approval: ApprovalView }
-    | { kind: 'question'; taskId: string; request: InputRequestView };
+    | { kind: 'question'; taskId: string; request: InputRequestView }
+    /** Computer use waits while the person uses the mouse or keyboard (§10.3); it goes on by itself. */
+    | { kind: 'paused'; taskId: string; note: string };
 
 export function buildTimeline(conv: LoadedConversation): TimelineItem[] {
     const tasks = [...conv.tasks.values()];
@@ -90,11 +92,13 @@ export function latestReply(items: TimelineItem[]): TimelineItem[] {
 
 /** The latest card a task in this conversation waits on the person for, if any. */
 export function pendingInteraction(conv: LoadedConversation): Interaction | null {
-    const waiting = [...conv.tasks.values()].filter(t => !TERMINAL_STATES.has(t.state) && (t.approval || t.input_request))
+    const waiting = [...conv.tasks.values()].filter(t => !TERMINAL_STATES.has(t.state)
+        && (t.approval || t.input_request || t.state === 'WAITING_RESOURCE'))
         .sort((a, b) => a.created_at - b.created_at).at(-1);
     if (!waiting) return null;
-    return waiting.approval ? { kind: 'approval', taskId: waiting.id, approval: waiting.approval }
-        : { kind: 'question', taskId: waiting.id, request: waiting.input_request! };
+    if (waiting.approval) return { kind: 'approval', taskId: waiting.id, approval: waiting.approval };
+    if (waiting.input_request) return { kind: 'question', taskId: waiting.id, request: waiting.input_request };
+    return { kind: 'paused', taskId: waiting.id, note: waiting.error || 'Paused' };
 }
 
 export function activityRow(action: ActionView): ActivityRow {

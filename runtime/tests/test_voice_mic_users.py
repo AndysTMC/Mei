@@ -1,4 +1,4 @@
-""""Hey Mei" pauses while another app records (decision 0023).
+""""Hey Mei" pauses while another app records (decision 0025).
 
 From `pw-dump --monitor` output recorded in a private PipeWire (pipewire_lab.py, recorded by
 `fixtures/record_pw_dump_monitor.py`): another app starts recording, Mei's own recorder, a stream

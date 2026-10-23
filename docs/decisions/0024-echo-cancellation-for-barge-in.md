@@ -1,4 +1,4 @@
-# 0021. Echo cancellation for barge-in: PipeWire's canceller, private, only while Mei talks through speakers
+# 0024. Echo cancellation for barge-in: PipeWire's canceller, private, only while Mei talks through speakers
 
 Status: accepted
 Date: 2026-10-23

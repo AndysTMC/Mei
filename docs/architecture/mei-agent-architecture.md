@@ -622,7 +622,7 @@ Any state → SUSPENDED when the screen locks, the user mutes Mei, or another ap
 
 ### 11.4 Barge-in and echo
 
-- Capture from a PipeWire **echo-cancel** source (`libpipewire-module-echo-cancel`, WebRTC AEC) so Mei's own speech doesn't trigger VAD. As built (decision 0021): a private `pipewire -c` client the worker runs in its jail only while Mei talks through speakers, not a drop-in; nothing in the person's PipeWire setup changes. Quality with the owner's speakers: `runtime/tests/voice_room.py`, with the owner.
+- Capture from a PipeWire **echo-cancel** source (`libpipewire-module-echo-cancel`, WebRTC AEC) so Mei's own speech doesn't trigger VAD. As built (decision 0024): a private `pipewire -c` client the worker runs in its jail only while Mei talks through speakers, not a drop-in; nothing in the person's PipeWire setup changes. Quality with the owner's speakers: `runtime/tests/voice_room.py`, with the owner.
 - Barge-in detection runs in the worker: VAD speech probability above threshold for ≥200 ms after a 300 ms grace window from playback start (the Hermes lesson). On detection the worker ramps playback to silence locally (<150 ms, including the audio device buffer), then tells the core. End to end, speech onset to silence is ≈350 ms; the 200 ms window is the price of not stopping on coughs and door noises, and is tunable.
 - **Interrupting speech is not cancelling the task.** Barge-in stops audio and opens LISTENING. The new utterance is a steer. "Stop" or "cancel that" (matched locally with a small intent grammar, not the LLM) cancels the task.
 
@@ -1143,7 +1143,15 @@ Throwaway code in `spikes/`, results written up. Only what durable chat needs:
 
 **Accept when:** reports with numbers; ADR-7 (0c), ADR-8 (0b), and ADR-11 (0d) accepted or revised.
 
-Progress (2026-10-22): **0c done**, except three measurements that need the owner at the machine: echo cancellation with the laptop speakers, false wakes on 8 h of room audio, and word error rate on the owner's voice (scripts ready in `spikes/0c/`). Results: `spikes/0c/REPORT.md`. ADR-7 accepted with revisions as decision 0017. Kroko streaming STT (12 % WER on synthetic voices, RTF 0.02 on the CPU) and Silero VAD work well. Piper speaks a first sentence in 0.1 s; Kokoro takes 1.3 s on the CPU and 0.45 s on the GPU. Audio goes through PipeWire's own protocol, since PortAudio needs the PulseAudio socket. sherpa's wake-word spotter misses the latency target (0.6 s), so push-to-talk comes first. 0b and 0d not started.
+Progress (2026-10-22): **0c done**, except three measurements that need the owner at the machine: echo cancellation with the laptop speakers, false wakes on 8 h of room audio, and word error rate on the owner's voice (scripts ready in `spikes/0c/`). Results: `spikes/0c/REPORT.md`. ADR-7 accepted with revisions as decision 0017. Kroko streaming STT (12 % WER on synthetic voices, RTF 0.02 on the CPU) and Silero VAD work well. Piper speaks a first sentence in 0.1 s; Kokoro takes 1.3 s on the CPU and 0.45 s on the GPU. Audio goes through PipeWire's own protocol, since PortAudio needs the PulseAudio socket. sherpa's wake-word spotter misses the latency target (0.6 s), so push-to-talk comes first. 0d not started.
+
+Progress (2026-10-23): **0b done.** Results: `spikes/0b/REPORT.md`. ADR-8 accepted with revisions as decision 0022.
+- **AT-SPI:** reads and acts on GTK4, Chrome (with its flag) and Electron.
+- **Screenshot portal:** refuses a background service.
+- **RemoteDesktop:** one consent, then its restore token starts sessions with no dialog in 0.02–0.06 s; a frame of its stream takes ~0.1 s.
+- **Pointer:** absolute positions are frame pixels, refused past the stream's logical size, so scaled screens need relative motion (logical units) for their edges.
+- **Worker profile:** the §5.4 profile with `xdg-dbus-proxy` works.
+- **Not measured:** Firefox (snap).
 
 ### Stage 1 — Runtime skeleton, protocol, durable chat (M) — **done 2026-10-20**
 
@@ -1329,7 +1337,7 @@ Progress (2026-10-22): **built; four criteria open** (decision 0018 has the deta
 | Criterion | Evidence |
 |---|---|
 | Latency targets in §4, measured and reported | `runtime/tests/voice_bench.py` (20 trials each). End of speech → final text 678 ms median; Piper's first sentence 149 ms. End of speech → first audio ≈ 0.83 s plus the model's first sentence: ~1.24 s with Groq (met), ~2.6 s with Gemini flash-lite, ~10.7 s with OpenRouter's free router (missed). Wake word → listening: ~0.6 s (spike 0c), **missed**; wake word is off by default. Listening for it costs 0.45 % of one core in a quiet room (the spotter runs only while someone talks), 2.9 % while people talk. |
-| Barge-in onset → silence <350 ms in 20/20 | Recorded audio: 20/20, median 286 ms (0018). On the real PipeWire path that was 358 ms; reading 32 ms windows, 20/20, median 288 ms, max 342 ms with earphones (0021); recorded audio now 263 ms median. With speakers, through the echo canceller: median 363 ms, max 769 ms, 4/20 under 350 ms, **missed**; Mei never stopped on its own voice (0/20); barge-in stays off by default until measured in the owner's room. |
+| Barge-in onset → silence <350 ms in 20/20 | Recorded audio: 20/20, median 286 ms (0018). On the real PipeWire path that was 358 ms; reading 32 ms windows, 20/20, median 288 ms, max 342 ms with earphones (0024); recorded audio now 263 ms median. With speakers, through the echo canceller: median 363 ms, max 769 ms, 4/20 under 350 ms, **missed**; Mei never stopped on its own voice (0/20); barge-in stays off by default until measured in the owner's room. |
 | False-wake rate on 8 h of recorded audio | **Open**: needs the owner's room audio (`spikes/0c/`). |
 | Mic stream closed while locked | `test_suspending_ends_the_real_capture_stream` (the recorder process ends, so `pw-dump` has no capture stream to show), `test_the_microphone_is_closed_while_the_screen_is_locked`. Not yet checked with `pw-dump` on the real microphone with the owner. |
 | No audio files written | Mei never records (§11.5's opt-in isn't built); `test_the_jail_has_nowhere_to_keep_audio`: the worker's only writable places are PipeWire's socket and a private tmpfs. |
@@ -1337,13 +1345,34 @@ Progress (2026-10-22): **built; four criteria open** (decision 0018 has the deta
 | The worker has no network | `test_in_its_jail_the_worker_loads_but_reaches_nothing`. |
 | A spoken "yes" can't approve outside §11.6 | `test_a_spoken_yes_approves_only_what_a_voice_may`, `test_a_spoken_yes_never_approves_a_command_on_the_computer`, `test_which_effects_a_voice_may_approve`. |
 
-What differs from the plan above, and why (0018): push to talk is the way in and the wake word is off by default; echo cancellation is a private canceller only while Mei talks through speakers, slower than the 350 ms target, so barge-in stays off by default (0021); cloud speech falls back to this computer per utterance and sentence; the voice engine installs with Mei; the natural voice can use the GPU on demand, woken while you talk and let go when idle (0019).
+What differs from the plan above, and why (0018): push to talk is the way in and the wake word is off by default; echo cancellation is a private canceller only while Mei talks through speakers, slower than the 350 ms target, so barge-in stays off by default (0024); cloud speech falls back to this computer per utterance and sentence; the voice engine installs with Mei; the natural voice can use the GPU on demand, woken while you talk and let go when idle (0019).
 
 ### Stage 6 — Computer use (L) — after 0b
 
 - Desktop worker under its profile; `desktop.observe` with AT-SPI and optional screenshot; `desktop.act` AT-SPI first, portal input fallback; geometry module; input lease with control tokens; overlay; kill switch with the direct Shell path; user-activity pause; secrets hand-off; setup "Using the computer" step (accessibility, one-time portal consent with restore token).
 
 **Accept when:** in nested Shell, a GTK4 test app form is filled and submitted via AT-SPI only; a canvas-only test app is operated via the pixel fallback at 100% and 150% scaling; kill switch stops input in <200 ms with the core under `SIGSTOP`; input stops within 600 ms when the core is killed or the bridge vanishes; user mouse movement pauses a pixel action; a password field triggers hand-off rather than typing; stale element ids are rejected; an unclassifiable button asks under every preset; after setup, a computer-use task triggers no portal dialog (restore token reused).
+
+Progress (2026-10-23): **built**; `scripts/e2e-computer.sh` checks it in a nested Shell. See decisions 0022 and 0023.
+
+| Criterion | Evidence |
+|---|---|
+| A GTK4 form filled and submitted via AT-SPI only | e2e `form_filled_and_submitted_through_atspi_only`, run before the screen is allowed, so any pointer or key would fail. A GTK4 check box has no AT-SPI action: toggled by pointer after setup (`checkbox_toggled_by_pointer_after_setup`). |
+| A canvas-only app via the pixel fallback at 100 % and 150 % | e2e `canvas_clicked_from_a_picture_at_100`, `…_at_150`; geometry unit tests with spike 0b's numbers. |
+| Kill switch stops input in <200 ms with the core under SIGSTOP | e2e `kill_switch_stops_input_within_200ms_with_the_runtime_frozen`: no character after the shortcut; the task is cancelled when the runtime resumes. |
+| Input stops within 600 ms when the core is killed or the bridge vanishes | e2e `input_stops_within_600ms_when_the_runtime_is_killed`, `…_when_the_extension_goes_away`; the lease unit test. |
+| User mouse movement pauses a pixel action | e2e `pointer_act_waits_while_the_person_moves_the_mouse` (WAITING_RESOURCE, no click while moving, then the click); `test_a_pointer_act_waits_while_the_person_uses_the_computer` (by itself, and Resume). |
+| A password field triggers hand-off rather than typing | e2e `password_is_handed_to_the_person` (nothing typed into it); `test_a_password_field_is_handed_to_the_person`. |
+| Stale element ids are rejected | `test_turned_off_and_stale_snapshots_are_refused`; the worker keeps only each window's latest snapshot. |
+| An unclassifiable button asks under every preset | `test_an_unknown_effect_asks_under_every_preset`, `test_an_unfamiliar_button_asks_even_hands_off`. |
+| After setup, no portal dialog | e2e `setup_allows_the_screen_once`, `no_portal_dialog_after_setup`. |
+
+What differs from the plan above, and why (0023):
+- The kill switch is Super+Alt+Escape, since Super+Escape is mutter's.
+- Before pointer or keyboard input, Mei closes its popup (its grab took the input) and raises the target window.
+- A stop from the Shell ends the task even if the runtime was frozen.
+- The overlay is a top-bar chip that is also the Stop button.
+- Screenshots come from the RemoteDesktop session's stream, not the Screenshot portal (0022).
 
 ### Stage 7 — Browser automation and web (M)
 

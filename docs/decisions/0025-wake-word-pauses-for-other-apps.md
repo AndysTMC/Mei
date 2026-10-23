@@ -1,4 +1,4 @@
-# 0023. "Hey Mei" pauses while another app records
+# 0025. "Hey Mei" pauses while another app records
 
 Status: accepted
 Date: 2026-10-23
@@ -14,7 +14,7 @@ With the wake word on, Mei holds the microphone all the time (0018). During a ca
 
 - **The core watches PipeWire's graph with `pw-dump --monitor`.** It reports each change as it happens and opens no audio, so nothing polls the whole graph. It runs only while the wake word is armed: voice on, "Listen for 'Hey Mei'" on, this setting on, the screen unlocked.
 - **"Another app recording"** is a `Stream/Input/Audio` node that is not one of these:
-  - Mei's own: its recorders are named `mei.microphone`, and its echo canceller's nodes start with `mei.` (0021).
+  - Mei's own: its recorders are named `mei.microphone`, and its echo canceller's nodes start with `mei.` (0024).
   - A capture of what the speakers play (`stream.capture.sink`, `stream.monitor`).
   - A level meter the Shell also skips: GNOME's sound settings, pavucontrol.
 - **While one exists,** the core tells the worker to disarm the wake word. Mei's stream closes, so the indicator shows only the other app, and voice's status says "Paused while another app uses the microphone". When the last one ends, the wake word re-arms. Push to talk works meanwhile. A reload of the worker while paused stays paused.

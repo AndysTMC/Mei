@@ -5,6 +5,8 @@ import {
     APPROVAL_FLOOR,
     APPROVAL_PRESETS,
     CLOUD_FILES,
+    COMPUTER_ABOUT,
+    computerText,
     doneText,
     formatBytes,
     homeRelative,
@@ -19,8 +21,21 @@ import {
 import type { ModelsStep, ServiceStep } from '../src/runtime/protocol.js';
 
 test('setup steps: the service step comes first and is the only one that cannot be skipped', () => {
-    assert.deepEqual(SETUP_STEPS.map(s => s.id), ['service', 'models', 'approvals', 'memory', 'voice', 'privacy', 'shortcuts']);
+    assert.deepEqual(SETUP_STEPS.map(s => s.id),
+        ['service', 'models', 'approvals', 'memory', 'voice', 'computer', 'privacy', 'shortcuts']);
     assert.deepEqual(SETUP_STEPS.filter(s => !s.skippable).map(s => s.id), ['service']);
+});
+
+test('computer use says what it never does and what each permission is for', () => {
+    for (const promise of ['password', 'pauses while you use', 'goes to your model', 'Super+Alt+Escape'])
+        assert.ok(COMPUTER_ABOUT.includes(promise), promise);
+    assert.deepEqual(computerText({ available: true, reason: '', accessibility: true, screen: true }),
+        { accessibility: 'On', screen: 'Allowed' });
+    const off = computerText({ available: true, reason: '', accessibility: false, screen: false });
+    assert.match(off.accessibility, /^Off/);
+    assert.match(off.screen, /^Not allowed yet/);
+    const missing = computerText({ available: false, reason: 'bubblewrap isn’t installed', accessibility: false, screen: false });
+    assert.equal(missing.screen, 'Not available here: bubblewrap isn’t installed');
 });
 
 test('retention choices default to keeping everything and keep a custom value visible', () => {

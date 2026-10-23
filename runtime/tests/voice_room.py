@@ -1,4 +1,4 @@
-"""Echo cancellation in your room (decision 0021): run this at the computer, with its speakers (not
+"""Echo cancellation in your room (decision 0024): run this at the computer, with its speakers (not
 earphones) at your usual volume, in your usual room.
 
 It plays Mei's speech aloud and listens with the microphone, the way voice does with "Interrupt by
@@ -165,7 +165,7 @@ def report(quiet: dict, talking: dict) -> None:
               f"{talking['latency_max_ms']} ms |")
     print("\n* From the first loud chunk the canceller let through, so it leaves out the microphone's and "
           "speakers' own buffers (~20–40 ms). §4's target is 350 ms.")
-    print("Decision 0021: \"Interrupt by talking\" can be on by default with speakers once Mei never stops on "
+    print("Decision 0024: \"Interrupt by talking\" can be on by default with speakers once Mei never stops on "
           "its own voice here and talking over it always works.")
 
 

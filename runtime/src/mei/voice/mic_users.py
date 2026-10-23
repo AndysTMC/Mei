@@ -1,4 +1,4 @@
-"""Which other apps are recording (decision 0023): "Hey Mei" pauses while one is, so a call or a
+"""Which other apps are recording (decision 0025): "Hey Mei" pauses while one is, so a call or a
 recording app has the microphone to itself, and GNOME's microphone indicator shows only that app.
 
 Read from PipeWire's graph with `pw-dump --monitor`, which opens no audio and reports each change as

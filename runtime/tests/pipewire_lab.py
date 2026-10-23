@@ -1,4 +1,4 @@
-"""A private PipeWire for voice tests (decision 0021): its own daemon and WirePlumber on their own
+"""A private PipeWire for voice tests (decision 0024): its own daemon and WirePlumber on their own
 socket, with null devices only. Nothing plays aloud, no real microphone opens, and the person's
 PipeWire is never reached: clients get only this lab's socket.
 

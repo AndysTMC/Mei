@@ -67,7 +67,8 @@ class OllamaProvider:
 
 def _message(turn: ChatTurn) -> dict:
     if turn.role == "tool":
-        return {"role": "tool", "content": turn.content, "tool_name": turn.name}
+        message = {"role": "tool", "content": turn.content, "tool_name": turn.name}
+        return {**message, "images": list(turn.images)} if turn.images else message
     message: dict = {"role": turn.role, "content": turn.content}
     if turn.tool_calls:
         message["tool_calls"] = [{"function": {"name": c.name, "arguments": arguments_object(c.arguments)}}

@@ -9,6 +9,7 @@ Mei is a modern GNOME Shell extension powered by LLMs that understands your inte
 - **Works in the background**: close the popup and Mei keeps going. When a task finishes or needs you, a notification says so; clicking it opens the conversation. Tasks in progress are listed first in the history.
 - **Ask about this**: press `Super+Alt+A` to ask about the window you're in, with the text you selected attached.
 - **Talk to it**: press `Super+Alt+Space` (or the mic in the popup) and speak; Mei shows what it hears as you talk and answers out loud, then listens a moment more for a follow-up. Say "stop" to stop it. Speech runs on your computer by default; OpenAI, Groq, or Gemini can do it instead, and if they can't be reached, your computer takes over. With an NVIDIA GPU, the natural voice can use it on demand: the card wakes while you talk and sleeps after a few idle minutes (an optional 1.9 GB download). Turn voice on in setup or Settings → Voice.
+- **Uses apps for you**: "fill in this form", "tick dark mode in that app". Mei reads a window's buttons and fields through accessibility and presses, types, and clicks in them, with a chip in the top bar while it works. It asks before anything it can't judge, never types passwords (it hands those fields to you), and pauses while you use the mouse. `Super+Alt+Escape` or the chip stops it at once. Turn it on in setup or Settings → Using the computer.
 - **Dual Layouts**: Toggle between a compact quick-query popup and an expanded view with full chat history management.
 - **Native Markdown Rendering**: Responses are beautifully formatted with native GNOME widgets for code blocks, tables, lists, and syntax formatting.
 - **Deep System Integration**: Automatic GNOME dark/light mode syncing and responsive viewport constraints.
@@ -54,8 +55,9 @@ its sha256 before installing anything.
 ## Configuration & Usage
 
 Setup walks through the Mei service, your model provider and key, when Mei asks before acting,
-memory, voice, privacy, and the shortcuts (by default `Super+Alt+M` opens Mei, `Super+Alt+A` asks
-about the current window, and `Super+Alt+Space` talks to Mei). Every choice can be changed later in Settings, opened from the ⚙
+memory, voice, using the computer, privacy, and the shortcuts (by default `Super+Alt+M` opens Mei,
+`Super+Alt+A` asks about the current window, `Super+Alt+Space` talks to Mei, and `Super+Alt+Escape`
+stops Mei using the computer). Every choice can be changed later in Settings, opened from the ⚙
 (gear) icon in the chat popup or with:
 
 ```sh
@@ -92,6 +94,12 @@ gnome-extensions prefs mei@andystmc.com
   while the screen is locked. If you choose a cloud provider for speech, what you say (or Mei's
   answers) goes to that provider, and Settings says so where you choose it
   ([ADR 0018](docs/decisions/0018-voice-as-built.md)).
+- Using the computer is off until you turn it on. What Mei sees in a window goes to your model; it
+  looks at windows only while it works on your request. Clicking and typing need a one-time
+  permission in GNOME's own dialog, and the part of Mei that does them has no network, can't see
+  your files, and stops the moment you press `Super+Alt+Escape`
+  ([ADR 0022](docs/decisions/0022-computer-use-as-measured.md),
+  [ADR 0023](docs/decisions/0023-computer-use-as-built.md)).
 - Saying "yes, do it" approves only small, undoable, private actions that Mei has read back to
   you, since anyone in the room could say it. Anything else needs a click on the card.
 - The runtime logs to the journal (`journalctl --user -u mei-runtime`); Settings → Logs shows

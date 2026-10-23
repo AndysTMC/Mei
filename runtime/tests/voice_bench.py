@@ -10,7 +10,7 @@ Models come from MEI_VOICE_MODELS, else the spike's cache. Prints a Markdown rep
 - stopping a real output stream (silence, so inaudible): what PipeWire adds after the stop;
 - with `--only gpu`: waking the GPU voice, and its first sentence once awake;
 - with `--only wake`: the CPU listening for "Hey Mei" costs, in silence and in speech;
-- with `--only echo` (decision 0021), in a private PipeWire with null devices (pipewire_lab.py):
+- with `--only echo` (decision 0024), in a private PipeWire with null devices (pipewire_lab.py):
   barge-in on the real PipeWire path, with the plain microphone (earphones) and through the echo
   canceller with Mei's voice coming back from a simulated laptop's speakers; how often Mei's own
   voice stops it, with and without the canceller; and the canceller's start-up and CPU.
@@ -173,7 +173,7 @@ async def stream_stop(trials: int) -> list[float]:
 
 
 async def echo_report(models: Path, piper, trials: int, echo_gain: float, rt60: float, drr_db: float) -> list[str]:
-    """Decision 0021's measures, in a private PipeWire: nothing plays aloud, no real microphone."""
+    """Decision 0024's measures, in a private PipeWire: nothing plays aloud, no real microphone."""
     import pipewire_lab
     if why := pipewire_lab.missing():
         raise SystemExit(f"no private PipeWire: {why}")

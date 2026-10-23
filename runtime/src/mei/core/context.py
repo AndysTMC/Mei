@@ -6,6 +6,7 @@ that made the calls (providers reject anything between them). Untrusted observat
 as data. File contents a cloud model may not see, by the person's Privacy setting, are withheld.
 """
 
+import base64
 import datetime
 import ipaddress
 import json
@@ -130,6 +131,9 @@ def _current(inputs: Inputs, task_id: str, rows: list, actions: dict) -> list[Ch
         by_batch[a["batch_id"]].append(a)
     batch_of_message = {r["message_id"]: r["id"] for r in
                         inputs.store.read("SELECT id, message_id FROM batches WHERE task_id = ?", (task_id,))}
+    # Only the latest picture goes to the model: one is enough to act on, and each costs many tokens.
+    pictured = [a for a in actions.values() if (json.loads(a["result"] or "{}")).get("images")]
+    latest_picture = max(pictured, key=lambda a: (a["created_at"], a["position"]))["id"] if pictured else None
     turns: list[ChatTurn] = []
     for r in rows:
         if r["role"] == "tool":
@@ -148,7 +152,7 @@ def _current(inputs: Inputs, task_id: str, rows: list, actions: dict) -> list[Ch
             for action in sorted(by_batch.get(batch_id, []), key=lambda a: a["position"]):
                 message = results.get(action["id"])
                 if message is not None:
-                    turns.append(_tool_turn(inputs, action, message))
+                    turns.append(_tool_turn(inputs, action, message, picture=action["id"] == latest_picture))
     return turns
 
 
@@ -173,7 +177,18 @@ def _attr(value: str) -> str:
     return value.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
 
 
-def _tool_turn(inputs: Inputs, action, message) -> ChatTurn:
+def _pictures(result: dict) -> tuple[str, ...]:
+    """A result's pictures as base64, read back from the conversation's artifacts (gone: none)."""
+    out = []
+    for path in result.get("images", []):
+        try:
+            out.append(base64.b64encode(Path(path).read_bytes()).decode())
+        except OSError:
+            continue
+    return tuple(out)
+
+
+def _tool_turn(inputs: Inputs, action, message, *, picture: bool = False) -> ChatTurn:
     result = json.loads(action["result"]) if action["result"] else {}
     meta = json.loads(message["metadata"])
     content = message["content"]
@@ -184,8 +199,9 @@ def _tool_turn(inputs: Inputs, action, message) -> ChatTurn:
                            *[inputs.env.show(s) for s in result.get("sources", [])]])
         body = content.replace("</observation>", "</observation_>")  # content can't close its own wrapper
         content = f'<observation source="{source}" trust="untrusted">\n{body}\n</observation>'
+    images = _pictures(result) if picture and _may_send(inputs, action, result) else ()
     return ChatTurn("tool", redact(content)[:MAX_OBSERVATION_CHARS], tool_call_id=action["call_id"],
-                    name=action["tool"], is_error=bool(meta.get("is_error")))
+                    name=action["tool"], is_error=bool(meta.get("is_error")), images=images)
 
 
 def _may_send(inputs: Inputs, action, result: dict) -> bool:

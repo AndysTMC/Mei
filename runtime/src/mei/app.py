@@ -10,12 +10,14 @@ from contextlib import aclosing
 from pathlib import Path
 
 import httpx
-from dbus_fast import BusType
+from dbus_fast import BusType, Message, MessageType
 from dbus_fast.aio import MessageBus
 
 from mei import legacy
 from mei.capabilities.base import App, Env
 from mei.capabilities.catalog import default_registry
+from mei.computer import jail as computer_jail
+from mei.computer.controller import Desktop, DesktopError
 from mei.core.engine import Engine
 from mei.desktop import apps as desktop_apps
 from mei.desktop.gsettings import GSETTINGS, GSettingsCli
@@ -35,8 +37,8 @@ from mei.providers import factory, models
 from mei.providers.base import ChatTurn, ModelRequest, Provider, ProviderError, TextDelta
 from mei.providers.factory import label_of
 from mei.providers.profiles import PROFILES
-from mei.secrets import (KeyringLocked, KeyringUnavailable, keyring_state, lookup_provider_key, store_provider_key,
-                         unlock_keyring)
+from mei.secrets import (KeyringLocked, KeyringUnavailable, keyring_state, lookup_provider_key, lookup_secret,
+                         store_provider_key, store_secret, unlock_keyring)
 from mei.setup import Probes, Setup
 from mei.store import repo
 from mei.store.db import Store, iso_now, new_id
@@ -167,6 +169,66 @@ def desktop_env(bus: MessageBus, bridge: Callable) -> Env:
                media=Mpris(bus), status=SystemStatus(home))
 
 
+def computer_stopped(engine: Engine, reason: str, by_person: bool) -> None:
+    """The worker stopped input. From the Shell (the kill switch, the chip, the Shell or Mei's extension going),
+    the tasks using the computer end now, whatever the runtime was doing meanwhile (it may have been frozen)."""
+    log.info("computer use stopped: %s", reason)
+    if by_person:
+        engine.stop_computer_use()
+
+
+class KeyringTokens:
+    """The screen session's restore token, in the keyring: whoever holds it can start a session with no
+    dialog. A locked or missing keyring reads as no token, so the next session asks the person again."""
+
+    NAME = "screen-session"
+
+    def __init__(self, bus: MessageBus) -> None:
+        self._bus = bus
+
+    async def get(self) -> str:
+        try:
+            return await lookup_secret(self._bus, self.NAME) or ""
+        except (KeyringLocked, KeyringUnavailable) as e:
+            log.info("no screen session token: %s", e)
+            return ""
+
+    async def put(self, token: str) -> None:
+        try:
+            await store_secret(self._bus, self.NAME, "Mei screen session", token)
+        except (KeyringLocked, KeyringUnavailable) as e:
+            log.warning("couldn't keep the screen session token (the next session will ask again): %s", e)
+
+
+def desktop_controller(bus: MessageBus, bridge: Callable) -> Desktop | None:
+    """Computer use, where it can run: bubblewrap, xdg-dbus-proxy and the system's Python. None otherwise."""
+    missing = computer_jail.missing()
+    address = os.environ.get("DBUS_SESSION_BUS_ADDRESS", "")
+    if missing or not address:
+        log.info("computer use isn't available here: %s", missing or "no session bus address")
+        return None
+
+    async def a11y_address() -> str:
+        reply = await bus.call(Message(destination="org.a11y.Bus", path="/org/a11y/bus", interface="org.a11y.Bus",
+                                       member="GetAddress"))
+        if reply.message_type != MessageType.METHOD_RETURN:
+            raise DesktopError("unavailable", "the accessibility bus isn't running")
+        return str(reply.body[0])
+
+    async def overlay(active: bool) -> None:
+        shell = bridge()
+        if shell is not None:
+            await shell.show_overlay(active)
+
+    async def make_way(window_id: int) -> None:
+        shell = bridge()
+        if shell is not None:
+            await shell.make_way(window_id)
+
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
+    return Desktop(address, a11y_address, KeyringTokens(bus), runtime / "mei", overlay=overlay, make_way=make_way)
+
+
 def voice_controller(engine: Engine, service_ref: Callable[[], RuntimeService | None], client: httpx.AsyncClient,
                      key_for):
     """Voice, where it can run: the local engine installed (the optional `voice` extra, imported only
@@ -231,26 +293,38 @@ async def serve() -> int:
     async with httpx.AsyncClient(http2=False, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
         holder: list[RuntimeService] = []  # the service owns the Shell bridge; the env asks it when needed
         env = desktop_env(bus, lambda: holder[0].bridge if holder else None)
+        env.desktop = desktop = desktop_controller(bus, env.bridge)
         engine = Engine(store, publisher=None, provider_factory=provider_factory(client, key_for),
                         registry=default_registry(), env=env)
         make_provider = provider_factory(client, key_for)
         setup = Setup(store, setup_probes(bus), data_dir(), RUNTIME_VERSION)
         voice = voice_controller(engine, lambda: holder[0] if holder else None, client, key_for)
         service = RuntimeService(bus, engine, list_models=model_lister(store, client, key_for), setup=setup,
-                                 test_provider=provider_tester(store, make_provider), notifier=env.notifier, voice=voice)
+                                 test_provider=provider_tester(store, make_provider), notifier=env.notifier, voice=voice,
+                                 desktop=desktop)
         # The service needs the engine and the engine publishes through it (and through voice).
         engine.publisher = Fanout(service, voice) if voice is not None else service
         holder.append(service)
+        if desktop is not None:
+            desktop.revoked = lambda reason, by_person: computer_stopped(engine, reason, by_person)
         engine.recover()
         await service.start()
         if voice is not None:
             await voice.apply(repo.get_config(store)[1].voice)
-            await watch_lock(bus, voice.set_locked)
+        locked = [c.set_locked for c in (voice, desktop) if c is not None]
+        if locked:
+            async def lock_changed(is_locked: bool) -> None:
+                for changed in locked:
+                    await changed(is_locked)
+
+            await watch_lock(bus, lock_changed)
         retention = asyncio.ensure_future(retention_loop(engine))
         disconnected = asyncio.ensure_future(bus.wait_for_disconnect())
         stopped = asyncio.ensure_future(stop.wait())
         done, _ = await asyncio.wait({disconnected, stopped}, return_when=asyncio.FIRST_COMPLETED)
         retention.cancel()
+        if desktop is not None:
+            await desktop.stop()
         if voice is not None:
             await voice.stop()
         await engine.shutdown()

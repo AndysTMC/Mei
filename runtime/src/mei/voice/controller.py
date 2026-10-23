@@ -98,7 +98,7 @@ class VoiceController:
         self._stopping = False
         self._restarts = 0
         self._ready = asyncio.Event()
-        # "Hey Mei" pauses while another app records (decision 0023).
+        # "Hey Mei" pauses while another app records (decision 0025).
         self._mic_users = MicUsers(self._others_recording, self._mic_users_trouble)
         self._paused = False
 
@@ -557,7 +557,7 @@ class VoiceController:
         except ProtocolError as e:
             log.warning("voice: couldn't send %s: %s", type(cmd).__name__, e.message)
 
-    # ── Another app recording: "Hey Mei" pauses (decision 0023) ──────────────
+    # ── Another app recording: "Hey Mei" pauses (decision 0025) ──────────────
 
     async def _follow_mic_users(self) -> None:
         """Watch for other apps recording only while the wake word is armed: never otherwise."""

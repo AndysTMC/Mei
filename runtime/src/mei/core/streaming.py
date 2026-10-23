@@ -17,7 +17,7 @@ from typing import Protocol
 
 from mei.protocol import Envelope
 from mei.providers.base import (Done, ModelRequest, Provider, ProviderError, Replay, ReplayData, TextDelta,
-                                ThinkingDelta, ToolCall, ToolCalled, Usage)
+                                ThinkingDelta, ToolCall, ToolCalled, Usage, without_images)
 from mei.store import repo
 from mei.store.db import Store, iso_now, new_id
 
@@ -115,6 +115,10 @@ class Streamer:
                             log.warning("%s; asking again without tools", e, extra={"task_id": stream.task_id})
                             request, dropped = replace(request, tools=()), True
                             continue
+                        if not produced and any(t.images for t in request.messages) and _refuses_images(e):
+                            log.warning("%s; asking again without pictures", e, extra={"task_id": stream.task_id})
+                            request = replace(request, messages=without_images(request.messages))
+                            continue
                         asked = e.details.get("retry_after")
                         if not e.retryable or produced or attempt >= MAX_ATTEMPTS or (asked or 0) > MAX_RETRY_WAIT_S:
                             raise
@@ -157,6 +161,14 @@ class Streamer:
 
 _NO_TOOLS = re.compile(r"(does not|doesn't|do not|not) support (tools|tool use|tool calling|function calling)"
                        r"|(tools|tool use|function calling) (is|are) not (supported|enabled|available)", re.IGNORECASE)
+
+
+_NO_IMAGES = re.compile(r"image|vision|multimodal|image_url|inline_data", re.IGNORECASE)
+
+
+def _refuses_images(e: ProviderError) -> bool:
+    """A model that can't see images rejects a request carrying one with a 400-class error naming it."""
+    return e.status in (400, 404, 415, 422) and _NO_IMAGES.search(e.message) is not None
 
 
 def _refuses_tools(e: ProviderError) -> bool:

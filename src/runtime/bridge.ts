@@ -21,15 +21,19 @@ import type { Attachment } from './protocol.js';
 
 export const BRIDGE_PATH = '/com/andystmc/Mei1/ShellBridge';
 const INTERFACE = 'com.andystmc.Mei1.ShellBridge';
-const METHODS = ['ListWindows', 'LaunchApp', 'FocusWindow', 'ClipboardGet', 'ClipboardSet', 'GetIdleTime'] as const;
+const METHODS = [
+    'ListWindows', 'LaunchApp', 'FocusWindow', 'ClipboardGet', 'ClipboardSet', 'GetIdleTime', 'GetMonitors',
+    'ShowOverlay', 'MakeWay',
+] as const;
 const XML = `<node><interface name="${INTERFACE}">${METHODS.map(m =>
     `<method name="${m}"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>`).join('')}
 </interface></node>`;
 const MAX_CLIPBOARD = 20_000;
 
 type Handler = (args: Record<string, unknown>) => Promise<object> | object;
+type Handlers = Record<(typeof METHODS)[number], Handler>;
 
-const HANDLERS: Record<(typeof METHODS)[number], Handler> = {
+const HANDLERS: Omit<Handlers, 'ShowOverlay' | 'MakeWay'> = {
     ListWindows: () => ({ windows: listWindows() }),
     LaunchApp: args => launchApp(args),
     FocusWindow: args => focusWindow(Number(args.id)),
@@ -39,20 +43,59 @@ const HANDLERS: Record<(typeof METHODS)[number], Handler> = {
         return {};
     },
     GetIdleTime: () => ({ ms: global.backend.get_core_idle_monitor().get_idletime() }),
+    GetMonitors: () => ({ monitors: listMonitors() }),
 };
+
+interface Rect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
 
 export interface WindowInfo {
     id: number;
     app_id: string;
     title: string;
     focused: boolean;
+    pid: number;
+    // Stage coordinates. Computer use anchors AT-SPI's window-relative extents at the buffer's origin
+    // (decision 0022): the frame leaves out the client-side shadow.
+    buffer: Rect;
+    frame: Rect;
+    monitor: number;
+}
+
+interface MonitorInfo extends Rect {
+    index: number;
+    scale: number;
 }
 
 export class ShellBridge {
     private _id = 0;
 
-    /** `_runtime`: the runtime's current unique name, or null while it isn't running. */
-    constructor(private readonly _runtime: () => string | null) {}
+    private readonly _handlers: Handlers;
+
+    /**
+     * `_runtime`: the runtime's current unique name, or null while it isn't running.
+     * `overlay(active)`: show or hide the "using the computer" chip (§10.3).
+     * `makeWay()`: close Mei's popup, whose grab would take the clicks and keys meant for an app.
+     */
+    constructor(private readonly _runtime: () => string | null, overlay: (active: boolean) => void,
+        makeWay: () => void) {
+        this._handlers = {
+            ...HANDLERS,
+            ShowOverlay: args => {
+                overlay(args.active === true);
+                return {};
+            },
+            // Before Mei clicks or types: out of the way, with the window it acts on in front.
+            MakeWay: args => {
+                makeWay();
+                return Number(args.window_id) ? focusWindow(Number(args.window_id)) : {};
+            },
+        };
+    }
 
     export(): void {
         const info = Gio.DBusNodeInfo.new_for_xml(XML).interfaces[0];
@@ -80,7 +123,7 @@ export class ShellBridge {
             invocation.return_dbus_error('org.freedesktop.DBus.Error.InvalidArgs', 'Expected one JSON object.');
             return;
         }
-        const handler = HANDLERS[method as (typeof METHODS)[number]];
+        const handler = this._handlers[method as (typeof METHODS)[number]];
         Promise.resolve()
             .then(() => handler(args))
             .then(result => invocation.return_value(new GLib.Variant('(s)', [JSON.stringify(result)])))
@@ -102,7 +145,24 @@ export function listWindows(): WindowInfo[] {
         app_id: tracker.get_window_app(w)?.get_id() ?? '',
         title: w.get_title() ?? '',
         focused: w.has_focus(),
+        pid: w.get_pid(),
+        buffer: rect(w.get_buffer_rect()),
+        frame: rect(w.get_frame_rect()),
+        monitor: w.get_monitor(),
     }));
+}
+
+function listMonitors(): MonitorInfo[] {
+    const display = global.display;
+    return Array.from({ length: display.get_n_monitors() }, (_, index) => ({
+        index,
+        ...rect(display.get_monitor_geometry(index)),
+        scale: display.get_monitor_scale(index),
+    }));
+}
+
+function rect(r: { x: number; y: number; width: number; height: number }): Rect {
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
 }
 
 function focusWindow(id: number): Record<string, never> {

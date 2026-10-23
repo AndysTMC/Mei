@@ -9,6 +9,7 @@ Options (from `ProviderConfig.options`):
   fail_retryable  mark that mid-stream error as retryable (it must still not be retried)
   cut_off      if true, end the stream after the first chunk without finishing (a dropped reply)
   busy_times   the first N calls raise a retryable error before any output (like HTTP 503)
+  no_images    if true, a request carrying a picture is refused (like a model that can't see images)
   call_log     path of a JSON-lines file; every call appends the request it got (for crash and
                disclosure tests)
   script       a list of turns, each {"text", "thinking", "tool_calls": [{"name", "arguments"}]};
@@ -18,10 +19,15 @@ Options (from `ProviderConfig.options`):
   scripts      {substring: script}: the script for a last user message containing the substring
                (checked before `script`; lets a test steer a task onto another script)
   cloud        report itself as a cloud provider (disclosure tests)
+
+In a scripted call's arguments, "$snapshot" stands for the latest computer-use snapshot token in the
+results so far, and "$e:<role>:<name>" for the id of the element with that role and name in the latest
+outline (a scripted model can't know either in advance).
 """
 
 import asyncio
 import json
+import re
 import time
 from collections.abc import AsyncIterator
 
@@ -49,6 +55,8 @@ class FakeProvider:
         self._calls += 1
         if self._calls <= int(opts.get("busy_times", 0)):
             raise ProviderError("Fake: HTTP 503: overloaded", retryable=True, status=503)
+        if opts.get("no_images") and any(t.images for t in request.messages):
+            raise ProviderError("Fake: HTTP 400: this model does not support image input", status=400)
         turn = _scripted_turn(opts, request, last_user)
         reply = turn.get("text", "") if turn is not None else (opts.get("reply") or f"Echo: {last_user}")
         thought = turn.get("thinking", "") if turn is not None else opts.get("thinking", "")
@@ -64,7 +72,8 @@ class FakeProvider:
                 raise ProviderError(str(opts["fail"]), retryable=bool(opts.get("fail_retryable")))
             if n == 0 and opts.get("cut_off"):
                 raise IncompleteResponse.of(self.label)
-        calls = [_call(c, f"fake_{self._calls}_{n}") for n, c in enumerate((turn or {}).get("tool_calls", []), start=1)]
+        calls = [_call(c, f"fake_{self._calls}_{n}", request)
+                 for n, c in enumerate((turn or {}).get("tool_calls", []), start=1)]
         for call in calls:
             await asyncio.sleep(delay)
             yield ToolCalled(call)
@@ -84,8 +93,8 @@ def _scripted_turn(opts: dict, request: ModelRequest, last_user: str) -> dict | 
     return script[since_user] if since_user < len(script) else None
 
 
-def _call(spec: dict, default_id: str) -> ToolCall:
-    arguments = spec.get("arguments", {})
+def _call(spec: dict, default_id: str, request: ModelRequest) -> ToolCall:
+    arguments = _resolved(spec.get("arguments", {}), request)
     return ToolCall(spec.get("id") or default_id, spec["name"],
                     arguments if isinstance(arguments, str) else json.dumps(arguments))
 
@@ -96,4 +105,25 @@ def _logged(turn: ChatTurn) -> dict:
         entry["tool_calls"] = [{"name": c.name, "arguments": c.arguments} for c in turn.tool_calls]
     if turn.role == "tool":
         entry["name"] = turn.name
+    if turn.images:
+        entry["images"] = len(turn.images)
     return entry
+
+
+def _resolved(value, request: ModelRequest):
+    """`$snapshot` and `$e:<role>:<name>` from the latest computer-use outline among the results."""
+    if isinstance(value, dict):
+        return {k: _resolved(v, request) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_resolved(v, request) for v in value]
+    if not isinstance(value, str) or not value.startswith("$"):
+        return value
+    outline = next((t.content for t in reversed(request.messages) if t.role == "tool" and "snapshot " in t.content), "")
+    if value == "$snapshot":
+        found = re.findall(r"snapshot ([0-9a-f]{6,})", outline)
+        return found[-1] if found else value
+    if value.startswith("$e:"):
+        _, role, name = value.split(":", 2)
+        found = re.findall(rf"^(e\d+) {re.escape(role)} “{re.escape(name)}”", outline, re.MULTILINE)
+        return found[-1] if found else value
+    return value

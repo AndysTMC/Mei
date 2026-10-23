@@ -7,7 +7,7 @@ core tells it to listen and what to say, and it reports what it hears.
 Only one thing reads the microphone at a time: listening, the barge-in watch while speaking, or
 the wake word while armed. Barge-in and wake hand the open microphone straight to listening, with
 the audio they already heard, so the first words aren't lost. The barge-in watch hears the
-microphone through PipeWire's echo canceller when that is on and available (decision 0021), so
+microphone through PipeWire's echo canceller when that is on and available (decision 0024), so
 Mei's own voice from the speakers doesn't count as talking over it.
 """
 
@@ -35,7 +35,7 @@ BARGE_GRACE_S = 0.3  # after speech starts, before talking over it counts (the H
 BARGE_SPEECH_S = 0.2  # speech this long stops Mei
 PREROLL_S = 0.8  # of the barge-in or wake audio, handed to listening
 # The barge-in watch reads Silero's own 32 ms windows, so it decides as soon as the speech has
-# lasted long enough rather than at the end of a 100 ms chunk: ~50 ms sooner (decision 0021).
+# lasted long enough rather than at the end of a 100 ms chunk: ~50 ms sooner (decision 0024).
 BARGE_CHUNK = local.VAD_WINDOW
 
 

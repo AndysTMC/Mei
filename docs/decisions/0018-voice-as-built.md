@@ -4,7 +4,7 @@ Status: accepted
 Date: 2026-10-22
 Deciders: owner (delegated)
 Supersedes: —
-Superseded-by: 0019 (in part: the GPU); 0021 (in part: echo cancellation)
+Superseded-by: 0019 (in part: the GPU); 0024 (in part: echo cancellation)
 
 ## Context
 

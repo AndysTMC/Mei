@@ -12,11 +12,14 @@ from functools import cached_property
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, Literal, Protocol
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol
 
 import msgspec
 
 from mei.core.states import Disposition
+
+if TYPE_CHECKING:
+    from mei.computer.controller import Seen
 from mei.policy.paths import PathRules
 
 
@@ -44,7 +47,7 @@ class Resource(msgspec.Struct, frozen=True, kw_only=True):
     aliases: tuple[str, ...] = ()
 
 
-DataClass = Literal["none", "metadata", "file_content", "clipboard", "settings", "memory"]
+DataClass = Literal["none", "metadata", "file_content", "clipboard", "settings", "memory", "screen"]
 # changed: what policy judged isn't what the path leads to any more (a folder on the way became a link).
 ErrorClass = Literal["", "invalid", "not_found", "exists", "permission", "unavailable", "failed", "timeout", "changed"]
 
@@ -63,6 +66,9 @@ class ActionResult(msgspec.Struct, kw_only=True):
     data_class: DataClass = "metadata"  # what kind of data the observation holds (§13.5)
     trust: Literal["trusted", "untrusted"] = "trusted"  # untrusted: content others could have written
     sources: list[str] = msgspec.field(default_factory=list)  # paths whose content is in the observation
+    images: list[str] = msgspec.field(default_factory=list)  # base64 PNGs (desktop.observe's picture)
+    # Set: a step only the person may do (a password field). The task waits for them to say it's done.
+    handoff: str = ""
 
 
 class CheckResult(msgspec.Struct, frozen=True, kw_only=True):
@@ -99,6 +105,10 @@ class Window(msgspec.Struct, frozen=True, kw_only=True):
     title: str
     focused: bool = False
     id: int = 0  # the Shell's window id, for focusing it
+    pid: int = 0  # its process: how computer use finds its accessible tree
+    # Its buffer rectangle in stage coordinates {x, y, width, height}: where AT-SPI's window-relative
+    # extents start (decision 0022). None from a Shell that doesn't give it.
+    buffer: dict | None = None
 
 
 class BridgePort(Protocol):
@@ -110,6 +120,7 @@ class BridgePort(Protocol):
     async def clipboard_get(self) -> str: ...
     async def clipboard_set(self, text: str) -> None: ...
     async def idle_ms(self) -> int: ...
+    async def monitors(self) -> list[dict]: ...  # [{x, y, width, height, scale}], stage coordinates
 
 
 class Player(msgspec.Struct, frozen=True, kw_only=True):
@@ -125,6 +136,18 @@ class MediaPort(Protocol):
 
     async def players(self) -> list[Player]: ...
     async def control(self, name: str, action: str) -> None: ...
+
+
+class DesktopPort(Protocol):
+    """Computer use (mei/computer/controller.py): the desktop worker behind its jail."""
+
+    async def observe(self, window: dict, monitors: list, *, picture: bool, max_nodes: int = 250) -> dict: ...
+    async def act(self, token: str, action: str, *, element: str = "", point: list | None = None, text: str = "",
+                  window: dict | None = None, monitors: list | None = None, needs_input: bool = True) -> dict: ...
+    def seen(self, token: str) -> "Seen | None": ...
+    def person_active(self, idle_ms: int) -> bool: ...  # has someone else used the pointer or keys lately?
+    @property
+    def locked(self) -> bool: ...
 
 
 class StatusPort(Protocol):
@@ -233,6 +256,7 @@ class Env:
     media: MediaPort | None = None
     status: StatusPort | None = None
     cache_home: Path | None = None  # $XDG_CACHE_HOME: task workspaces live under it
+    desktop: DesktopPort | None = None  # computer use; None where it can't run
     clock: Callable[[], float] = time.time
 
     @cached_property
@@ -331,6 +355,11 @@ class Capability(ABC):
 
     async def run(self, p, ctx: ActionContext) -> ActionResult:
         raise NotImplementedError(f"{self.name} is handled by the loop")
+
+    async def busy(self, p, ctx: ActionContext) -> str:
+        """Why it shouldn't run just now, or "" when it may (§10.3: the person is using the pointer it
+        would move). The task waits (WAITING_RESOURCE) and asks again; it never runs over the person."""
+        return ""
 
     async def verify(self, p, result: ActionResult, ctx: ActionContext) -> CheckResult | None:
         """Did it do what it says (the postcondition)? None: nothing to check."""

@@ -107,6 +107,12 @@ export class RuntimeChatController {
         return this._current;
     }
 
+    /** The kill switch's call to the runtime: kill the desktop worker and stop the task using it. */
+    stopComputerUse(reason: string): void {
+        this._client.call('KillSwitch', { reason })
+            .catch((e: RuntimeError) => Logger.warn(Tag.Extension, `Kill switch: ${e.message}`));
+    }
+
     /** The unique bus name the runtime has now, the only caller the Shell bridge serves. */
     get runtimeOwner(): string | null {
         return this._client.owner;
@@ -266,6 +272,25 @@ export class RuntimeChatController {
     answer(requestId: string, value: Answer): void {
         this._popup.hideError();
         this._client.call('AnswerInput', { command_id: GLib.uuid_string_random(), request_id: requestId, value })
+            .catch((e: RuntimeError) => {
+                this._popup.retryInteraction();
+                this._showFailure(e);
+            });
+    }
+
+    /** A task paused while the person used the computer: go on now. */
+    resume(taskId: string): void {
+        this._popup.hideError();
+        this._client.call('Resume', { command_id: GLib.uuid_string_random(), task_id: taskId })
+            .catch((e: RuntimeError) => {
+                this._popup.retryInteraction();
+                this._showFailure(e);
+            });
+    }
+
+    stopTask(taskId: string): void {
+        this._popup.hideError();
+        this._client.call('Cancel', { command_id: GLib.uuid_string_random(), task_id: taskId })
             .catch((e: RuntimeError) => {
                 this._popup.retryInteraction();
                 this._showFailure(e);

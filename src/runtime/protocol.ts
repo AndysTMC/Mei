@@ -60,9 +60,9 @@ export interface VoiceSettingsDoc {
     device: VoiceDevice;
     gpu_idle_min: number; // let the GPU go after this long unused
     barge_in: boolean;
-    echo_cancel: boolean; // with speakers, the barge-in watch hears Mei's voice taken out (decision 0021)
+    echo_cancel: boolean; // with speakers, the barge-in watch hears Mei's voice taken out (decision 0024)
     wake_word: boolean;
-    wake_pause: boolean; // stop listening for "Hey Mei" while another app records (decision 0023)
+    wake_pause: boolean; // stop listening for "Hey Mei" while another app records (decision 0025)
     end_silence_ms: number;
     mic: string; // a PipeWire node name; '' = the system default
     output: string;
@@ -220,7 +220,8 @@ export interface InputRequestView {
     id: string;
     task_id: string;
     action_id: string | null;
-    kind: 'question' | 'continue' | 'in_doubt';
+    /** handoff: a step only the person may do, such as a password field (§10.3). */
+    kind: 'question' | 'continue' | 'in_doubt' | 'handoff';
     spec: { question: string; choices: string[]; fields: FormField[] };
     state: 'pending' | 'answered' | 'superseded';
     created_at: number;
@@ -364,8 +365,22 @@ export interface ConfigDoc {
     approvals?: { preset: ApprovalPreset; [field: string]: unknown };
     memory?: { enabled: boolean; auto_save: boolean; [field: string]: unknown };
     voice?: VoiceSettingsDoc;
+    computer?: { enabled: boolean; [field: string]: unknown };
     /** Fields a newer runtime added; kept as they are when this client writes the config back. */
     [field: string]: unknown;
+}
+
+/** Computer use (§10, decision 0022): can it run here, is accessibility on, was the screen allowed? */
+export interface ComputerStatusReply {
+    available: boolean;
+    reason: string;
+    accessibility: boolean;
+    screen: boolean;
+}
+
+export interface ComputerAllowReply {
+    ok: boolean;
+    error: string;
 }
 
 export interface ConfigReply {

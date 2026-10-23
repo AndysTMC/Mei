@@ -9,7 +9,7 @@ same wire format reads it back.
 
 import json
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal, Protocol
 
 Role = Literal["system", "user", "assistant", "tool"]
@@ -44,6 +44,7 @@ class ChatTurn:
     tool_call_id: str = ""  # tool turns: the call this answers
     name: str = ""  # tool turns: the tool's wire name (Gemini and Ollama match results by name)
     is_error: bool = False  # tool turns: the call failed or was refused
+    images: tuple[str, ...] = ()  # tool turns: base64 PNGs (a window's picture), for a model that sees images
     replay: Replay | None = None  # assistant turns
 
 
@@ -143,3 +144,8 @@ def arguments_object(arguments: str) -> dict:
     except ValueError:
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def without_images(messages: list[ChatTurn]) -> list[ChatTurn]:
+    """The same conversation with no pictures, for a model that turns images away."""
+    return [replace(t, images=()) if t.images else t for t in messages]

@@ -8,7 +8,7 @@ from .run import ToolFailed, checked
 
 WPCTL = "/usr/bin/wpctl"
 PW_DUMP = "/usr/bin/pw-dump"
-# Mei's own echo canceller's source, there while Mei talks (decision 0021): not a microphone to choose.
+# Mei's own echo canceller's source, there while Mei talks (decision 0024): not a microphone to choose.
 # The same prefix as voice/pipewire.py's CANCELLER_NODES (the core doesn't import the voice engine).
 MEI_NODES = "mei.echo-cancel."
 SINK = "@DEFAULT_AUDIO_SINK@"

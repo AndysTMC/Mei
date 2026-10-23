@@ -1,7 +1,7 @@
 /**
  * The setup assistant (§18.3): a page in the preferences window that walks the steps that exist
- * so far, Mei service, Models, Approvals, Privacy, Shortcuts, then a summary. It can be run again from
- * Settings. Each step shows what is already done and uses the same controls as Settings, so
+ * so far, Mei service, Models, Approvals, Memory, Voice, Using the computer, Privacy, Shortcuts, then a
+ * summary. It can be run again from Settings. Each step shows what is already done and uses the same controls as Settings, so
  * re-running it without changes changes nothing.
  *
  * SPDX-License-Identifier: GPL-3.0-only
@@ -15,6 +15,7 @@ import Gtk from 'gi://Gtk';
 import type { CallOptions } from '../runtime/client.js';
 import type { ModelsStep, ServiceStep, SetupStatusReply, TestProviderReply } from '../runtime/protocol.js';
 import type { RuntimeSettings } from '../runtime/settings.js';
+import { computerBasics } from './computerPage.js';
 import { voiceBasics } from './voicePage.js';
 import { buildApprovalRow, buildCloudFilesRow, buildMemoryRows, buildRetentionRow, buildShortcutRow, type Row } from './rows.js';
 import { APPROVAL_FLOOR, doneText, keyringText, modelsText, SETUP_STEPS, storageText, testText } from './setupText.js';
@@ -143,7 +144,13 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
     for (const group of voiceParts.groups) voiceStep.add(group);
     stack.add_named(voiceStep, 'voice');
 
-    /* ── 6. Privacy ── */
+    /* ── 6. Using the computer ── */
+    const computerStep = new Adw.PreferencesPage();
+    const computerParts = computerBasics(window, settings, call);
+    for (const group of computerParts.groups) computerStep.add(group);
+    stack.add_named(computerStep, 'computer');
+
+    /* ── 7. Privacy ── */
     const privacy = step('privacy', 'Privacy',
         'Mei keeps everything until you delete it. You can have conversations you no longer use deleted automatically, '
         + 'and choose which file contents may go to a cloud model.');
@@ -153,16 +160,18 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
     privacy.add(retention.row);
     privacy.add(cloudFiles.row);
 
-    /* ── 7. Shortcuts ── */
+    /* ── 8. Shortcuts ── */
     const shortcuts = step('shortcuts', 'Shortcuts', 'Open Mei from anywhere, with the message box ready for typing, '
         + 'or ask about what you are looking at: the window and the text you selected go with your question.');
     const shortcut = buildShortcutRow(window, gsettings, 'open-shortcut', 'Open Mei');
     const askShortcut = buildShortcutRow(window, gsettings, 'ask-shortcut', 'Ask about this');
     const voiceShortcut = buildShortcutRow(window, gsettings, 'voice-shortcut', 'Talk to Mei');
-    rows.push(shortcut, askShortcut, voiceShortcut);
+    const stopShortcut = buildShortcutRow(window, gsettings, 'stop-computer-shortcut', 'Stop Mei using the computer');
+    rows.push(shortcut, askShortcut, voiceShortcut, stopShortcut);
     shortcuts.add(shortcut.row);
     shortcuts.add(askShortcut.row);
     shortcuts.add(voiceShortcut.row);
+    shortcuts.add(stopShortcut.row);
 
     /* ── Summary ── */
     const done = new Adw.StatusPage({ icon_name: 'emblem-ok-symbolic', title: 'Mei is ready' });
@@ -272,6 +281,7 @@ export function buildSetupAssistant(deps: SetupDeps): SetupAssistant {
             settings.disconnect(settingsSignal);
             rows.forEach(r => r.destroy());
             voiceParts.destroy();
+            computerParts.destroy();
         },
     };
 }

@@ -5,7 +5,9 @@
  *   Approval:  "Mei wants to" · the action · why it asks · Details  →  its choices (Allow once, For
  *              this task, Always, Deny), and "Or tell Mei what to do instead…" (declines, then says it).
  *   Question:  the question  →  its choices and "Something else…" for any other answer, or its form
- *              and Send, or only an answer box.
+ *              and Send, or only an answer box. A hand-off (a password field Mei won't type into) takes
+ *              only its choices.
+ *   Paused:    why (the person is using the computer)  →  Resume, Stop. It goes on by itself too.
  *
  * The same in the small and the large popup. Text from the model and from files is plain text.
  *
@@ -37,7 +39,8 @@ export class InteractionPanel {
 
     /** Show what Mei waits for, or nothing. True if something shows (the input area then hides). */
     show(interaction: Interaction | null): boolean {
-        const key = !interaction ? '' : interaction.kind === 'approval' ? `a:${interaction.approval.id}` : `q:${interaction.request.id}`;
+        const key = !interaction ? '' : interaction.kind === 'approval' ? `a:${interaction.approval.id}`
+            : interaction.kind === 'question' ? `q:${interaction.request.id}` : `p:${interaction.taskId}:${interaction.note}`;
         if (key === this._shown) return interaction !== null;
         this._shown = key;
         this.actor.destroy_all_children();
@@ -46,6 +49,7 @@ export class InteractionPanel {
         this.actor.visible = interaction !== null;
         if (interaction?.kind === 'approval') this._approval(interaction.approval);
         else if (interaction?.kind === 'question') this._question(interaction.request);
+        else if (interaction?.kind === 'paused') this._paused(interaction.taskId, interaction.note);
         return interaction !== null;
     }
 
@@ -121,7 +125,20 @@ export class InteractionPanel {
                 row.add_child(button);
             }
         }
+        if (request.kind === 'handoff') return; // only the person can do it: done, or not
         this._customEntry(choices.length ? 'Something else…' : 'Your answer…', text => this._actions.onAnswer(request.id, text));
+    }
+
+    private _paused(taskId: string, note: string): void {
+        this.actor.add_child(wrapLabel(new St.Label({ text: note, style_class: 'mei-interaction-title' })));
+        this.actor.add_child(muted('Mei goes on when you stop.'));
+        const row = this._row();
+        const resume = this._button('Resume', 'Go on now', 'suggested');
+        resume.connect('clicked', () => this._settle(() => this._actions.onResume(taskId)));
+        const stop = this._button('Stop', 'Stop this task');
+        stop.connect('clicked', () => this._settle(() => this._actions.onStopTask(taskId)));
+        row.add_child(resume);
+        row.add_child(stop);
     }
 
     /** A field of a form; returns how to read its value. */

@@ -38,12 +38,25 @@ class OpenAIChatProvider:
         self._echo_reasoning = echo_reasoning
 
     def body(self, request: ModelRequest) -> dict:
-        body = {"model": self.model, "stream": True,
-                "messages": [self._message(t) for t in request.messages], **self._extra}
+        body = {"model": self.model, "stream": True, "messages": self._messages(request.messages), **self._extra}
         if request.tools:
             body["tools"] = [{"type": "function", "function": {"name": t.name, "description": t.description,
                                                                "parameters": t.parameters}} for t in request.tools]
         return body
+
+    def _messages(self, turns: list[ChatTurn]) -> list[dict]:
+        """A tool message carries text only: pictures follow the run of results as a user message."""
+        out: list[dict] = []
+        pictures: list[str] = []
+        for turn in turns:
+            if turn.role != "tool" and pictures:
+                out.append(_pictures_message(pictures))
+                pictures = []
+            out.append(self._message(turn))
+            pictures += turn.images
+        if pictures:
+            out.append(_pictures_message(pictures))
+        return out
 
     def _message(self, turn: ChatTurn) -> dict:
         if turn.role == "tool":
@@ -163,3 +176,9 @@ def merge_reasoning_details(acc: list[dict], items: object) -> None:
                 target[key] = (target.get(key) or "") + value
             elif value is not None and key != "index":
                 target[key] = value
+
+
+def _pictures_message(pictures: list[str]) -> dict:
+    return {"role": "user", "content": [
+        {"type": "text", "text": "The picture desktop_observe took, as described in its result above."},
+        *({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}"}} for data in pictures)]}

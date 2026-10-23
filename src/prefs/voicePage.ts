@@ -179,13 +179,13 @@ export class VoicePage {
             [0.3, 2.0, 0.1, 1], () => v().end_silence_ms / 1000, s => settings.setVoice('end_silence_ms', Math.round(s * 1000)));
         const wake = toggle(settings, 'Listen for “Hey Mei”',
             'The microphone stays on. Slower to react than the shortcut, and it can wake on similar words.', 'wake_word');
-        // Another app recording (a call, a recorder) has the microphone to itself (decision 0023).
+        // Another app recording (a call, a recorder) has the microphone to itself (decision 0025).
         const wakePause = toggle(settings, 'Pause while another app records',
             'Mei stops listening for “Hey Mei” during calls and recordings, and starts again after. The shortcut ' +
             'still works.', 'wake_pause');
         const bargeIn = toggle(settings, 'Interrupt by talking', 'Talk over Mei to stop it. Quickest with earphones.',
             'barge_in');
-        // With speakers, PipeWire's echo canceller while Mei talks (decision 0021); not used with earphones.
+        // With speakers, PipeWire's echo canceller while Mei talks (decision 0024); not used with earphones.
         const echo = toggle(settings, 'Cancel echo from speakers',
             'While Mei talks through speakers, its voice is taken out of what the microphone hears, using a little ' +
             'processor time. Slower to react than earphones, and an echoey room can still stop Mei.', 'echo_cancel');

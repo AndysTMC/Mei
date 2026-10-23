@@ -31,7 +31,7 @@ class Load(Command, tag="load"):
     wake_threshold: float = 0.25
     barge_in: bool = False  # interrupt by talking
     # While Mei speaks with barge_in on, hear the microphone through PipeWire's echo canceller, so
-    # talking over Mei works with speakers too (decision 0021). Without it, only with earphones.
+    # talking over Mei works with speakers too (decision 0024). Without it, only with earphones.
     echo_cancel: bool = True
     end_silence_s: float = 0.5
     mic: str = ""  # PipeWire node; "" = the default

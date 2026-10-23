@@ -280,6 +280,7 @@ export class Composer {
     private _scrollToCursor(): void {
         const rect = this.entry.clutter_text.get_cursor_rect();
         const adj = this._scroll.get_vadjustment();
+        if (!adj) return; // queued before the view was laid out, or after it went away
         const page = adj.get_page_size() || this._scroll.get_height();
         const top = rect.get_y();
         const bottom = top + Math.max(1, rect.get_height());

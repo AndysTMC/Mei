@@ -252,4 +252,24 @@ MIGRATIONS: list[str] = [
     INSERT INTO messages_fts (rowid, content) SELECT rowid, content FROM messages WHERE role IN ('user', 'assistant');
     ALTER TABLE tasks ADD COLUMN recalled TEXT NOT NULL DEFAULT '[]'
     """,
+    # 5: computer use (§10.3, decision 0022): a "handoff" asks the person to do a step Mei may not (a
+    # password field). SQLite can't change a CHECK in place, so the table is rebuilt with the same rows.
+    """
+    CREATE TABLE input_requests_v5 (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        action_id TEXT,
+        kind TEXT NOT NULL CHECK (kind IN ('question', 'continue', 'in_doubt', 'handoff')),
+        spec TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('pending', 'answered', 'superseded')),
+        answer TEXT,
+        created_at INTEGER NOT NULL,
+        answered_at INTEGER
+    );
+    INSERT INTO input_requests_v5 (id, task_id, action_id, kind, spec, state, answer, created_at, answered_at)
+        SELECT id, task_id, action_id, kind, spec, state, answer, created_at, answered_at FROM input_requests;
+    DROP TABLE input_requests;
+    ALTER TABLE input_requests_v5 RENAME TO input_requests;
+    CREATE INDEX input_requests_by_task ON input_requests (task_id, state)
+    """,
 ]

@@ -24,6 +24,10 @@ export interface CardActions {
     /** Decline, and tell Mei what to do instead. */
     onDenyWith(approvalId: string, text: string): void;
     onAnswer(requestId: string, value: Answer): void;
+    /** A paused task: go on now. */
+    onResume(taskId: string): void;
+    /** A paused task: stop it. */
+    onStopTask(taskId: string): void;
     /** Make a memory waiting for review active. */
     onKeepMemory(memoryId: string): void;
     /** Undo a memory just saved, or discard one waiting for review. */

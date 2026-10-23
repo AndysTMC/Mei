@@ -46,7 +46,9 @@ class ShellBridgeClient:
     async def list_windows(self) -> list[Window]:
         reply = await self._call("ListWindows", {})
         return [Window(app_id=str(w.get("app_id", "")), title=str(w.get("title", "")), focused=bool(w.get("focused")),
-                       id=int(w.get("id") or 0)) for w in reply.get("windows", []) if isinstance(w, dict)]
+                       id=int(w.get("id") or 0), pid=int(w.get("pid") or 0),
+                       buffer=w["buffer"] if isinstance(w.get("buffer"), dict) else None)
+                for w in reply.get("windows", []) if isinstance(w, dict)]
 
     async def launch_app(self, app_id: str, uris: list[str]) -> None:
         await self._call("LaunchApp", {"app_id": app_id, "uris": uris})
@@ -59,6 +61,16 @@ class ShellBridgeClient:
 
     async def clipboard_set(self, text: str) -> None:
         await self._call("ClipboardSet", {"text": text})
+
+    async def monitors(self) -> list[dict]:
+        return [m for m in (await self._call("GetMonitors", {})).get("monitors", []) if isinstance(m, dict)]
+
+    async def make_way(self, window_id: int) -> None:
+        """Before Mei clicks or types: its popup closed (its grab would take them), the window in front."""
+        await self._call("MakeWay", {"window_id": window_id})
+
+    async def show_overlay(self, active: bool) -> None:
+        await self._call("ShowOverlay", {"active": active})
 
     async def idle_ms(self) -> int:
         return int((await self._call("GetIdleTime", {})).get("ms") or 0)

@@ -234,13 +234,13 @@ class VoiceSettings(msgspec.Struct, kw_only=True):
     device: Literal["auto", "cpu", "gpu"] = "auto"
     gpu_idle_min: Annotated[int, msgspec.Meta(ge=1, le=60)] = 5
     # Interrupt by talking over Mei. Off by default: with speakers it relies on echo cancellation,
-    # which hasn't been measured in a real room (decision 0021); with earphones it is reliable.
+    # which hasn't been measured in a real room (decision 0024); with earphones it is reliable.
     barge_in: bool = False
     # While Mei speaks, hear the microphone with Mei's own voice taken out (PipeWire's echo
-    # canceller), so talking over it works with speakers too (decision 0021).
+    # canceller), so talking over it works with speakers too (decision 0024).
     echo_cancel: bool = True
     wake_word: bool = False  # "Hey Mei": off by default, it misses the latency target (decision 0017)
-    wake_pause: bool = True  # stop listening for "Hey Mei" while another app records (decision 0023)
+    wake_pause: bool = True  # stop listening for "Hey Mei" while another app records (decision 0025)
     end_silence_ms: Annotated[int, msgspec.Meta(ge=300, le=2000)] = 500
     mic: str = ""  # a PipeWire node name; "" follows the system default
     output: str = ""
@@ -250,11 +250,20 @@ class VoiceDownloadArgs(msgspec.Struct):
     models: list[str]  # ids from VoiceModels (VoiceDownload and VoiceRemove)
 
 
+class KillSwitchArgs(msgspec.Struct):
+    reason: str = ""
+
+
 class VoiceListenArgs(msgspec.Struct):
     conversation_id: str | None = None  # the conversation the popup shows; None starts a new one
     # Dictation (the mic button): hear one utterance and hand its words back (voice.partial with
     # "dictation"), to go into the input box; nothing is sent and nothing is said.
     dictate: bool = False
+
+
+class ComputerSettings(msgspec.Struct, kw_only=True):
+    # Computer use (§10, decision 0022). Off until the person allows it in setup or Settings.
+    enabled: bool = False
 
 
 class Config(msgspec.Struct, kw_only=True):
@@ -265,6 +274,7 @@ class Config(msgspec.Struct, kw_only=True):
     clients: Clients = msgspec.field(default_factory=Clients)
     memory: MemorySettings = msgspec.field(default_factory=MemorySettings)
     voice: VoiceSettings = msgspec.field(default_factory=VoiceSettings)
+    computer: ComputerSettings = msgspec.field(default_factory=ComputerSettings)
 
 
 def active_provider(config: Config) -> ProviderConfig:

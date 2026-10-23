@@ -2,7 +2,7 @@
 the `pipewire-0` socket, which is all the voice worker's jail has. PortAudio's PulseAudio path
 would need the PulseAudio socket, whose protocol lets a client load server modules.
 
-Echo cancellation (decision 0021) is PipeWire's own too: its echo-cancel module, run by `pipewire`
+Echo cancellation (decision 0024) is PipeWire's own too: its echo-cancel module, run by `pipewire`
 as a client of the same socket, only while the barge-in watch has the microphone.
 """
 
@@ -40,7 +40,7 @@ RECORDER_NAME = "mei.microphone"
 WAIT_FOR_TARGET = "node.dont-fallback = true node.linger = true"
 CANCELLER_NODES = "mei.echo-cancel."  # its nodes' names start so; desktop/sound.py leaves them out of Settings
 # Outputs into the person's ears, not the room: nothing to cancel, and a canceller with no echo to
-# learn from holds the person's voice down for about a second (lab, decision 0021).
+# learn from holds the person's voice down for about a second (lab, decision 0024).
 EAR_PORTS = {"headphones", "headset", "earpiece", "handset"}  # a route's port.type
 EAR_FORMS = {"headphone", "headset", "hands-free", "handset"}  # device.form-factor
 
@@ -193,7 +193,7 @@ def canceller_config(name: str, mic: str = "", output: str = "") -> str:
     for the default), takes what `output` plays (its monitor) as the echo to remove, and offers the
     result as `<name>.source`. Monitor mode, so Mei's speech goes straight to the speakers, not
     through the canceller, and other sounds playing are removed too. At 48 kHz: at 16 kHz the module
-    removed only ~11 dB of a simulated room's echo, at 48 kHz 30–68 dB (decision 0021). The
+    removed only ~11 dB of a simulated room's echo, at 48 kHz 30–68 dB (decision 0024). The
     module's streams are passive, so the microphone runs only while Mei records the source. Its
     own gain control and noise suppression are off: what Mei hears changes only by the echo."""
     capture = f"target.object = {_spa(mic)}" if mic else ""
@@ -230,7 +230,7 @@ def _spa(text: str) -> str:
 
 
 class EchoCancelledSource:
-    """The microphone with what the speakers play taken out (decision 0021): PipeWire's WebRTC echo
+    """The microphone with what the speakers play taken out (decision 0024): PipeWire's WebRTC echo
     canceller, run as a private `pipewire -c` client only between `start` and `stop`, with Mei
     recording its source. Nothing in the person's PipeWire setup changes; when it stops, its nodes
     are gone. It lives only while the microphone is open, because GNOME shows the microphone in use
