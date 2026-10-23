@@ -80,7 +80,9 @@ def _contents(turns: list[ChatTurn]) -> list[dict]:
     out: list[dict] = []
     for item in tool_groups(turns):
         if isinstance(item, list):
-            out.append({"role": "user", "parts": [_function_response(t) for t in item]})
+            out.append({"role": "user", "parts": [*(_function_response(t) for t in item),
+                                                  *({"inline_data": {"mime_type": "image/png", "data": data}}
+                                                    for t in item for data in t.images)]})
         elif item.role == "assistant":
             parts: list[dict] = [{"text": item.content}] if item.content else []
             for call in item.tool_calls:

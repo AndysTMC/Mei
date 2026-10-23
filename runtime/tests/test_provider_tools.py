@@ -219,3 +219,35 @@ async def test_fake_script_moves_one_step_per_round_trip(tmp_path):
     assert not calls(second) and second[-1] == Done("stop")
     logged = [json.loads(line) for line in log.read_text().splitlines()]
     assert logged[0]["tools"] == ["fs_list"] and logged[1]["turns"][2] == {"role": "tool", "content": "x", "name": "fs_list"}
+
+
+PICTURED = ModelRequest([
+    ChatTurn("user", "click the red square"),
+    ChatTurn("assistant", "", tool_calls=(ToolCall("call_1", "desktop_observe", '{"picture": true}'),)),
+    ChatTurn("tool", "Window “Paint”…", tool_call_id="call_1", name="desktop_observe", images=("UE5H",)),
+])
+
+
+async def test_a_picture_goes_with_its_result_on_every_wire_format():
+    seen: list = []
+    await run(AnthropicProvider(mock(sse({"type": "message_stop"}), seen=seen), label="A", url="https://a.test",
+                                model="m"), PICTURED)
+    result = json.loads(seen[-1].content)["messages"][-1]["content"][0]
+    assert result["content"] == [{"type": "text", "text": "Window “Paint”…"},
+                                 {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "UE5H"}}]
+
+    await run(OpenAIChatProvider(mock(sse(delta(content="ok"), b"[DONE]"), seen=seen), label="T",
+                                 url="https://x.test/v1/chat/completions", model="m"), PICTURED)
+    messages = json.loads(seen[-1].content)["messages"]
+    assert [m["role"] for m in messages] == ["user", "assistant", "tool", "user"]  # a tool message is text only
+    assert messages[2]["content"] == "Window “Paint”…"
+    assert messages[3]["content"][1] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,UE5H"}}
+
+    await run(GeminiProvider(mock(sse({"candidates": [{"finishReason": "STOP"}]}), seen=seen), label="G",
+                             base_url="https://g.test", model="gemini-3-flash"), PICTURED)
+    parts = json.loads(seen[-1].content)["contents"][-1]["parts"]
+    assert parts[1] == {"inline_data": {"mime_type": "image/png", "data": "UE5H"}}
+
+    await run(OllamaProvider(mock(b'{"done": true, "message": {"content": ""}}\n', seen=seen), label="O",
+                             url="https://o.test/api/chat", model="m"), PICTURED)
+    assert json.loads(seen[-1].content)["messages"][-1]["images"] == ["UE5H"]

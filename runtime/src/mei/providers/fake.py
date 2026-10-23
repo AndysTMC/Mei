@@ -9,6 +9,7 @@ Options (from `ProviderConfig.options`):
   fail_retryable  mark that mid-stream error as retryable (it must still not be retried)
   cut_off      if true, end the stream after the first chunk without finishing (a dropped reply)
   busy_times   the first N calls raise a retryable error before any output (like HTTP 503)
+  no_images    if true, a request carrying a picture is refused (like a model that can't see images)
   call_log     path of a JSON-lines file; every call appends the request it got (for crash and
                disclosure tests)
   script       a list of turns, each {"text", "thinking", "tool_calls": [{"name", "arguments"}]};
@@ -49,6 +50,8 @@ class FakeProvider:
         self._calls += 1
         if self._calls <= int(opts.get("busy_times", 0)):
             raise ProviderError("Fake: HTTP 503: overloaded", retryable=True, status=503)
+        if opts.get("no_images") and any(t.images for t in request.messages):
+            raise ProviderError("Fake: HTTP 400: this model does not support image input", status=400)
         turn = _scripted_turn(opts, request, last_user)
         reply = turn.get("text", "") if turn is not None else (opts.get("reply") or f"Echo: {last_user}")
         thought = turn.get("thinking", "") if turn is not None else opts.get("thinking", "")
@@ -96,4 +99,6 @@ def _logged(turn: ChatTurn) -> dict:
         entry["tool_calls"] = [{"name": c.name, "arguments": c.arguments} for c in turn.tool_calls]
     if turn.role == "tool":
         entry["name"] = turn.name
+    if turn.images:
+        entry["images"] = len(turn.images)
     return entry

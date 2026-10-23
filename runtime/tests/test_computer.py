@@ -3,6 +3,7 @@ how an act is judged from the observed element, the password hand-off through th
 controller against a fake worker (the control lease, replies, a dying worker, the kill switch)."""
 
 import asyncio
+import base64
 import json
 import shutil
 import sys
@@ -165,7 +166,10 @@ class FakeDesktop:
 
     async def observe(self, window, monitors, *, picture, max_nodes=250):
         self.observed += 1
-        return {"token": f"t{self.observed}", "app": "Login", "title": "Sign in", "nodes": self.nodes}
+        data = {"token": f"t{self.observed}", "app": "Login", "title": "Sign in", "nodes": self.nodes}
+        if picture:
+            data["picture"] = {"png": base64.b64encode(b"\x89PNG fake").decode(), "width": 4, "height": 3}
+        return data
 
     async def act(self, token, action, **kw):
         self.acts.append((token, action, kw.get("element"), kw.get("text")))
@@ -437,3 +441,17 @@ async def test_the_kill_switch_stops_the_tasks_that_used_the_computer(tmp_path):
     assert h.engine.stop_computer_use() == [r["task_id"]]
     assert h.task(r["task_id"])["state"] == S.CANCELLED and desktop.acts == []
     assert h.engine.stop_computer_use() == []  # finished tasks aren't touched again
+
+
+
+@pytest.mark.parametrize("vision", [True, False])
+async def test_only_the_latest_picture_goes_to_the_model(tmp_path, vision):
+    h, _desktop = computer_harness(tmp_path, [
+        turn(call("desktop_observe", picture=True)), turn(call("desktop_observe", picture=True)),
+        {"text": "I see it."}], no_images=not vision)
+    r = h.submit("what's in the Login window?")
+    assert await h.until(r["task_id"]) == S.COMPLETED  # a model that can't see images is asked again without them
+    pictures = [t.get("images", 0) for t in h.requests()[-1]["turns"] if t["role"] == "tool"]
+    assert pictures == ([0, 1] if vision else [0, 0])
+    kept = list((h.env.data_dir / "artifacts").rglob("*.png"))
+    assert len(kept) == 2 and kept[0].read_bytes() == b"\x89PNG fake"  # kept with the conversation, not the ledger
