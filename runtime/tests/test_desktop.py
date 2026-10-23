@@ -222,3 +222,13 @@ async def test_audio_devices_come_from_the_graph_by_node_name(tmp_path):
     assert await audio_devices(str(fake)) == {
         "mics": [{"id": 31, "name": "alsa_input.usb-mic", "label": "USB Microphone"}],
         "outputs": [{"id": 32, "name": "alsa_output.speakers", "label": "Speakers"}]}
+
+
+def test_setting_changes_are_described_in_plain_words():
+    from mei.capabilities.settings import plain
+    assert plain("color-scheme", "'prefer-dark'", done=True) == "Turned on dark mode"
+    assert plain("color-scheme", "default", done=False) == "Turn on light mode"
+    assert plain("text-scaling-factor", "1.25", done=True) == "Set text size to 125%"
+    assert plain("night-light-enabled", "true", done=False) == "Turn night light on"
+    assert plain("show-battery-percentage", "false", done=True) == "Hid the battery percentage"
+    assert plain("picture-uri", "'file:///x.png'", done=True) == "Changed the wallpaper"

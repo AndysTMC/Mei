@@ -38,6 +38,44 @@ ALLOWED: dict[tuple[str, str], tuple[str, ...]] = {
 KEYS_TEXT = "; ".join(f"{s} {k}" for s, k in ALLOWED)
 
 
+def plain(key: str, value: object, *, done: bool) -> str:
+    """What a change means to a person: "Turn on dark mode" (to come) or "Turned on dark mode" (done),
+    not "Set color-scheme to prefer-dark"."""
+    v = values.loose(str(value)) if not isinstance(value, (bool, int, float)) else value
+    on = v is True or v == "true"
+
+    def say(will: str, did: str) -> str:
+        return did if done else will
+    match key:
+        case "color-scheme":
+            dark = v == "prefer-dark"
+            return say(f"Turn on {'dark' if dark else 'light'} mode", f"Turned on {'dark' if dark else 'light'} mode")
+        case "accent-color":
+            return say(f"Make the accent color {v}", f"Made the accent color {v}")
+        case "text-scaling-factor" if isinstance(v, (int, float)):
+            return say(f"Set text size to {round(float(v) * 100)}%", f"Set text size to {round(float(v) * 100)}%")
+        case "clock-format":
+            return say(f"Show the clock as {v}", f"Showed the clock as {v}")
+        case "show-battery-percentage":
+            return say(f"{'Show' if on else 'Hide'} the battery percentage", f"{'Showed' if on else 'Hid'} the battery percentage")
+        case "enable-animations":
+            return say(f"Turn animations {'on' if on else 'off'}", f"Turned animations {'on' if on else 'off'}")
+        case "picture-uri" | "picture-uri-dark":
+            return say("Change the wallpaper", "Changed the wallpaper")
+        case "picture-options":
+            return say(f"Fit the wallpaper as {v}", f"Fitted the wallpaper as {v}")
+        case "primary-color":
+            return say(f"Make the background color {v}", f"Made the background color {v}")
+        case "night-light-enabled":
+            return say(f"Turn night light {'on' if on else 'off'}", f"Turned night light {'on' if on else 'off'}")
+        case "night-light-temperature":
+            return say(f"Set night light warmth to {v} K", f"Set night light warmth to {v} K")
+        case "night-light-schedule-automatic":
+            when = "from sunset to sunrise" if on else "on its manual schedule"
+            return say(f"Run night light {when}", f"Night light now runs {when}")
+    return say(f"Set {key} to {v}", f"Set {key} to {v}")
+
+
 def _allowed(schema: str, key: str) -> tuple[str, ...]:
     words = ALLOWED.get((schema.strip(), key.strip()))
     if words is None:
@@ -129,7 +167,7 @@ class SettingsSet(Capability):
         return _resource(p.schema, p.key, "write")
 
     def describe(self, p: SetParams, env: Env) -> str:
-        return f"Set {p.key} to {p.value}"
+        return plain(p.key, p.value, done=False)
 
     async def run(self, p: SetParams, ctx: ActionContext) -> ActionResult:
         _allowed(p.schema, p.key)
@@ -138,7 +176,7 @@ class SettingsSet(Capability):
         new = await coerce(ctx.env, p.schema, p.key, p.value)
         await gs.set(p.schema, p.key, new)
         return ActionResult(ok=True, observation=f"Set {p.schema} {p.key} to {new} (it was {old})",
-                            summary=f"Set {p.key} to {values.loose(new)}", data_class="settings",
+                            summary=plain(p.key, new, done=True), data_class="settings",
                             undo={"kind": "setting", "schema": p.schema, "key": p.key, "old": old, "new": new})
 
     async def verify(self, p: SetParams, result: ActionResult, ctx: ActionContext) -> CheckResult:
