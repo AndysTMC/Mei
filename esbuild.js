@@ -34,6 +34,12 @@ await build({
     outfile: 'dist/prefs.js',
 });
 
+// The drop window (decision 0027): its own process, started by the extension.
+await build({
+    ...common,
+    entryPoints: ['src/dropWindow.ts'],
+    outfile: 'dist/dropWindow.js',
+});
 
 const mode = isDev ? 'dev' : 'prod';
 console.log(`Build complete (${mode}).`);

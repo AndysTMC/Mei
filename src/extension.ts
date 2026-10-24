@@ -15,6 +15,7 @@ import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 
+import { DropZone } from './panel/dropZone.js';
 import { MeiIndicator } from './panel/indicator.js';
 import { ChatPopup } from './ui/chatPopup.js';
 import { TaskNotifier } from './ui/notifier.js';
@@ -32,6 +33,7 @@ export default class MeiExtension extends Extension {
     private _bridge: ShellBridge | null = null;
     private _control: ComputerControl | null = null;
     private _notifier: TaskNotifier | null = null;
+    private _dropZone: DropZone | null = null;
     private _devHooks: { destroy(): void } | null = null;
     private _settings: Gio.Settings | null = null;
 
@@ -80,6 +82,9 @@ export default class MeiExtension extends Extension {
         popup.onResume = id => runtime.resume(id);
         popup.onStopTask = id => runtime.stopTask(id);
         popup.onRemoveAttachment = () => runtime.removeAttachment();
+        // Files or text dragged from another app onto the button go with the next message (0027).
+        this._dropZone = new DropZone(this._indicator.actor, `${this.path}/dropWindow.js`);
+        this._dropZone.onDrop = drop => runtime.attachDrop(drop);
         popup.onDictate = () => runtime.dictate();
         popup.onVoice = () => runtime.voiceToggle();
         popup.onKeepMemory = id => runtime.keepMemory(id);
@@ -121,7 +126,7 @@ export default class MeiExtension extends Extension {
         runtime.start();
         if (__DEV__ && GLib.getenv('MEI_DEV_HOOKS') === '1') {
             void import('./runtime/devHooks.js').then(({ DevHooks }) => {
-                if (this._runtime === runtime) this._devHooks = new DevHooks(popup, runtime, notifier);
+                if (this._runtime === runtime) this._devHooks = new DevHooks(popup, runtime, notifier, this._dropZone);
             });
         }
         this._syncIndicatorState();
@@ -139,6 +144,8 @@ export default class MeiExtension extends Extension {
         this._settings = null;
         this._devHooks?.destroy();
         this._devHooks = null;
+        this._dropZone?.destroy();
+        this._dropZone = null;
         this._runtime?.destroy();
         this._runtime = null;
         this._notifier?.destroy();

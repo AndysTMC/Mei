@@ -14,6 +14,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import msgspec
 
@@ -213,7 +214,8 @@ class TaskLoop:
 
     def _seen(self, task) -> decide.Seen:
         """The person's words in this task, what they told Mei to remember that this task recalled
-        (§17.5), and what Mei has read in it. What they attached is content others wrote (§18.4)."""
+        (§17.5), and what Mei has read in it. What they attached is content others wrote (§18.4); files
+        they dropped on Mei they named (0027)."""
         own = self._own_messages(task)
         texts = [r["content"] for r in own] + memories.stated(self.d.store, task)
         rows = self.d.store.read("SELECT a.result, m.content FROM actions a JOIN messages m ON m.action_id = a.id "
@@ -221,11 +223,13 @@ class TaskLoop:
         attached = [a for a in map(context.attachment_of, own) if a]
         content = [a.get("text", "") for a in attached]
         other = [a.get("window_title", "") for a in attached]
+        pointed = tuple(Path(p) for a in attached if a.get("kind") == "files" for p in a.get("paths", []))
         for r in rows:
             result = json.loads(r["result"])
             if result.get("trust") == "untrusted":
                 (content if result.get("data_class") in ("file_content", "screen") else other).append(r["content"])
-        return decide.Seen(texts, content, other, workspace=self.d.env.workspace(task["conversation_id"]))
+        return decide.Seen(texts, content, other, workspace=self.d.env.workspace(task["conversation_id"]),
+                           pointed=pointed)
 
     def _proposal(self, task, action) -> decide.Proposal:
         cfg = msgspec.convert(json.loads(task["provider"]), ProviderConfig)

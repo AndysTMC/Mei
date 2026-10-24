@@ -61,6 +61,7 @@ class Seen:
     untrusted_content: list[str]  # file contents and the like: where instructions hide
     untrusted_other: list[str]  # listings and search results
     workspace: Path | None = None  # the conversation's scratch folder: Mei's own, granted by design
+    pointed: tuple[Path, ...] = ()  # files and folders the person dropped on Mei: named, as if typed
 
 
 class Refused(Exception):
@@ -85,7 +86,7 @@ def prepare(registry: Registry, env: Env, action, seen: Seen) -> Proposal:
         content = tuple(str(_real(c)) if isinstance(c, Path) else c for c in cap.reads_content(params, env))
     except CapabilityError as e:
         raise Refused(e.message) from None
-    anchored = provenance.resolved_anchors(provenance.anchors(seen.user_texts, env))
+    anchored = provenance.resolved_anchors(provenance.anchors(seen.user_texts, env, seen.pointed))
     subjects = tuple(_subject(r, anchored, seen, env) for r in resources)
     canonical, digest = registry.canonical(cap, params)
     return Proposal(cap, params, canonical, digest, effects, subjects, description, content)

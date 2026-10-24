@@ -1,0 +1,6 @@
+{
+  "uuid": "mei-dnd-spike@andystmc.com",
+  "name": "Mei drag-and-drop spike",
+  "description": "Throwaway probe for spike 0d: what a Shell extension sees of a Wayland drag, and whether a window it owns can take the drop.",
+  "shell-version": ["50"]
+}

@@ -9,6 +9,7 @@ always pick up from the database.
 import asyncio
 import json
 import logging
+import os
 import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -116,7 +117,7 @@ class Engine:
             message = repo.add_message(tx, conversation_id, "user", text, metadata=metadata)
             task = repo.create_task(tx, conversation_id, message["id"], msgspec.to_builtins(provider))
             if attached:
-                _taint(tx, task["id"])
+                _taint(tx, task["id"], attached)
             result = {"conversation_id": conversation_id, "task_id": task["id"], "message_id": message["id"],
                       "steer": False}
             return result, [task["id"]]
@@ -131,7 +132,7 @@ class Engine:
             raise ProtocolError("Busy", "Mei is stopping the current task")
         message = repo.add_message(tx, active["conversation_id"], "user", text, task_id=active["id"], metadata=metadata)
         if attached:
-            _taint(tx, active["id"])
+            _taint(tx, active["id"], attached)
         result = {"conversation_id": active["conversation_id"], "task_id": active["id"], "message_id": message["id"],
                   "steer": True}
         if state not in (S.WAITING_APPROVAL, S.WAITING_INPUT):
@@ -522,12 +523,28 @@ def _valid_answer(spec: dict, value):
 
 
 def _attached(attachment: Attachment | None) -> dict | None:
-    """The message's metadata for "Ask about this" (§18.4), or None when nothing was attached."""
-    if attachment is None or not (attachment.text.strip() or attachment.window_title.strip()):
+    """The message's metadata for what came with it (§18.4), or None when nothing did. Dropped files
+    are absolute paths as the Shell got them, each once, and carry nothing else."""
+    if attachment is None:
         return None
-    return {"attachment": msgspec.to_builtins(attachment)}
+    if attachment.kind != "files":
+        if attachment.paths:
+            raise ProtocolError("InvalidArgument", "only dropped files carry paths")
+        if not (attachment.text.strip() or attachment.window_title.strip()):
+            return None
+        return {"attachment": msgspec.to_builtins(attachment)}
+    if attachment.text or attachment.window_title or attachment.app_id:
+        raise ProtocolError("InvalidArgument", "dropped files carry only their paths")
+    paths = list(dict.fromkeys(attachment.paths))
+    if any("\0" in p or not os.path.isabs(p) or os.path.normpath(p) != p for p in paths):
+        raise ProtocolError("InvalidArgument", "dropped files must be absolute paths")
+    if not paths:
+        return None
+    return {"attachment": msgspec.to_builtins(msgspec.structs.replace(attachment, paths=paths))}
 
 
-def _taint(tx: Tx, task_id: str) -> None:
-    """Others wrote what was attached: the task has read untrusted content, as after reading a file."""
-    tx.execute("UPDATE tasks SET tainted = 1 WHERE id = ?", (task_id,))
+def _taint(tx: Tx, task_id: str, attached: dict) -> None:
+    """Others wrote the attached text: the task has read untrusted content, as after reading a file.
+    Dropped files are only pointed at; reading one later taints the task as any read does."""
+    if attached["attachment"]["kind"] != "files":
+        tx.execute("UPDATE tasks SET tainted = 1 WHERE id = ?", (task_id,))

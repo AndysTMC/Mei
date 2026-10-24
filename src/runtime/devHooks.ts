@@ -13,6 +13,7 @@ import Shell from 'gi://Shell';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+import type { DropZone } from '../panel/dropZone.js';
 import type { ChatPopup } from '../ui/chatPopup.js';
 import type { TaskNotifier } from '../ui/notifier.js';
 import type { RuntimeChatController } from './controller.js';
@@ -39,6 +40,7 @@ const XML = `
     <method name="ClickStageButton"><arg type="s" direction="in" name="label"/><arg type="b" direction="out" name="found"/></method>
     <method name="StageText"><arg type="s" direction="out" name="json"/></method>
     <method name="TypeText"><arg type="s" direction="in" name="text"/></method>
+    <method name="Drag"><arg type="i" direction="in" name="x0"/><arg type="i" direction="in" name="y0"/><arg type="i" direction="in" name="x1"/><arg type="i" direction="in" name="y1"/></method>
   </interface>
 </node>`;
 
@@ -52,7 +54,7 @@ export class DevHooks {
     private readonly _clicks: { label: string; picked: boolean; clicked: boolean }[] = [];
 
     constructor(private readonly _popup: ChatPopup, private readonly _runtime: RuntimeChatController,
-        private readonly _notifier: TaskNotifier) {
+        private readonly _notifier: TaskNotifier, private readonly _dropZone: DropZone | null) {
         const seat = Clutter.get_default_backend().get_default_seat();
         this._pointer = seat.create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
         this._keyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
@@ -106,6 +108,28 @@ export class DevHooks {
         this._pointer.notify_absolute_motion(t, x, y);
         this._pointer.notify_button(t + 10_000, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.PRESSED);
         this._pointer.notify_button(t + 20_000, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.RELEASED);
+    }
+
+    /** A drag with the left button, as a hand would: press, move there in steps, linger, release. */
+    Drag(x0: number, y0: number, x1: number, y1: number): void {
+        const steps = 20;
+        let i = 0;
+        let t = GLib.get_monotonic_time();
+        this._pointer.notify_absolute_motion(t, x0, y0);
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 60, () => {
+            this._pointer.notify_button(GLib.get_monotonic_time(), Clutter.BUTTON_PRIMARY, Clutter.ButtonState.PRESSED);
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, () => {
+                t = GLib.get_monotonic_time();
+                if (i < steps + 8) { // the last few: lingering on the target, the way a person aims
+                    const k = Math.min(++i, steps) / steps;
+                    this._pointer.notify_absolute_motion(t, x0 + (x1 - x0) * k + (i > steps ? i % 2 : 0), y0 + (y1 - y0) * k);
+                    return GLib.SOURCE_CONTINUE;
+                }
+                this._pointer.notify_button(t, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.RELEASED);
+                return GLib.SOURCE_REMOVE;
+            });
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     /** Wheel steps at stage coordinates: positive scrolls down. */
@@ -249,6 +273,7 @@ export class DevHooks {
             clicks: this._clicks.slice(-5),
             shown: visibleText(this._popup.contentActor),
             controller: this._runtime.debugState(),
+            drop: this._dropZone?.debugState ?? null,
             // Every notification in the tray: Mei's own, and those the runtime sent while detached.
             notifications: Main.messageTray.getSources().flatMap(s => s.notifications.map(n =>
                 ({ source: s.title, title: n.title, body: n.body }))),

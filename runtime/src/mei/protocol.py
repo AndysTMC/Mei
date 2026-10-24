@@ -20,6 +20,8 @@ ERROR_PREFIX = "com.andystmc.Mei1.Error"
 
 MAX_INPUT_CHARS = 100_000
 MAX_ATTACHMENT_CHARS = 8_000
+MAX_DROPPED_FILES = 20
+MAX_PATH_CHARS = 4096  # PATH_MAX
 MAX_ID_CHARS = 128
 
 # Durable events carry a global `seq`; ephemeral ones don't and may be lost on reconnect.
@@ -97,13 +99,21 @@ class AttachArgs(msgspec.Struct):
 
 
 class Attachment(msgspec.Struct, kw_only=True, forbid_unknown_fields=True):
-    """What "Ask about this" attaches (§18.4): the focused window and the selected text. The person
-    chose to attach it, but others wrote it (a web page, a document), so it is untrusted content."""
+    """What goes with a message besides the person's words (§18.4).
 
-    kind: Literal["selection"] = "selection"
+    - "selection": "Ask about this", the focused window and the selected text;
+    - "text": text dropped on Mei from another app;
+    - "files": files and folders dropped on Mei (absolute paths).
+
+    The person chose to attach each, but others wrote the text and named the files, so text is
+    untrusted content. The files themselves count as named by the person (decision 0027)."""
+
+    kind: Literal["selection", "text", "files"] = "selection"
     app_id: Annotated[str, msgspec.Meta(max_length=200)] = ""
     window_title: Annotated[str, msgspec.Meta(max_length=500)] = ""
     text: Annotated[str, msgspec.Meta(max_length=MAX_ATTACHMENT_CHARS)] = ""
+    paths: Annotated[list[Annotated[str, msgspec.Meta(max_length=MAX_PATH_CHARS)]],
+                     msgspec.Meta(max_length=MAX_DROPPED_FILES)] = []
 
 
 class SubmitInputArgs(msgspec.Struct):

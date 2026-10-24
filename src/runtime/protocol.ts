@@ -30,12 +30,18 @@ export interface Envelope {
     payload: Record<string, unknown>;
 }
 
-/** What "Ask about this" attaches to a message (2.3, §18.4). Others wrote it: the runtime treats it as untrusted. */
+/**
+ * What goes with a message besides the person's words (2.3, §18.4): "Ask about this" (selection), text
+ * dropped on Mei (text), or files dropped on Mei (files). Others wrote the text, so the runtime treats
+ * it as untrusted; dropped files count as named by the person (decision 0027).
+ */
 export interface Attachment {
-    kind: 'selection';
+    kind: 'selection' | 'text' | 'files';
     app_id: string;
     window_title: string;
     text: string;
+    /** Absolute paths, for files only (attachments stored before drops have none). */
+    paths?: string[];
 }
 
 /** Voice (2.4): where the voice controller is (§11.2). */

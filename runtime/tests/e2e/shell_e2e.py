@@ -9,6 +9,7 @@ what the popup actually shows (read through the dev-build test hooks), not just 
 import asyncio
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -129,11 +130,11 @@ class Harness:
         self.results.setdefault("clicks", (await self.state())["clicks"])
         return False
 
-    async def use_fake(self, script: list[dict], delay_ms: int = 10) -> None:
+    async def use_fake(self, script: list[dict], delay_ms: int = 10, **options) -> None:
         """Switch to the scripted provider, keeping every other setting."""
         cfg = await self.runtime("GetConfig", {})
         config = cfg["config"]
-        providers = {**config["providers"], "fake": {"options": {"script": script, "delay_ms": delay_ms}}}
+        providers = {**config["providers"], "fake": {"options": {"script": script, "delay_ms": delay_ms, **options}}}
         await self.runtime("UpdateConfig", {"revision": cfg["revision"],
                                             "config": {**config, "active": "fake", "providers": providers}})
         await self.until(lambda s: s["controller"]["provider"] == "fake", 10, "the popup to see the scripted provider")
@@ -157,6 +158,35 @@ class Harness:
         log = open(os.path.join(OUT, "shell.log"), "a")
         self.shell = subprocess.Popen(["gnome-shell", "--headless", "--virtual-monitor", "1280x800", "--wayland",
                                        "--no-x11"], stdout=log, stderr=log)
+
+    def launch(self, app: str, *args: str) -> subprocess.Popen:
+        """A test app (tests/e2e/apps) on the nested Shell's display."""
+        display = re.findall(r"Using Wayland display name '([^']+)'", open(os.path.join(OUT, "shell.log")).read())[-1]
+        env = {**os.environ, "WAYLAND_DISPLAY": display, "GDK_BACKEND": "wayland"}
+        log = open(os.path.join(OUT, f"{app}.log"), "a")
+        return subprocess.Popen(["/usr/bin/python3", os.path.join(os.path.dirname(__file__), "apps", f"{app}.py"), *args],
+                                env=env, stdout=log, stderr=log)
+
+    async def drag_onto_mei(self, payload: str) -> dict:
+        """Drag from a test app onto Mei's panel button and let go; the state once the drop is in."""
+        app = self.launch("dragsource", payload)
+        try:
+            st = await self.until(lambda s: (s["window"] or {}).get("title") == "Mei drag source", 15, "the drag source")
+            await asyncio.sleep(0.5)
+            w, b = st["window"], st["drop"]["button"]
+            start = (w["x"] + w["width"] // 2, w["y"] + w["height"] // 2)
+            for _ in range(3):  # a press on its way in can be lost (as in `press`); a person presses again
+                await self._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "Drag", "iiii",
+                                 [*start, b["x"] + b["width"] // 2, b["y"] + b["height"] // 2])
+                try:
+                    return await self.until(lambda s: s["popup"]["open"] and s["controller"]["attachment"], 5,
+                                            "the drop to attach")
+                except AssertionError:
+                    self.retried_clicks.append("drag onto Mei")
+            raise AssertionError("nothing reached Mei from three drags")
+        finally:
+            app.terminate()
+            app.wait(5)
 
     def stop_shell(self) -> None:
         if self.shell:
@@ -446,6 +476,44 @@ async def main() -> int:
         h.check("ask_about_this_attaches_the_selection", attached["text"] == selected and selected[:20] in chip
                 and sent["content"] == "what does this mean?" and sent["metadata"]["attachment"]["text"] == selected
                 and conv["tasks"][-1]["state"] == "COMPLETED", {"chip": chip, "attached": attached})
+
+        # 9b. Drag and drop (decision 0027): a file dragged from an app onto Mei's button is attached to
+        #     the next message; the model gets its path, and, as the person pointed at it, may read it and
+        #     send what it holds to a cloud model under "Files I point to", with no card. Text dropped
+        #     the same way is attached as content others wrote.
+        await h.hook("Popup", "new")
+        await h.hook("Popup", "close")
+        note = os.path.join(OUT, "home", "Documents", "shopping list.txt")
+        os.makedirs(os.path.dirname(note), exist_ok=True)
+        with open(note, "w") as f:
+            f.write("Eggs, milk, DROPPED-NOTE-7.\n")
+        log = os.path.join(OUT, "fake-drop-calls.jsonl")
+        await h.use_fake([{"tool_calls": [{"name": "fs_read_text", "arguments": {"path": note}}]},
+                          {"text": "Eggs and milk."}], cloud=True, call_log=log)
+        st = await h.drag_onto_mei(note)
+        attached, drop = st["controller"]["attachment"], st["drop"]
+        chip = next((t for t in st["shown"] if t.startswith("Attached: ")), "")
+        await h.hook("Screenshot", os.path.join(OUT, "dropped-file.png"))
+        await h.hook("Send", "what's on this list?")
+        st = await h.until(lambda s: s["controller"]["current"] and s["controller"]["attachment"] is None
+                           and not s["controller"]["streaming"], 20, "the question about the dropped file")
+        conv = await h.runtime("GetConversation", {"conversation_id": st["controller"]["current"]})
+        calls = [json.loads(line) for line in open(log)] if os.path.exists(log) else []
+        seen = [t["content"] for c in calls for t in c.get("turns", [])]
+        h.check("dropped_file_attaches_and_is_read", attached.get("paths") == [note] and chip == "Attached: shopping list.txt"
+                and drop["state"] == "idle" and conv["messages"][0]["metadata"]["attachment"]["paths"] == [note]
+                and any(json.dumps(note) in t and 'kind="files"' in t for t in seen)
+                and any("DROPPED-NOTE-7" in t for t in seen) and conv["tasks"][-1]["state"] == "COMPLETED",
+                {"attached": attached, "chip": chip, "drop": drop, "task": conv["tasks"][-1]["state"]})
+        await h.hook("Popup", "close")
+        await h.use_fake([{"text": "It's a sentence."}])
+        st = await h.drag_onto_mei("Some words from a web page")
+        attached = st["controller"]["attachment"]
+        h.check("dropped_text_attaches_as_untrusted", attached["kind"] == "text"
+                and attached["text"] == "Some words from a web page"
+                and "About: “Some words from a web page”" in st["shown"], attached)
+        await h.hook("Popup", "new")
+        await h.hook("Popup", "close")
 
         # 10. Memory: "remember that…" is saved as the person's own fact and shown in the conversation;
         #     Undo there forgets it.

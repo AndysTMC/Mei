@@ -17,7 +17,7 @@ import { Logger, Tag } from '../utils/logger.js';
 import { RuntimeClient, RuntimeError, type ConnectionStatus } from './client.js';
 import { activeLabel, noticeFor, reaction, wantsPerson, type Notice, type Reaction } from './notices.js';
 import { Projection } from './projection.js';
-import { attachmentLabel } from './attachment.js';
+import { attachmentLabel, withDrop, type Drop } from './attachment.js';
 import type { VoiceView } from './voice.js';
 import type {
     ApprovalScope, Attachment, ConversationReply, Envelope, SetupStatusReply, SubmitReply, VoiceStateName, VoiceStatusReply,
@@ -246,6 +246,13 @@ export class RuntimeChatController {
         if (this._popup.isShowingHistory) this._popup.hideHistoryList();
         this.newChat();
         this._setAttachment(attachment);
+        this._popup.open();
+    }
+
+    /** Files or text dropped on Mei's button (0027): they go with the next message in this conversation. */
+    attachDrop(drop: Drop): void {
+        if (this._popup.isShowingHistory) this._popup.hideHistoryList();
+        this._setAttachment(withDrop(this._attachment, drop));
         this._popup.open();
     }
 
