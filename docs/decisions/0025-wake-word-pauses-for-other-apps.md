@@ -4,7 +4,7 @@ Status: accepted
 Date: 2026-10-23
 Deciders: owner (delegated)
 Supersedes: —
-Superseded-by: —
+Superseded-by: — (extended by 0026: conversations and dictation make way too)
 
 ## Context
 

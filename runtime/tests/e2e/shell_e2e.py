@@ -484,36 +484,74 @@ async def main() -> int:
                 and st["controller"]["notice"]["title"] == "Mei finished"
                 and any(n["title"] == "Mei finished" for n in st["notifications"]), st["controller"]["notice"])
 
-        # 12. Voice: Super+Alt+Space listens; the question (from a file standing in for the microphone)
-        #     shows as it is heard, becomes a spoken request, and the reply is spoken (captured to a file).
+        # 12. Voice (decision 0026): Super+Alt+Space listens with the popup closed (the top bar shows
+        #     it); the question (from a file standing in for the microphone) becomes a spoken request;
+        #     the popup opens with the answer, which is spoken (captured to a file); and Mei listens on
+        #     afterwards until the shortcut, pressed with nothing said, stops it.
         models = os.environ.get("MEI_VOICE_MODELS", "")
         if models and os.path.exists(os.path.join(models, "sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06")):
             import numpy as np
             from mei.voice import local
             piper = local.piper(__import__("pathlib").Path(models))
-            # Two sentences, so "weather" is on screen for a while before the person stops talking.
+            # Two sentences, so "weather" is heard for a while before the person stops talking.
             question = (await piper.synthesize("What's the weather like tomorrow? I'm going out for a long walk.")).samples
-            np.concatenate([np.zeros(8000, np.float32), question, np.zeros(16000 * 20, np.float32)]).astype(
+            np.concatenate([np.zeros(8000, np.float32), question, np.zeros(16000 * 60, np.float32)]).astype(
                 np.float32).tofile(os.environ["MEI_VOICE_SOURCE_FILE"])
             await h.use_fake([{"text": "It will be sunny tomorrow. Around eighteen degrees."}])
             cfg = await h.runtime("GetConfig", {})
-            config = {**cfg["config"], "voice": {**cfg["config"].get("voice", {}), "enabled": True}}
+            # A short pause before sending, so the scenario doesn't wait out the 8 s default.
+            config = {**cfg["config"], "voice": {**cfg["config"].get("voice", {}), "enabled": True, "end_pause_ms": 700}}
             await h.runtime("UpdateConfig", {"revision": cfg["revision"], "config": config})
             await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 90, "voice to be ready")
             await h.hook("Popup", "new")
+            await h.hook("Popup", "close")
             await h.hook("PressVoiceShortcut")
             st = await h.until(lambda s: s["controller"]["voice"]["state"] == "listening"
                                and "weather" in s["controller"]["voice"]["transcript"].lower(), 30, "the question heard")
-            listening = "Listening…" in st["shown"] and any("weather" in t.lower() for t in st["shown"])
+            closed_while_listening = not st["popup"]["open"]
+            await h.hook("Screenshot", os.path.join(OUT, "voice-listening-top-bar.png"))
+            st = await h.until(lambda s: s["controller"]["voice"]["state"] == "speaking", 60, "the spoken answer")
+            opened_with_answer = st["popup"]["open"]
+            st = await h.until(lambda s: s["controller"]["current"] and s["controller"]["voice"]["state"] == "listening"
+                               and len(s["controller"]["messages"]) >= 2, 60, "listening again after the answer")
             await h.hook("Screenshot", os.path.join(OUT, "voice-listening.png"))
-            st = await h.until(lambda s: s["controller"]["current"] and s["controller"]["voice"]["state"] == "idle"
-                               and len(s["controller"]["messages"]) >= 2, 60, "the spoken reply")
             conv = await h.runtime("GetConversation", {"conversation_id": st["controller"]["current"]})
             user = conv["messages"][0]
             played = os.path.getsize(os.environ["MEI_VOICE_SINK_FILE"]) / 4 / 16000
-            h.check("voice_question_answered_out_loud", listening and user["metadata"].get("source") == "voice"
+            await h.hook("PressVoiceShortcut")  # nothing said: that's the end of it
+            await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 20, "voice to stop when asked")
+            h.check("voice_question_answered_out_loud", closed_while_listening and opened_with_answer
+                    and user["metadata"].get("source") == "voice"
                     and user["content"].lower().startswith("what's the weather") and played > 2.0,
-                    {"user": user["content"], "played_s": round(played, 1)})
+                    {"user": user["content"], "played_s": round(played, 1), "closed_while_listening": closed_while_listening,
+                     "opened_with_answer": opened_with_answer})
+
+            # 13. Dictation (the mic): what's said goes into the message box, utterance after
+            #     utterance across a pause, until the mic is pressed again; nothing is sent.
+            first = (await piper.synthesize("Remind me to buy milk.")).samples
+            second = (await piper.synthesize("And eggs for the weekend.")).samples
+            np.concatenate([np.zeros(8000, np.float32), first, np.zeros(16000 * 3, np.float32), second,
+                            np.zeros(16000 * 60, np.float32)]).astype(np.float32).tofile(os.environ["MEI_VOICE_SOURCE_FILE"])
+            cfg = await h.runtime("GetConfig", {})
+            config = {**cfg["config"], "voice": {**cfg["config"]["voice"], "end_pause_ms": 800}}  # reloads the file too
+            await h.runtime("UpdateConfig", {"revision": cfg["revision"], "config": config})
+            await asyncio.sleep(3.0)  # the worker reloads (and reads the new file)
+            await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 60, "voice to reload")
+            await h.hook("Popup", "new")
+            sent_before = len((await h.state())["controller"]["messages"])
+            named = ("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "ClickNamed", "s")
+            [dictating] = await h._call(*named, ["Dictate"])
+            box = lambda s: " ".join(s["shown"])  # noqa: E731  (the message box is among what the popup shows)
+            st = await h.until(lambda s: "eggs" in box(s).lower(), 40, "both utterances in the box")
+            await asyncio.sleep(3.0)  # a pause after: still dictating
+            st = await h.state()
+            still = st["controller"]["voice"]["state"] == "listening"
+            text = box(st)
+            [done] = await h._call(*named, ["Done dictating"])
+            st = await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 20, "dictation to stop when asked")
+            h.check("dictation_goes_on_until_the_mic_again", dictating and done and still and "milk" in text.lower()
+                    and "eggs" in text.lower() and len(st["controller"]["messages"]) == sent_before,
+                    {"box": text, "still_listening_after_a_pause": still, "sent": len(st["controller"]["messages"]) - sent_before})
     except AssertionError as e:
         h.results["error"] = str(e)
     finally:

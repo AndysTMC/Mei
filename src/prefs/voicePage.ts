@@ -29,7 +29,8 @@ const SETTLE_MS = 600;
 export function voiceBasics(window: Gtk.Window, settings: RuntimeSettings): { groups: Adw.PreferencesGroup[]; destroy(): void } {
     const voice = new Adw.PreferencesGroup({ title: 'Voice' });
     const enabled = new Adw.SwitchRow({ title: 'Talk to Mei',
-        subtitle: 'Press Super+Alt+Space (or the voice button) and speak; Mei answers out loud. The mic button types what you say.' });
+        subtitle: 'Press the voice button and talk; Mei answers out loud and keeps listening until you close it. With ' +
+            'Super+Alt+Space, it stops after 30 seconds of quiet. The mic button types what you say until you press it again.' });
     const status = new Adw.ActionRow({ title: 'Status', subtitle: 'Checking…' });
     voice.add(enabled);
     voice.add(status);
@@ -175,29 +176,28 @@ export class VoicePage {
             () => v().stt, (id: SttChoice) => settings.setVoice('stt', id));
         const mic = listRow(settings, 'Microphone', () => deviceOptions(devices.mics, v().mic), () => v().mic,
             id => settings.setVoice('mic', id));
-        const pause = numberRow(settings, 'Pause before Mei answers', 'Seconds of quiet that mean you’ve finished',
-            [0.3, 2.0, 0.1, 1], () => v().end_silence_ms / 1000, s => settings.setVoice('end_silence_ms', Math.round(s * 1000)));
+        // 8 s by default: people stop to think mid-sentence; pressing again sends at once (decision 0026).
+        const pause = numberRow(settings, 'Pause before Mei answers',
+            'Seconds of quiet before what you said is sent. Press the shortcut or the voice button again to send at once.',
+            [0.3, 10.0, 0.5, 1], () => v().end_pause_ms / 1000, s => settings.setVoice('end_pause_ms', Math.round(s * 1000)));
         const wake = toggle(settings, 'Listen for “Hey Mei”',
             'The microphone stays on. Slower to react than the shortcut, and it can wake on similar words.', 'wake_word');
-        // Another app recording (a call, a recorder) has the microphone to itself (decision 0025).
-        const wakePause = toggle(settings, 'Pause while another app records',
-            'Mei stops listening for “Hey Mei” during calls and recordings, and starts again after. The shortcut ' +
-            'still works.', 'wake_pause');
+        // Another app recording (a call, a recorder) has the microphone to itself (decisions 0025, 0026).
+        const appsPause = toggle(settings, 'Pause while another app records',
+            'During calls and recordings Mei lets go of the microphone, and listens again after. The shortcut still ' +
+            'works.', 'pause_for_apps');
         const bargeIn = toggle(settings, 'Interrupt by talking', 'Talk over Mei to stop it. Quickest with earphones.',
             'barge_in');
         // With speakers, PipeWire's echo canceller while Mei talks (decision 0024); not used with earphones.
         const echo = toggle(settings, 'Cancel echo from speakers',
             'While Mei talks through speakers, its voice is taken out of what the microphone hears, using a little ' +
             'processor time. Slower to react than earphones, and an echoey room can still stop Mei.', 'echo_cancel');
-        for (const r of [stt, mic, pause, wake, wakePause, bargeIn, echo]) {
+        for (const r of [stt, mic, pause, wake, appsPause, bargeIn, echo]) {
             listening.add(r.row);
             this._parts.push(r);
         }
         prefs.add(listening);
-        const showDependent = () => {
-            echo.row.set_visible(v().barge_in);
-            wakePause.row.set_visible(v().wake_word);
-        };
+        const showDependent = () => echo.row.set_visible(v().barge_in);
         const dependentSignal = settings.connect('changed::voice', showDependent);
         this._parts.push({ destroy: () => settings.disconnect(dependentSignal) });
         showDependent();
@@ -261,7 +261,7 @@ export class VoicePage {
 }
 
 function toggle(settings: RuntimeSettings, title: string, subtitle: string,
-    field: 'speak_replies' | 'barge_in' | 'echo_cancel' | 'wake_word' | 'wake_pause'): Row<Adw.SwitchRow> {
+    field: 'speak_replies' | 'barge_in' | 'echo_cancel' | 'wake_word' | 'pause_for_apps'): Row<Adw.SwitchRow> {
     return switchRow(settings, 'changed::voice', title, subtitle, () => settings.voice[field],
         on => settings.setVoice(field, on));
 }

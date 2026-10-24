@@ -34,6 +34,7 @@ class Load(Command, tag="load"):
     # talking over Mei works with speakers too (decision 0024). Without it, only with earphones.
     echo_cancel: bool = True
     end_silence_s: float = 0.5
+    quiet_s: float = 30.0  # listening the wake word started, or a Listen without no_speech_s, waits this long
     mic: str = ""  # PipeWire node; "" = the default
     output: str = ""
     # Test and setup-check backends (recorded.py): never used for real conversations.
@@ -43,7 +44,11 @@ class Load(Command, tag="load"):
 
 
 class Listen(Command, tag="listen"):
-    pass
+    # How long to wait for speech: None, Load's quiet_s; 0, as long as it takes (decision 0026).
+    no_speech_s: float | None = None
+    # Utterance after utterance on the open microphone (dictation), until DoneTalking or
+    # CancelListen; nothing closes it by itself.
+    continuous: bool = False
 
 
 class DoneTalking(Command, tag="done_talking"):

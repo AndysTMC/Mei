@@ -42,11 +42,13 @@ Heard = SpeechStarted | Partial | Final | NoSpeech
 
 @dataclass(frozen=True)
 class Endpointing:
-    end_silence_s: float = 0.5  # spike 0c: 0.7 s alone cost half the 1.5 s budget
+    # The pause that ends an utterance. Settings choose it (8 s by default, decision 0026: people
+    # pause mid-thought; pressing again sends at once); this default is the mechanism's, for tests.
+    end_silence_s: float = 0.5
     # Silence fed after the end so the recognizer emits the last words: Kroko drops whole words with
     # under ~1 s (and the owner's "ready"/"Monday" in spike 0c). Fed at once: ~40 ms of compute.
     tail_s: float = 1.2
-    no_speech_s: float = 6.0
+    no_speech_s: float = 30.0  # waiting for someone to start talking; 0: as long as it takes
     max_s: float = 30.0
 
 
@@ -90,17 +92,26 @@ class Listener:
         self._ep = endpointing
         self._done = asyncio.Event()
 
+    def begin(self) -> None:
+        """A new listening starts: forget an earlier "done"."""
+        self._done.clear()
+
     def finish(self) -> None:
-        """The person says they're done (pressed the shortcut again): end the utterance now."""
+        """The person says they're done (pressed again): end the utterance now, and listen no more."""
         self._done.set()
 
-    async def listen(self, preroll: list[np.ndarray] | None = None,
-                     source: AudioSource | None = None) -> AsyncIterator[Heard]:
+    @property
+    def finished(self) -> bool:
+        return self._done.is_set()
+
+    async def listen(self, preroll: list[np.ndarray] | None = None, source: AudioSource | None = None,
+                     no_speech_s: float | None = None, keep_open: bool = False) -> AsyncIterator[Heard]:
         """One utterance. `preroll`: audio already heard (the start of a barge-in), on `source`
-        when it isn't the usual microphone (the echo-cancelled one). The microphone is open only
-        while this runs."""
+        when it isn't the usual microphone (the echo-cancelled one). `no_speech_s`: how long to
+        wait for speech (None: the endpointing's; 0: as long as it takes). The microphone is open
+        only while this runs, unless `keep_open` (the next utterance follows on it)."""
         source = source or self._source
-        self._done.clear()
+        wait = self._ep.no_speech_s if no_speech_s is None else no_speech_s
         self._vad.reset()
         text = self._stt.open()
         heard = False
@@ -123,13 +134,14 @@ class Listener:
                     yield Partial(partial)
                 if heard and (self._vad.quiet_for() >= self._ep.end_silence_s or self._done.is_set()):
                     break
-                if not heard and (total >= self._ep.no_speech_s or self._done.is_set()):
+                if not heard and ((wait and total >= wait) or self._done.is_set()):
                     yield NoSpeech()
                     return
                 if total >= self._ep.max_s:
                     break
         finally:
-            await source.stop()
+            if not keep_open:
+                await source.stop()
         await text.accept(np.zeros(int(self._ep.tail_s * SAMPLE_RATE), np.float32))
         final = await text.finish()
         yield Final(final) if final else NoSpeech()

@@ -111,6 +111,8 @@ test('voice: cloud choices say where the voice goes, and models and the micropho
     assert.match(micText({ db: -3.4, peak_db: 0, clipped_pct: 19.5, overdriven: true }), /^Too loud even in silence \(-3 dB, 19.5% clipped\)/);
     assert.equal(micText({ db: -29.5, peak_db: -12, clipped_pct: 0, overdriven: false }), 'Sounds right (-30 dB in silence)');
     assert.equal(voiceStatusText('unavailable', 'download the voice models first'), 'Not ready: download the voice models first');
+    assert.equal(voiceStatusText('paused', 'Paused while another app uses the microphone'),
+        'Paused while another app uses the microphone');
 });
 
 test('voice: devices list the system default first and keep a chosen one that is unplugged', async () => {

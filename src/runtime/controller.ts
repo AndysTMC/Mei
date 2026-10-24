@@ -200,31 +200,33 @@ export class RuntimeChatController {
         return this._voice.state;
     }
 
-    /** The voice shortcut: talk; while listening, done talking; while Mei speaks, stop it and talk. */
+    /** The voice shortcut: talk (until 30 s pass with nothing said); while listening, send what's
+     * been said, or with nothing said, stop; while Mei speaks, stop it and talk (decision 0026). */
     voiceListen(): void {
-        this._listen(false);
+        this._listen(false, 'shortcut');
     }
 
-    /** The voice button: talk with Mei; while that's going on, stop it. */
+    /** The voice button: talk with Mei until closed; while listening, send what's been said, or
+     * with nothing said, close; while Mei thinks or speaks, close. */
     voiceToggle(): void {
-        if (['listening', 'thinking', 'speaking'].includes(this._voice.state) && !this._voice.dictating) this.voiceStop();
-        else this._listen(false);
+        if (['thinking', 'speaking', 'paused'].includes(this._voice.state) && !this._voice.dictating) this.voiceStop();
+        else this._listen(false, 'button');
     }
 
-    /** The mic: dictate into the message box; while dictating, done. */
+    /** The mic: dictate into the message box, across pauses; again: done. */
     dictate(): void {
-        this._listen(true);
+        this._listen(true, 'button');
     }
 
     voiceStop(): void {
         this._client.call('VoiceStop', {}).catch((e: RuntimeError) => this._showFailure(e));
     }
 
-    private _listen(dictate: boolean): void {
+    private _listen(dictate: boolean, by: 'shortcut' | 'button'): void {
         this._popup.hideError('voice');
-        const starting = this._voice.state !== 'listening';
+        const starting = !['listening', 'paused'].includes(this._voice.state);
         if (starting) this._voice = { ...this._voice, dictating: dictate };
-        this._client.call<VoiceStatusReply>('VoiceListen', { conversation_id: this._current, dictate })
+        this._client.call<VoiceStatusReply>('VoiceListen', { conversation_id: this._current, dictate, by })
             .catch((e: RuntimeError) => {
                 this._voice = { ...this._voice, dictating: false };
                 this._showVoice();
@@ -412,8 +414,10 @@ export class RuntimeChatController {
             if (stream && this._popup.isExpanded) this._popup.showStreamingResponse(stream.text, stream.thinking);
             return;
         }
-        if (event.type === 'task.finished') this._onTaskFinished(event, react === 'open');
-        else if (ASKS.has(event.type)) this._onAsk(react === 'open');
+        // A spoken request's answer, or what it needs from the person, opens the popup (decision 0026).
+        const voice = this._answeringByVoice() && !this._popup.isOpen;
+        if (event.type === 'task.finished') this._onTaskFinished(event, react === 'open' || voice);
+        else if (ASKS.has(event.type)) this._onAsk(react === 'open' || voice);
         else if (event.type === 'message.completed' || AGENT_EVENTS.has(event.type)) this._render();
         else this._syncLoading(); // status-only events (task accepted/running, model started)
         this.onStateChanged?.();
@@ -448,21 +452,30 @@ export class RuntimeChatController {
     private _onVoice(event: Envelope): void {
         const p = event.payload;
         if (event.type === 'voice.partial') {
-            if (p.dictation) this._popup.dictate(String(p.text ?? ''));  // into the message box
+            if (p.dictation) this._popup.dictate(String(p.text ?? ''), Boolean(p.final));  // into the message box
             else this._voice = { ...this._voice, transcript: String(p.text ?? '') };
         } else {
             const state = p.state as VoiceStateName;
             const conversation = (p.conversation_id as string | null) ?? null;
             if (state === 'listening' && this._voice.state !== 'listening') this._voice.transcript = '';
-            this._voice = { ...this._voice, state, note: String(p.note ?? '') };
+            // Mei answers out loud: show the answer too (the shortcut and "Hey Mei" don't open the popup).
+            if (state === 'speaking' && this._voice.state === 'thinking' && !this._popup.isOpen) this._popup.open();
+            // Dictating or talking: as the runtime says (a reload mid-dictation mustn't lose it).
+            const dictating = typeof p.dictating === 'boolean' ? p.dictating : this._voice.dictating;
+            this._voice = { ...this._voice, state, note: String(p.note ?? ''), dictating };
             // A spoken request starts or continues a conversation: show it, as sending one would.
             if (state === 'thinking' && conversation && conversation !== this._current) this.loadChat(conversation);
             if (state === 'idle' || state === 'off' || state === 'unavailable')
-                this._voice = { ...this._voice, transcript: '', dictating: false };
+                this._voice = { ...this._voice, transcript: '' };
             if (state === 'idle' || state === 'listening') this._popup.hideError('voice');  // ready now
         }
         this._showVoice();
         this.onStateChanged?.();
+    }
+
+    /** Mei is working on something the person asked out loud (not dictation). */
+    private _answeringByVoice(): boolean {
+        return !this._voice.dictating && ['thinking', 'speaking'].includes(this._voice.state);
     }
 
     private _showVoice(): void {

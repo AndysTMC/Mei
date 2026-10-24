@@ -259,15 +259,16 @@ export class ChatPopup {
 
     /** Voice in the composer: the mic and voice buttons, and while talking, what it's doing and heard. */
     showVoice(view: VoiceView): void {
-        const talking = ['listening', 'thinking', 'speaking'].includes(view.state) && !view.dictating;
-        const mode = view.dictating && view.state === 'listening' ? 'dictating' : talking ? 'talking' : 'idle';
+        const talking = ['listening', 'thinking', 'speaking', 'paused'].includes(view.state) && !view.dictating;
+        const dictating = view.dictating && ['listening', 'paused'].includes(view.state);
+        const mode = dictating ? 'dictating' : talking ? 'talking' : 'idle';
         this._composer.setVoice({ available: view.state !== 'off', mode, status: voiceLine(view).status,
             transcript: talking && view.state !== 'speaking' ? view.transcript : '' });
     }
 
-    /** Dictated words so far, into the message box. */
-    dictate(text: string): void {
-        this._composer.dictate(text);
+    /** Dictated words so far (`final`: an utterance done), into the message box. */
+    dictate(text: string, final: boolean): void {
+        this._composer.dictate(text, final);
     }
 
     /** Show what the next message will carry ("About: …"), or nothing. */

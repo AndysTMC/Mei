@@ -1,12 +1,17 @@
 """Voice in the core (§11.2, decision 0017): runs the voice worker, turns what the person says into
 requests, and speaks the replies.
 
-The person presses the voice shortcut (or says "Hey Mei"); what they say becomes an ordinary
-request, marked as spoken, so the model answers briefly; the reply's text is spoken sentence by
-sentence as it streams. Pressing again while listening ends the utterance; while Mei speaks, it
-stops it and listens. "Stop" or "cancel that" is matched here, not by the model, and stops the
-task. After a spoken reply Mei listens for a few seconds more, so a follow-up needs no shortcut.
-The microphone is closed while the screen is locked.
+The person presses the voice shortcut (or the voice button, or says "Hey Mei"); what they say
+becomes an ordinary request, marked as spoken, so the model answers briefly; the reply's text is
+spoken sentence by sentence as it streams. "Stop" or "cancel that" is matched here, not by the
+model, and stops the task.
+
+Listening goes on until the person ends it (decision 0026): a conversation listens again after
+each reply. Started with the voice button, it goes on until closed; started with the shortcut or
+"Hey Mei", until 30 s pass with nothing said. Dictation (the mic) keeps writing what's said into
+the message box, across pauses, until the mic is pressed again. Pressing again while someone talks
+sends what they said at once; pressing with nothing said closes it. The microphone is closed while
+the screen is locked, and while another app records; listening comes back after both.
 
 The controller sees the engine's events by being one of its publishers (core/fanout.py).
 """
@@ -19,6 +24,7 @@ import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 from mei.core.states import TERMINAL
 from mei.protocol import (Envelope, ProtocolError, ResolveApprovalArgs, SubmitInputArgs, TaskCommandArgs,
@@ -33,6 +39,7 @@ from mei.desktop.sound import SOURCE, Wpctl, audio_devices
 
 from . import download, gpu_engine, jail, remote, wire
 from .cloud import TTS, CloudSpeech
+from . import mic_users
 from .mic_users import MicUsers
 from .models import CATALOG, KOKORO, KOKORO_VOICES, KROKO, KWS, PIPER, SILERO, have, kokoro_label, models_dir
 from .parts import VoiceError
@@ -53,9 +60,13 @@ OVERDRIVEN_CLIP_PCT = 0.5
 FIXED_LEVEL_PCT = 50  # spike 0c: the laptop mic was clean at 51 %
 
 PAUSED_NOTE = "Paused while another app uses the microphone"
-MIC_USERS_NOTES = (PAUSED_NOTE, "“Hey Mei” isn't paused for other apps")
+MIC_USERS_NOTES = (PAUSED_NOTE, "Mei can't make way for other apps recording")
 
-States = ("off", "unavailable", "starting", "idle", "listening", "thinking", "speaking", "suspended")
+States = ("off", "unavailable", "starting", "idle", "listening", "thinking", "speaking", "suspended", "paused")
+# How a conversation started, and so when it ends (decision 0026): "button", when closed; "quiet"
+# (the shortcut, "Hey Mei"), after QUIET_S with nothing said; "dictate", when the mic is pressed again.
+Session = Literal["button", "quiet", "dictate"]
+QUIET_S = 30.0
 
 
 class VoiceController:
@@ -63,10 +74,12 @@ class VoiceController:
                  argv: Callable[[VoiceSettings, Path, Path | None], list[str]], models: Path | None = None,
                  load_extra: dict | None = None, cloud: CloudSpeech | None = None,
                  client: httpx.AsyncClient | None = None,
-                 gpu_engine_for: Callable[[str, str], Path | None] = jail.gpu_engine_for) -> None:
+                 gpu_engine_for: Callable[[str, str], Path | None] = jail.gpu_engine_for,
+                 pw_dump: tuple[str, ...] = mic_users.ARGV) -> None:
         """`emit(type, payload)` sends an ephemeral event to clients; `argv(settings, models, gpu engine)`
         is the command that starts the worker (in its jail, given the GPU engine when it may use it).
-        `cloud`: cloud speech, when chosen in Settings. `load_extra`: test backends (recorded audio)."""
+        `cloud`: cloud speech, when chosen in Settings. `load_extra`: test backends (recorded audio).
+        `pw_dump`: what follows PipeWire's graph for other apps recording (tests give a stand-in)."""
         self._engine = engine
         self._gpu_engine_for = gpu_engine_for
         self._gpu_engine: Path | None = None  # what the running worker's jail was given
@@ -91,7 +104,8 @@ class VoiceController:
         self._message: str | None = None  # its assistant message streaming now
         self._fed = 0  # characters of that message given to `_sentences`
         self._sentences = Sentences()
-        self._follow_up = False
+        self._session: Session | None = None  # listening goes on until this ends
+        self._speech_heard = False  # in the utterance being heard now
         self._dictating = False  # this utterance goes into the input box, not to Mei
         self._asking: str | None = None  # an approval Mei read out and waits on a spoken answer for
         self._locked = False
@@ -99,8 +113,7 @@ class VoiceController:
         self._restarts = 0
         self._ready = asyncio.Event()
         # "Hey Mei" pauses while another app records (decision 0025).
-        self._mic_users = MicUsers(self._others_recording, self._mic_users_trouble)
-        self._paused = False
+        self._mic_users = MicUsers(self._others_recording, self._mic_users_trouble, pw_dump)
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -182,7 +195,8 @@ class VoiceController:
         await self._send(wire.Load(models=str(self._models), stt=stt, tts=tts, voice=s.voice, speaker=s.kokoro_speaker,
                                    speed=s.speed, device=s.device, wake=s.wake_word, barge_in=s.barge_in,
                                    echo_cancel=s.echo_cancel,
-                                   end_silence_s=s.end_silence_ms / 1000, mic=s.mic, output=s.output,
+                                   end_silence_s=s.end_pause_ms / 1000, quiet_s=QUIET_S, mic=s.mic,
+                                   output=s.output,
                                    gpu_engine=str(self._gpu_engine or ""), gpu_idle_s=s.gpu_idle_min * 60,
                                    **self._load_extra))
 
@@ -303,31 +317,37 @@ class VoiceController:
 
     # ── What the person does ─────────────────────────────────────────────────
 
-    async def listen(self, conversation_id: str | None, *, dictate: bool = False) -> None:
-        """The voice shortcut or voice button: start listening, to talk with Mei; `dictate` (the mic
-        button): only to write down what's said. While listening: done talking."""
+    async def listen(self, conversation_id: str | None, *, dictate: bool = False, by: str = "shortcut") -> None:
+        """The voice shortcut (`by` "shortcut") or voice button ("button"): talk with Mei;
+        `dictate` (the mic button): only to write down what's said. While listening: if someone
+        is talking, what they said is sent at once; if not (or when dictating), it ends."""
         if self.state == "listening":
+            if self._session == "dictate" or not self._speech_heard:
+                await self._end_session()
             await self._send(wire.DoneTalking())
             return
-        if self.state not in ("idle", "speaking", "thinking"):
+        if self.state not in ("idle", "speaking", "thinking", "paused"):
             raise ProtocolError("Unavailable", self.note or f"voice is {self.state}")
         self._conversation = conversation_id
-        self._follow_up = False
         self._dictating = dictate
-        await self._send(wire.Listen())
+        await self._start_session("dictate" if dictate else "button" if by == "button" else "quiet")
 
     async def hush(self) -> None:
-        """Stop listening or speaking (Esc, the Stop button)."""
-        self._follow_up = self._dictating = False
+        """Close voice: stop listening or speaking, and listen no more (Esc, Stop, the voice button).
+        A reply still being written is shown, not spoken."""
+        await self._end_session()
+        self._task = None
         if self.state == "listening":
             await self._send(wire.CancelListen())
             self._set("idle")
         elif self.state == "speaking":
-            self._task = None
             await self._send(wire.StopSpeaking())
+        elif self.state in ("thinking", "paused"):
+            self._set("idle")
 
     async def set_locked(self, locked: bool) -> None:
-        """The screen locked or unlocked: nothing listens while it is locked."""
+        """The screen locked or unlocked: nothing listens while it is locked; a conversation or
+        dictation that was going on listens again after (0018's rule, not an ending)."""
         self._locked = locked
         await self._follow_mic_users()
         if self._proc is None:
@@ -335,6 +355,39 @@ class VoiceController:
         await self._send(wire.Suspend() if locked else wire.Resume())
         if not locked:
             self._set("idle")
+            await self._go_on()
+
+    # ── Listening that goes on (decision 0026) ───────────────────────────────
+
+    async def _start_session(self, session: Session) -> None:
+        """The person asked: listen now, even while another app records (only what Mei would do by
+        itself waits for that)."""
+        self._session = session
+        await self._follow_mic_users()
+        await self._mic_users.known()  # a call going on already doesn't stop this; one that starts later does
+        await self._go_on(asked=True)
+
+    async def _end_session(self) -> None:
+        self._session, self._dictating = None, False
+        await self._follow_mic_users()
+
+    async def _go_on(self, asked: bool = False) -> None:
+        """Listen (again) if a conversation or dictation is going on, unless the screen is locked
+        or, without being `asked`, another app is recording (then it waits, and comes back when
+        they're done)."""
+        if self._session is None or self._locked or self._proc is None:
+            return
+        if self._mic_users.others and not asked:
+            self._set("paused", PAUSED_NOTE)
+            return
+        self._speech_heard = False
+        match self._session:
+            case "dictate":
+                await self._send(wire.Listen(no_speech_s=0, continuous=True))
+            case "button":
+                await self._send(wire.Listen(no_speech_s=0))
+            case "quiet":
+                await self._send(wire.Listen(no_speech_s=QUIET_S))
 
     # ── The worker ───────────────────────────────────────────────────────────
 
@@ -383,36 +436,58 @@ class VoiceController:
             case wire.Ready():
                 self._restarts = 0
                 note = event.note or ""
-                self._set("suspended" if self._locked else "idle", note)
+                # A reload (a setting changed) closed the microphone; a conversation or dictation
+                # going on listens again rather than ending.
+                resume = self._session is not None and not self._locked and self._ready.is_set()
+                self._set(self.state if resume else "suspended" if self._locked else "idle", note)
                 self._ready.set()
                 if self._locked:
                     await self._send(wire.Suspend())
-                if self._paused:  # the load re-armed the wake word
+                if self._mic_users.others:  # the load re-armed the wake word
                     await self._send(wire.Arm(on=False))
+                if resume:
+                    await self._go_on()
             case wire.Failed(part=part, message=message):
                 self._set("unavailable" if not self._ready.is_set() else self.state, f"{part}: {message}")
                 self._ready.set()
             case wire.Listening():
-                self._set("listening")
+                self._speech_heard = False
+                self._set("listening", "" if self.note == PAUSED_NOTE else None)
+            case wire.SpeechStarted():
+                self._speech_heard = True
             case wire.Partial(text=text):
                 self._emit("voice.partial", {"text": text, "final": False, "dictation": self._dictating})
             case wire.Final(text=text):
+                self._speech_heard = False
                 self._emit("voice.partial", {"text": text, "final": True, "dictation": self._dictating})
                 if self._dictating:  # the words go into the input box; the person sends them
-                    self._dictating = False
-                    self._set("idle")
+                    if self._session != "dictate":  # the mic was pressed again: that was the last
+                        self._dictating = False
+                        self._set("idle")
                 else:
                     await self._heard(text)
             case wire.NoSpeech():
-                self._follow_up = self._dictating = False
-                self._set("idle")
+                heard, self._speech_heard = self._speech_heard, False
+                if self._session == "dictate":
+                    return  # a cough, not words: dictation goes on
+                if self._session == "quiet" and not heard:
+                    await self._end_session()  # QUIET_S with nothing said: Mei goes offline
+                if self._session is None:
+                    self._dictating = False
+                    self._set("idle")
+                else:
+                    await self._go_on()
             case wire.Speaking():
                 self._set("speaking")
             case wire.Spoken(stopped=stopped):
                 self._last_spoken_at = time.monotonic()
-                if not stopped and (self._follow_up or self._asking):
-                    self._follow_up = False  # a follow-up (or the answer to a question) needs no shortcut
-                    await self._send(wire.Listen())
+                if stopped:  # stopped to listen (the shortcut, barge-in) or closed (hush)
+                    if self._session is None:
+                        self._set("idle")
+                elif self._session is not None:
+                    await self._go_on()  # after each reply, listen again: no shortcut needed
+                elif self._asking:
+                    await self._send(wire.Listen())  # the answer to a question Mei asked aloud
                 else:
                     self._set("idle")
             case wire.BargeIn():
@@ -420,6 +495,9 @@ class VoiceController:
             case wire.Woke():
                 if time.monotonic() - self._last_spoken_at > FOLLOW_UP_WINDOW_S:
                     self._conversation = None
+                self._dictating = False
+                self._session = "quiet"  # the worker is listening already
+                await self._follow_mic_users()
             case wire.Suspended():
                 self._set("suspended")
             case wire.Transcribe() | wire.Synthesize():
@@ -463,6 +541,7 @@ class VoiceController:
                     scope="once"), decided_by="voice")
             except ProtocolError as e:  # answered on screen meanwhile, or the action changed
                 self._set("idle", e.message)
+                await self._go_on()
                 return
             self._set("thinking")
             return
@@ -472,17 +551,21 @@ class VoiceController:
             if running is not None:
                 self._engine.cancel(TaskCommandArgs(command_id=new_id(), task_id=running))
             self._set("idle")
+            await self._go_on()  # stopping the task isn't closing voice
             return
         try:
             reply = self._engine.submit_input(SubmitInputArgs(command_id=new_id(), text=text,
                                                               conversation_id=self._conversation, source="voice"))
         except ProtocolError as e:
             self._set("idle", e.message)
+            await self._go_on()
             return
         self._conversation = reply["conversation_id"]
         self._task = reply["task_id"] if self._settings.speak_replies else None
         self._message, self._fed, self._sentences = None, 0, Sentences()
         self._set("thinking" if self._task else "idle")
+        if self._task is None:
+            await self._go_on()  # the reply is only on screen: listen for the next thing at once
 
     def _running_task(self) -> str | None:
         if self._conversation is None:
@@ -530,7 +613,6 @@ class VoiceController:
                 sentences.append("Sorry, I couldn't do that.")
             self._say(sentences)
             self._task = None
-            self._follow_up = p.get("state") == "COMPLETED"
             asyncio.ensure_future(self._send_quietly(wire.End()))
 
     def _ask_aloud(self, approval: dict) -> None:
@@ -557,12 +639,14 @@ class VoiceController:
         except ProtocolError as e:
             log.warning("voice: couldn't send %s: %s", type(cmd).__name__, e.message)
 
-    # ── Another app recording: "Hey Mei" pauses (decision 0025) ──────────────
+    # ── Another app recording: Mei makes way (decisions 0025, 0026) ─────────
 
     async def _follow_mic_users(self) -> None:
-        """Watch for other apps recording only while the wake word is armed: never otherwise."""
+        """Watch for other apps recording only while Mei would listen by itself: the wake word
+        armed, or a conversation or dictation going on. Never otherwise."""
         s = self._settings
-        if s.enabled and s.wake_word and s.wake_pause and not self._locked and self._proc is not None:
+        if s.enabled and s.pause_for_apps and not self._locked and self._proc is not None \
+                and (s.wake_word or self._session is not None):
             self._mic_users.start()
         elif self._mic_users.running:
             await self._mic_users.stop()
@@ -571,17 +655,25 @@ class VoiceController:
 
     def _others_recording(self, others: bool) -> None:
         """Another app started or stopped recording: let go of the microphone, or take it back.
-        Push to talk still works meanwhile; only the wake word waits."""
-        self._paused = others
+        Pressing the shortcut or a button still listens meanwhile; only what Mei would do by
+        itself (the wake word, listening again) waits."""
         asyncio.ensure_future(self._send_quietly(wire.Arm(on=not others)))
-        if others:
+        if others and self._session is not None and self.state == "listening":
+            asyncio.ensure_future(self._make_way())
+        elif others:
             self._set(self.state, PAUSED_NOTE)
+        elif self.state == "paused":
+            asyncio.ensure_future(self._go_on())
         elif self.note == PAUSED_NOTE:
             self._set(self.state, "")
 
+    async def _make_way(self) -> None:
+        await self._send_quietly(wire.CancelListen())
+        self._set("paused", PAUSED_NOTE)
+
     def _mic_users_trouble(self, message: str) -> None:
         if message:
-            self._set(self.state, f"“Hey Mei” isn't paused for other apps: {message}")
+            self._set(self.state, f"{MIC_USERS_NOTES[1]}: {message}")
         elif self.note.startswith(MIC_USERS_NOTES[1]):
             self._set(self.state, "")
 
@@ -591,7 +683,8 @@ class VoiceController:
         if state == self.state and note is None:
             return
         self.state = state
-        self._emit("voice.state", {"state": state, "note": self.note, "conversation_id": self._conversation})
+        self._emit("voice.state", {"state": state, "note": self.note, "conversation_id": self._conversation,
+                                   "dictating": self._dictating})  # the UI follows this rather than guessing
 
 
 def voice_choices() -> dict[str, list[dict]]:

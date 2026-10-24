@@ -14,6 +14,7 @@ from collections.abc import Callable
 
 log = logging.getLogger("mei.voice")
 PW_DUMP = "/usr/bin/pw-dump"
+ARGV = (PW_DUMP, "--monitor", "--no-colors")
 RESTARTS = (1.0, 5.0, 30.0)  # back-off when pw-dump stops; after these, give up and say so
 STEADY_S = 60.0  # pw-dump that ran this long starts a new run of back-offs
 # Level meters that show as recording (the Shell skips these too), and Mei's own nodes.
@@ -61,12 +62,13 @@ class MicUsers:
     `on_trouble(message)` while it can't tell ("" once it can again)."""
 
     def __init__(self, on_change: Callable[[bool], None], on_trouble: Callable[[str], None],
-                 argv: tuple[str, ...] = (PW_DUMP, "--monitor", "--no-colors")) -> None:
+                 argv: tuple[str, ...] = ARGV) -> None:
         self._on_change = on_change
         self._on_trouble = on_trouble
         self._argv = argv
         self._task: asyncio.Task | None = None
         self._proc: asyncio.subprocess.Process | None = None
+        self._known = asyncio.Event()  # the graph has been read at least once, or can't be
         self.others = False
 
     @property
@@ -75,7 +77,14 @@ class MicUsers:
 
     def start(self) -> None:
         if self._task is None:
+            self._known.clear()
             self._task = asyncio.ensure_future(self._run())
+
+    async def known(self, timeout: float = 1.0) -> None:
+        """Wait (briefly) until `others` reflects the graph, if watching."""
+        if self._task is not None:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._known.wait(), timeout)
 
     async def stop(self) -> None:
         task, self._task = self._task, None
@@ -97,6 +106,7 @@ class MicUsers:
             except OSError as e:
                 why = f"couldn't start pw-dump: {e.strerror}"
             self._set(False)  # can't tell: don't hold the wake word off on stale news
+            self._known.set()
             if failures >= len(RESTARTS):
                 self._on_trouble(f"can't tell whether another app is recording ({why})")
                 log.warning("voice: gave up watching for other apps recording: %s", why)
@@ -117,7 +127,7 @@ class MicUsers:
             while line := await proc.stdout.readline():
                 text = line.decode("utf-8", "replace").rstrip("\n")
                 lines.append(text)
-                if text != "]":  # a batch ends with a line holding only "]"
+                if text not in ("]", "[]"):  # a batch ends with a line holding only "]" (or is "[]")
                     continue
                 try:
                     batch = json.loads("\n".join(lines))
@@ -130,6 +140,7 @@ class MicUsers:
                     first = False
                     self._on_trouble("")
                 self._set(recorders.others)
+                self._known.set()
         finally:
             if proc.returncode is None:
                 with contextlib.suppress(ProcessLookupError):

@@ -135,7 +135,7 @@ async def test_another_app_recording_pauses_the_wake_word_and_says_so():
 @pytest.mark.parametrize(("settings", "locked", "watches"), [
     (VoiceSettings(enabled=True, wake_word=True), False, True),
     (VoiceSettings(enabled=True, wake_word=False), False, False),  # nothing listens: nothing to pause
-    (VoiceSettings(enabled=True, wake_word=True, wake_pause=False), False, False),
+    (VoiceSettings(enabled=True, wake_word=True, pause_for_apps=False), False, False),
     (VoiceSettings(enabled=True, wake_word=True), True, False)])  # locked: the microphone is closed anyway
 async def test_the_graph_is_watched_only_while_the_wake_word_listens(monkeypatch, settings, locked, watches):
     started = []
@@ -148,6 +148,6 @@ async def test_the_graph_is_watched_only_while_the_wake_word_listens(monkeypatch
 
 async def test_a_reload_while_paused_keeps_the_wake_word_paused():
     v, _seen, proc = controller(VoiceSettings(enabled=True, wake_word=True))
-    v._paused = True
+    v._mic_users.others = True
     await v._on_worker(wire.Ready(stt="kroko", tts="piper", device="cpu", wake=True))
     assert proc.stdin.sent == [wire.Arm(on=False)]

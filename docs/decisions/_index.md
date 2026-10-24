@@ -24,3 +24,4 @@
 | 0023 | Computer use as built: Mei makes way before input, a stop from the Shell ends the task, and pictures reach models that see | accepted | 2026-10-23 | — (builds on 0022; narrows §10.3) |
 | 0024 | Echo cancellation for barge-in: PipeWire's canceller, private, only while Mei talks through speakers | accepted | 2026-10-23 | 0018 (in part: no echo cancellation; revises §11.4) |
 | 0025 | "Hey Mei" pauses while another app records | accepted | 2026-10-23 | — |
+| 0026 | Listening ends when the person ends it; an 8 s pause before sending; the shortcut keeps the popup closed | accepted | 2026-10-24 | 0018 (in part: how listening ends) |

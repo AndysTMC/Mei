@@ -18,6 +18,10 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 
 import { Logger, Tag } from '../utils/logger.js';
 
+const VOICE_MARKS: Record<string, string> = {
+    listening: 'audio-input-microphone-symbolic', thinking: 'content-loading-symbolic', speaking: 'audio-volume-high-symbolic',
+};
+
 const PANEL_LABEL = __DEV__ ? 'Mei  <span face="sans-serif" size="60%" alpha="80%">(DEV)</span>' : 'Mei';
 
 type PanelWithCenterBox = typeof Main.panel & {
@@ -172,9 +176,10 @@ export class MeiIndicator {
         }
     }
 
-    /** Listening and speaking show as a small mark beside the label (§18.2's voice orb, kept quiet). */
+    /** Listening, thinking and speaking show as a small mark beside the label (§18.2's voice orb, kept
+     * quiet): with the shortcut or "Hey Mei", the top bar is all there is until Mei answers. */
     setVoiceState(state: string): void {
-        const icon = state === 'listening' ? 'audio-input-microphone-symbolic' : state === 'speaking' ? 'audio-volume-high-symbolic' : '';
+        const icon = VOICE_MARKS[state] ?? '';
         this._voiceMark.visible = icon !== '' && !this._stopPill.visible;
         if (icon) this._voiceMark.icon_name = icon;
     }

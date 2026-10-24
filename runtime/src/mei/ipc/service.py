@@ -308,7 +308,7 @@ class RuntimeService:
         args = decode_args(data, VoiceListenArgs)
         await self._shell_only(sender, "listen")  # it opens the microphone, and what is said is a request
         voice = self._voice_required()
-        await voice.listen(args.conversation_id, dictate=args.dictate)
+        await voice.listen(args.conversation_id, dictate=args.dictate, by=args.by)
         return {"state": voice.state}
 
     async def _voice_stop(self, sender: str, _data: str) -> dict:

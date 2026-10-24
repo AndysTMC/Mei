@@ -73,7 +73,8 @@ class Worker:
                 if self._ready() and not self._suspended:
                     if await self._speaker_stop():  # talking while Mei speaks: it stops for you
                         self.emit(wire.Spoken(stopped=True))
-                    await self._take_mic("listen", self._listen())
+                    await self._take_mic("listen", self._listen(no_speech_s=cmd.no_speech_s,
+                                                                continuous=cmd.continuous))
             case wire.DoneTalking():
                 if self._listener is not None:
                     self._listener.finish()
@@ -169,7 +170,7 @@ class Worker:
             else:
                 self._barge_source = EchoCancelledSource(cfg.mic, cfg.output)
         self._sink = CaptureSink(Path(cfg.sink_file)) if cfg.sink_file else PipeWireSink(cfg.output)
-        ep = pipeline.Endpointing(end_silence_s=cfg.end_silence_s)
+        ep = pipeline.Endpointing(end_silence_s=cfg.end_silence_s, no_speech_s=cfg.quiet_s)
         self._listener = pipeline.Listener(self._source, self._vad, stt, ep)
         self._speaker = pipeline.Speaker(tts, self._sink, on_start=self._spoke, on_done=self._spoken,
                                          on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)))
@@ -213,26 +214,37 @@ class Worker:
                 and not (self._speaker and self._speaker.speaking):
             self._hand_mic("wake", self._wait_for_wake())
 
-    async def _listen(self, preroll: list | None = None, source: AudioSource | None = None) -> None:
-        """One utterance, from `source` if given (the open one barge-in heard it on)."""
+    async def _listen(self, preroll: list | None = None, source: AudioSource | None = None,
+                      no_speech_s: float | None = None, continuous: bool = False) -> None:
+        """One utterance, from `source` if given (the open one barge-in heard it on); or, if
+        `continuous`, one after another on the open microphone until the person says they're done
+        (dictation: the microphone stays open across pauses, decision 0026)."""
         task = asyncio.current_task()
+        source = source or self._source
+        self._listener.begin()
         self.emit(wire.Listening())
         if self._tts is not None:
             self._tts.warm()  # wake the GPU while the person talks
         try:
-            async for heard in self._listener.listen(preroll, source):
-                match heard:
-                    case pipeline.SpeechStarted():
-                        self.emit(wire.SpeechStarted())
-                    case pipeline.Partial(text=text):
-                        self.emit(wire.Partial(text=text))
-                    case pipeline.Final(text=text):
-                        self.emit(wire.Final(text=text))
-                    case pipeline.NoSpeech():
-                        self.emit(wire.NoSpeech())
+            while True:
+                async for heard in self._listener.listen(preroll, source, no_speech_s, keep_open=continuous):
+                    match heard:
+                        case pipeline.SpeechStarted():
+                            self.emit(wire.SpeechStarted())
+                        case pipeline.Partial(text=text):
+                            self.emit(wire.Partial(text=text))
+                        case pipeline.Final(text=text):
+                            self.emit(wire.Final(text=text))
+                        case pipeline.NoSpeech():
+                            self.emit(wire.NoSpeech())
+                if not continuous or self._listener.finished:
+                    break
+                preroll = None
         except VoiceError as e:
             self.emit(wire.Failed(part=e.part, message=e.message))
         finally:
+            if continuous:
+                await source.stop()
             if self._mic_task is task:
                 self._mic_task, self._mic_job = None, ""
         self._rearm()

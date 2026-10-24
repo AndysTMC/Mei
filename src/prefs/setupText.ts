@@ -172,10 +172,12 @@ export function voiceIdOf(v: Pick<VoiceSettingsDoc, 'tts' | 'voice' | 'kokoro_sp
 const VOICE_STATUS: Record<VoiceStateName, string> = {
     off: 'Off', unavailable: 'Not ready', starting: 'Getting ready…', idle: 'Ready',
     listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking', suspended: 'Paused while the screen is locked',
+    paused: 'Paused',
 };
 
 export function voiceStatusText(state: VoiceStateName, note: string): string {
     const base = VOICE_STATUS[state] ?? state;
+    if (note.startsWith(base)) return note; // "Paused while another app uses the microphone", not "Paused: Paused …"
     return note ? `${base}: ${note}` : base;
 }
 

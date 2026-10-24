@@ -30,16 +30,25 @@ const STATUS: Partial<Record<VoiceStateName, string>> = {
     speaking: 'Speaking…',
     starting: 'Getting voice ready…',
     suspended: 'Voice is paused while the screen is locked',
+    paused: 'Paused while another app uses the microphone',
 };
 
 export function voiceLine(view: VoiceView): VoiceLine {
     const status = STATUS[view.state];
     if (status) {
         return { visible: true, status, transcript: view.state === 'speaking' ? '' : view.transcript,
-            stoppable: view.state === 'listening' || view.state === 'speaking' };
+            stoppable: ['listening', 'speaking', 'paused'].includes(view.state) };
     }
     if (view.state === 'unavailable' && view.note) {
         return { visible: true, status: `Voice isn't available: ${view.note}`, transcript: '', stoppable: false };
     }
     return { visible: false, status: '', transcript: '', stoppable: false };
+}
+
+/** Dictation into the message box (decision 0026: it goes on across pauses). `base` is what was
+ * there before plus what earlier utterances said; `text` the utterance being heard. A final one
+ * joins the base, so the next adds to it rather than replacing it. */
+export function dictated(base: string, text: string, final: boolean): { shown: string; base: string } {
+    const shown = base + text;
+    return { shown, base: final && text ? `${shown} ` : base };
 }

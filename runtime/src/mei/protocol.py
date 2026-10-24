@@ -240,8 +240,12 @@ class VoiceSettings(msgspec.Struct, kw_only=True):
     # canceller), so talking over it works with speakers too (decision 0024).
     echo_cancel: bool = True
     wake_word: bool = False  # "Hey Mei": off by default, it misses the latency target (decision 0017)
-    wake_pause: bool = True  # stop listening for "Hey Mei" while another app records (decision 0025)
-    end_silence_ms: Annotated[int, msgspec.Meta(ge=300, le=2000)] = 500
+    # While another app records, Mei lets go of the microphone (the wake word, a conversation,
+    # dictation) and listens again after (decisions 0025, 0026).
+    pause_for_apps: bool = True
+    # The pause that sends what was said (decision 0026): 8 s, since people stop to think; pressing
+    # again sends at once. Was end_silence_ms (0.5 s, at most 2 s): a stored value is dropped.
+    end_pause_ms: Annotated[int, msgspec.Meta(ge=300, le=10_000)] = 8_000
     mic: str = ""  # a PipeWire node name; "" follows the system default
     output: str = ""
 
@@ -259,6 +263,9 @@ class VoiceListenArgs(msgspec.Struct):
     # Dictation (the mic button): hear one utterance and hand its words back (voice.partial with
     # "dictation"), to go into the input box; nothing is sent and nothing is said.
     dictate: bool = False
+    # What started it: the voice shortcut, or the voice button (decision 0026: a conversation the
+    # button started goes on until closed; the shortcut's, until 30 s pass with nothing said).
+    by: Literal["shortcut", "button"] = "shortcut"
 
 
 class ComputerSettings(msgspec.Struct, kw_only=True):
