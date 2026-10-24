@@ -8,9 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .parts import SAMPLE_RATE, Speech
-
-CHUNK = SAMPLE_RATE // 10
+from .parts import CHUNK, SAMPLE_RATE, Speech
 
 
 class RecordedSource:
@@ -29,13 +27,13 @@ class RecordedSource:
             self.open = True
             self.opened_at = asyncio.get_running_loop().time() - self._pos / SAMPLE_RATE
 
-    async def chunks(self) -> AsyncIterator[np.ndarray]:
+    async def chunks(self, samples: int = CHUNK) -> AsyncIterator[np.ndarray]:
         loop = asyncio.get_running_loop()
         while self.open:
-            chunk = self._audio[self._pos:self._pos + CHUNK]
-            self._pos += CHUNK
-            if len(chunk) < CHUNK:
-                chunk = np.concatenate([chunk, np.zeros(CHUNK - len(chunk), np.float32)])
+            chunk = self._audio[self._pos:self._pos + samples]
+            self._pos += samples
+            if len(chunk) < samples:
+                chunk = np.concatenate([chunk, np.zeros(samples - len(chunk), np.float32)])
             # Like a microphone: a chunk exists once its last sample has been said.
             await asyncio.sleep(max(0.0, self.opened_at + self._pos / SAMPLE_RATE - loop.time()) if self._realtime else 0)
             yield chunk

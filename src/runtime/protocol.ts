@@ -40,7 +40,8 @@ export interface Attachment {
 
 /** Voice (2.4): where the voice controller is (§11.2). */
 export type VoiceStateName =
-    | 'off' | 'unavailable' | 'starting' | 'idle' | 'listening' | 'thinking' | 'speaking' | 'suspended';
+    | 'off' | 'unavailable' | 'starting' | 'idle' | 'listening' | 'thinking' | 'speaking' | 'suspended'
+    | 'paused'; // a conversation or dictation waits while another app records (decision 0026)
 
 export type SttChoice = 'local' | 'openai' | 'groq';
 export type TtsChoice = 'piper' | 'kokoro' | 'openai' | 'gemini';
@@ -60,8 +61,10 @@ export interface VoiceSettingsDoc {
     device: VoiceDevice;
     gpu_idle_min: number; // let the GPU go after this long unused
     barge_in: boolean;
+    echo_cancel: boolean; // with speakers, the barge-in watch hears Mei's voice taken out (decision 0024)
     wake_word: boolean;
-    end_silence_ms: number;
+    pause_for_apps: boolean; // let go of the microphone while another app records (decisions 0025, 0026)
+    end_pause_ms: number; // the pause that sends what was said (decision 0026)
     mic: string; // a PipeWire node name; '' = the system default
     output: string;
     [field: string]: unknown;

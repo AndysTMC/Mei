@@ -9,7 +9,11 @@ Models come from MEI_VOICE_MODELS, else the spike's cache. Prints a Markdown rep
 - barge-in: speech onset over Mei's answer → playback stopped;
 - stopping a real output stream (silence, so inaudible): what PipeWire adds after the stop;
 - with `--only gpu`: waking the GPU voice, and its first sentence once awake;
-- with `--only wake`: the CPU listening for "Hey Mei" costs, in silence and in speech.
+- with `--only wake`: the CPU listening for "Hey Mei" costs, in silence and in speech;
+- with `--only echo` (decision 0024), in a private PipeWire with null devices (pipewire_lab.py):
+  barge-in on the real PipeWire path, with the plain microphone (earphones) and through the echo
+  canceller with Mei's voice coming back from a simulated laptop's speakers; how often Mei's own
+  voice stops it, with and without the canceller; and the canceller's start-up and CPU.
 
 The model's own time to a first sentence is per provider: `MEI_LIVE_CHAT=1 npm run smoke:providers`.
 """
@@ -27,7 +31,7 @@ import numpy as np
 
 from mei.voice import local, wire
 from mei.voice.parts import SAMPLE_RATE, Speech
-from mei.voice.pipewire import PipeWireSink
+from mei.voice.pipewire import EchoCancelledSource, PipeWireSink
 from mei.voice.worker import Worker
 
 UTTERANCES = ("What's the weather like tomorrow?", "Turn on dark mode and open my downloads.",
@@ -168,6 +172,91 @@ async def stream_stop(trials: int) -> list[float]:
     return out
 
 
+async def echo_report(models: Path, piper, trials: int, echo_gain: float, rt60: float, drr_db: float) -> list[str]:
+    """Decision 0024's measures, in a private PipeWire: nothing plays aloud, no real microphone."""
+    import pipewire_lab
+    if why := pipewire_lab.missing():
+        raise SystemExit(f"no private PipeWire: {why}")
+    said = [await piper.synthesize(u) for u in UTTERANCES]
+    rows = []
+
+    async def worker(lab, echo_cancel: bool) -> tuple[Worker, Timed]:
+        events = Timed()
+        w = Worker(out=events)
+        await w.handle(wire.Load(models=str(models), mic=pipewire_lab.MIC, output=pipewire_lab.SPEAKER,
+                                 barge_in=True, echo_cancel=echo_cancel))
+        await events.until(wire.Ready, 60)
+        return w, events
+
+    async def talked_over(lab, w, events, i: int) -> float:
+        """Onset → the speaker going silent, from the probe's aligned channels. Half the trials
+        talk over Mei 1.5 s in, half 4 s in (the canceller holds a voice down more once settled)."""
+        events.got.clear()
+        with lab.probe() as heard:
+            await w.handle(wire.Say(text=ANSWER))
+            await w.handle(wire.End())
+            await events.until(wire.Speaking)
+            await asyncio.sleep(1.5 if i % 2 == 0 else 4.0)
+            lab.talk(said[i % len(said)].samples, said[i % len(said)].rate, 0.5)
+            await events.until(wire.BargeIn, 10)
+            await events.until((wire.Final, wire.NoSpeech), 30)
+        return pipewire_lab.silent_from(heard["speaker"]) - pipewire_lab.onset(heard["talker"], 0.01)
+
+    async def stopped_by_itself(w, events) -> bool:
+        events.got.clear()
+        await w.handle(wire.Say(text=ANSWER))
+        await w.handle(wire.End())
+        await events.until((wire.Spoken, wire.BargeIn), 60)
+        if any(isinstance(e, wire.BargeIn) for _at, e in events.got):
+            await events.until((wire.Final, wire.NoSpeech), 30)
+            return True
+        return False
+
+    with pipewire_lab.Lab() as lab, lab.environ():  # no echo: earphones
+        w, events = await worker(lab, echo_cancel=False)
+        rows.append(row("Barge-in, plain microphone (earphones)", [await talked_over(lab, w, events, i)
+                                                                   for i in range(trials)], 0.35))
+        await w.handle(wire.Quit())
+    with pipewire_lab.Lab() as lab, lab.environ():
+        lab.room(echo_gain, rt60, drr_db)
+        w, events = await worker(lab, echo_cancel=True)
+        rows.append(row("Barge-in through the canceller, speakers", [await talked_over(lab, w, events, i)
+                                                                     for i in range(trials)], 0.35))
+        selfstops = [await stopped_by_itself(w, events) for _ in range(trials)]
+        rows.append(f"| Mei stopped by its own voice, with the canceller | {trials} | {sum(selfstops)} of {trials} | | | 0 |")
+        await w.handle(wire.Quit())
+        w, events = await worker(lab, echo_cancel=False)
+        selfstops = [await stopped_by_itself(w, events) for _ in range(min(trials, 5))]
+        rows.append(f"| Mei stopped by its own voice, without it | {len(selfstops)} | {sum(selfstops)} of {len(selfstops)} | | | |")
+        await w.handle(wire.Quit())
+        started, cpu = [], []
+        for _ in range(5):  # the canceller alone: start → first audio, and its CPU while Mei speaks
+            source = EchoCancelledSource(pipewire_lab.MIC, pipewire_lab.SPEAKER)
+            player = PipeWireSink(pipewire_lab.SPEAKER)
+            await player.play(said[0])
+            t0 = time.monotonic()
+            await source.start()
+            chunks = aiter(source.chunks())
+            await anext(chunks)
+            started.append(time.monotonic() - t0)
+            await player.play(await piper.synthesize(ANSWER))
+            c0, t1 = process_seconds(source._proc.pid), time.monotonic()
+            while time.monotonic() - t1 < 3.0:  # by the clock: a burst of buffered chunks isn't 3 s
+                await anext(chunks)
+            cpu.append(100 * (process_seconds(source._proc.pid) - c0) / (time.monotonic() - t1))
+            await source.stop()
+            await player.stop()
+        rows.append(row("Canceller: start → first audio", started))
+        rows.append(f"| Canceller CPU while Mei speaks, % of one core | {len(cpu)} | {statistics.median(cpu):.1f} | "
+                    f"| {max(cpu):.1f} | |")
+    return rows
+
+
+def process_seconds(pid: int) -> float:
+    fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+
+
 def row(name: str, values: list[float], target: float | None = None) -> str:
     ms = sorted(v * 1000 for v in values)
     p95 = ms[min(len(ms) - 1, round(0.95 * (len(ms) - 1)))]
@@ -179,7 +268,10 @@ async def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--trials", type=int, default=20)
     parser.add_argument("--no-stream", action="store_true", help="skip stopping a real (silent) output stream")
-    parser.add_argument("--only", choices=("final", "speech", "barge-in", "gpu", "wake"), help="just this measure")
+    parser.add_argument("--only", choices=("final", "speech", "barge-in", "gpu", "wake", "echo"), help="just this measure")
+    parser.add_argument("--echo-gain", type=float, default=0.5, help="with --only echo: Mei's voice back into the microphone")
+    parser.add_argument("--rt60", type=float, default=0.4, help="with --only echo: the room's reverberation, seconds")
+    parser.add_argument("--drr", type=float, default=6.0, help="with --only echo: direct sound over reverberation, dB")
     args = parser.parse_args()
     models = Path(os.environ.get("MEI_VOICE_MODELS") or Path.home() / ".cache/mei-spikes/0c/models")
     if not (models / "silero_vad.onnx").exists():
@@ -200,6 +292,8 @@ async def main() -> int:
         for name, pct in wake_cpu(models, tmp, speech).items():
             print(f"| {name} | {pct:.2f} |")
         return 0
+    if args.only == "echo":
+        rows += await echo_report(models, piper, args.trials, args.echo_gain, args.rt60, args.drr)
     if args.only == "gpu":  # needs an NVIDIA GPU and the GPU engine (MEI_GPU_ENGINE, or downloaded)
         woken, first = await gpu_latency(models, max(3, args.trials // 4))
         rows.append(row("GPU voice: woken to ready", woken))

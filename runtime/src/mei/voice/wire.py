@@ -29,8 +29,12 @@ class Load(Command, tag="load"):
     gpu_idle_s: float = 300.0
     wake: bool = False
     wake_threshold: float = 0.25
-    barge_in: bool = False  # interrupt by talking: only with earphones (spike 0c)
+    barge_in: bool = False  # interrupt by talking
+    # While Mei speaks with barge_in on, hear the microphone through PipeWire's echo canceller, so
+    # talking over Mei works with speakers too (decision 0024). Without it, only with earphones.
+    echo_cancel: bool = True
     end_silence_s: float = 0.5
+    quiet_s: float = 30.0  # listening the wake word started, or a Listen without no_speech_s, waits this long
     mic: str = ""  # PipeWire node; "" = the default
     output: str = ""
     # Test and setup-check backends (recorded.py): never used for real conversations.
@@ -40,7 +44,11 @@ class Load(Command, tag="load"):
 
 
 class Listen(Command, tag="listen"):
-    pass
+    # How long to wait for speech: None, Load's quiet_s; 0, as long as it takes (decision 0026).
+    no_speech_s: float | None = None
+    # Utterance after utterance on the open microphone (dictation), until DoneTalking or
+    # CancelListen; nothing closes it by itself.
+    continuous: bool = False
 
 
 class DoneTalking(Command, tag="done_talking"):
@@ -115,8 +123,9 @@ class Ready(Event, tag="ready"):
     stt: str
     tts: str
     device: str  # where speech is synthesized: "cpu" or "gpu"
-    note: str = ""  # why not the GPU, if it was wanted
+    note: str = ""  # why not the GPU, or no echo cancellation, if wanted
     wake: bool = False
+    echo_cancel: bool = False  # the barge-in watch hears through the echo canceller
 
 
 class Failed(Event, tag="error"):

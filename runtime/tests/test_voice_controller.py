@@ -1,6 +1,8 @@
-"""Voice in the core (Stage 5): a spoken request answered out loud, follow-up listening, "cancel
-that" stopping a task, the screen lock, and missing models. The real worker runs on recorded
-audio; the model is the scripted one."""
+"""Voice in the core (Stage 5): a spoken request answered out loud, listening that goes on after
+it (decision 0026; test_voice_sessions.py has the rest), "cancel that" stopping a task, the screen
+lock, and missing models. The real worker runs on recorded audio; the model is the scripted one.
+Recordings with several utterances use a short pause (end_pause_ms=500): with the 8 s default
+they'd be one utterance."""
 
 import asyncio
 import json
@@ -20,6 +22,8 @@ from agent_harness import Harness  # noqa: E402
 from test_voice import models, say, voice  # noqa: E402,F401  (fixtures)
 
 WORKER = [sys.executable, "-m", "mei.voice.worker"]
+# A graph with nobody else recording, so these tests never read the real one.
+QUIET_GRAPH = ("/bin/sh", "-c", "printf '[\\n]\\n'; exec sleep 3600")
 
 
 def controller(h: Harness, models_root, tmp_path, mic: np.ndarray):
@@ -28,7 +32,7 @@ def controller(h: Harness, models_root, tmp_path, mic: np.ndarray):
     v = VoiceController(h.engine, lambda kind, payload: seen.append((kind, payload)), lambda *_: WORKER,
                         models_root, load_extra={"source_file": str(tmp_path / "mic.f32"), "source_realtime": False,
                                                  "sink_file": str(tmp_path / "played.f32")},
-                        gpu_engine_for=lambda *_: None)
+                        gpu_engine_for=lambda *_: None, pw_dump=QUIET_GRAPH)
     h.engine.publisher = Fanout(h.rec, v)
     return v, seen
 
@@ -43,16 +47,23 @@ async def until(check, timeout: float = 40.0) -> None:
             await asyncio.sleep(0.05)
 
 
-async def test_dictation_hands_back_the_words_and_sends_nothing(tmp_path, models, voice):
-    """The mic button: what's said goes into the input box; no request, no spoken reply."""
+async def test_dictation_goes_on_across_pauses_and_sends_nothing(tmp_path, models, voice):
+    """The mic button: what's said goes into the input box, utterance after utterance, until the
+    mic is pressed again; no request, no spoken reply, nothing closes it by itself."""
     h = Harness(tmp_path, script=[{"text": "This must not be asked."}])
-    v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "Remind me to buy milk.", 3.0))
-    await v.apply(VoiceSettings(enabled=True))
+    v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "Remind me to buy milk.", 2.0,
+                                                        "And eggs for the weekend.", 40.0))
+    await v.apply(VoiceSettings(enabled=True, end_pause_ms=500))
     await v.wait_ready()
     await v.listen(None, dictate=True)
-    await until(lambda: any(kind == "voice.partial" and p["final"] for kind, p in seen) and states(seen)[-1] == "idle")
-    final = next(p for kind, p in seen if kind == "voice.partial" and p["final"])
-    assert final["dictation"] and "milk" in final["text"].lower()
+    finals = lambda: [p for kind, p in seen if kind == "voice.partial" and p["final"]]  # noqa: E731
+    await until(lambda: len(finals()) == 2)
+    await asyncio.sleep(1.0)  # 40 s of quiet go by (recorded audio, read at once): still dictating
+    assert states(seen)[-1] == "listening" and states(seen).count("listening") == 1  # one opening, not reopened
+    assert all(p["dictation"] for p in finals()) and "milk" in finals()[0]["text"].lower()
+    assert "eggs" in finals()[1]["text"].lower()
+    await v.listen(None, dictate=True)  # the mic again: done
+    await until(lambda: states(seen)[-1] == "idle")
     assert repo.list_conversations(h.store) == [] and "thinking" not in states(seen)
     await v.stop()
 
@@ -77,20 +88,23 @@ async def test_a_spoken_question_is_answered_out_loud_then_mei_listens_a_moment_
 
 
 async def test_saying_stop_stops_the_task_without_asking_the_model(tmp_path, models, voice):
+    """Replies on screen only: Mei listens on at once, so "stop" is heard while it is still writing."""
     long = "Here is a very long answer that keeps going. " * 20
     h = Harness(tmp_path, script=[{"text": long}], delay_ms=150, chunk_chars=8)
-    v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "Tell me a long story.", 1.0, "Stop.", 3.0))
-    await v.apply(VoiceSettings(enabled=True, speak_replies=False))
+    v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "Tell me a long story.", 1.0, "Cancel that.", 3.0))
+    await v.apply(VoiceSettings(enabled=True, speak_replies=False, end_pause_ms=500))
     await v.wait_ready()
     await v.listen(None)
-    await until(lambda: states(seen)[-1:] == ["idle"] and "thinking" not in states(seen)[-1:] and
-                len(repo.list_conversations(h.store)) == 1)
+    await until(lambda: len(repo.list_conversations(h.store)) == 1)
     [conversation] = repo.list_conversations(h.store)
-    task = h.store.read_one("SELECT id, state FROM tasks WHERE conversation_id = ?", (conversation["id"],))
-    assert task["state"] not in ("CANCELLED",)  # still answering
-    await v.listen(conversation["id"])
-    await until(lambda: h.store.read_one("SELECT state FROM tasks WHERE id = ?", (task["id"],))["state"] == "CANCELLED")
+    task = h.store.read_one("SELECT id FROM tasks WHERE conversation_id = ?", (conversation["id"],))
+    try:
+        await until(lambda: h.store.read_one("SELECT state FROM tasks WHERE id = ?", (task["id"],))["state"] == "CANCELLED")
+    except TimeoutError:
+        heard = [p["text"] for kind, p in seen if kind == "voice.partial" and p["final"]]
+        pytest.fail(f"not cancelled; heard {heard}, states {states(seen)}")
     assert len(h.requests()) == 1  # "stop" never reached the model
+    await until(lambda: states(seen)[-1] in ("listening", "idle"))  # stopping the task isn't closing voice
     await v.stop()
 
 
@@ -256,7 +270,7 @@ async def test_a_spoken_yes_approves_only_what_a_voice_may(tmp_path, models, voi
     h = Harness(tmp_path, script=[turn(call("fs_trash", path="~/Music/old.txt")), {"text": "Done."}])
     put(h.env, "~/Music/old.txt", "old")
     v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "Tidy up my downloads.", 2.5, "Yes, do it.", 4.0))
-    await v.apply(VoiceSettings(enabled=True))
+    await v.apply(VoiceSettings(enabled=True, end_pause_ms=500))
     await v.wait_ready()
     await v.listen(None)
     await until(lambda: not h.env.path("~/Music/old.txt").exists() and states(seen)[-1] == "idle", 60)
@@ -272,12 +286,11 @@ async def test_a_spoken_yes_never_approves_a_command_on_the_computer(tmp_path, m
     h = Harness(tmp_path, preset="hands_off", script=[turn(call("shell_run_host", command="echo hi", cwd="~")),
                                                       {"text": "Okay."}])
     v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "Run echo on my computer.", 2.5, "Yes, do it.", 4.0))
-    await v.apply(VoiceSettings(enabled=True))
+    await v.apply(VoiceSettings(enabled=True, end_pause_ms=500))
     await v.wait_ready()
     await v.listen(None)
-    await until(lambda: h.store.read_one("SELECT count(*) AS n FROM approvals")["n"] == 1 and states(seen)[-1] == "idle", 60)
-    [conversation] = repo.list_conversations(h.store)
-    await v.listen(conversation["id"])  # the person presses the shortcut and says "yes, do it" anyway
+    await until(lambda: h.store.read_one("SELECT count(*) AS n FROM approvals")["n"] == 1, 60)
+    # Mei says the card is on screen and listens on; the person says "yes, do it" anyway.
     await until(lambda: len([1 for kind, p in seen if kind == "voice.partial" and p["final"]]) >= 2, 30)
     await asyncio.sleep(1.0)
     states_ = {r["state"] for r in h.store.read("SELECT state FROM approvals")}

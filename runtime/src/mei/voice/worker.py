@@ -6,13 +6,16 @@ core tells it to listen and what to say, and it reports what it hears.
 
 Only one thing reads the microphone at a time: listening, the barge-in watch while speaking, or
 the wake word while armed. Barge-in and wake hand the open microphone straight to listening, with
-the audio they already heard, so the first words aren't lost.
+the audio they already heard, so the first words aren't lost. The barge-in watch hears the
+microphone through PipeWire's echo canceller when that is on and available (decision 0024), so
+Mei's own voice from the speakers doesn't count as talking over it.
 """
 
 import asyncio
 import collections
 import contextlib
 import logging
+import math
 import os
 import socket
 import sys
@@ -23,20 +26,24 @@ import numpy as np
 
 from . import local, pipeline, remote, wire
 from .gpu_speaker import GpuKokoro
-from .parts import SAMPLE_RATE, AudioSink, AudioSource, VoiceError, level_db
-from .pipewire import PipeWireSink, PipeWireSource
+from .parts import CHUNK, SAMPLE_RATE, AudioSink, AudioSource, VoiceError, level_db
+from .pipewire import EchoCancelledSource, PipeWireSink, PipeWireSource, echo_canceller_missing, output_into_ears
 from .recorded import CaptureSink, RecordedSource
 
 log = logging.getLogger("mei.voice")
 BARGE_GRACE_S = 0.3  # after speech starts, before talking over it counts (the Hermes lesson, §11.4)
 BARGE_SPEECH_S = 0.2  # speech this long stops Mei
-PREROLL_CHUNKS = 8  # ~0.8 s of the barge-in or wake audio handed to listening
+PREROLL_S = 0.8  # of the barge-in or wake audio, handed to listening
+# The barge-in watch reads Silero's own 32 ms windows, so it decides as soon as the speech has
+# lasted long enough rather than at the end of a 100 ms chunk: ~50 ms sooner (decision 0024).
+BARGE_CHUNK = local.VAD_WINDOW
 
 
 class Worker:
     def __init__(self, out=None) -> None:
         self._out = out or sys.stdout.buffer
         self._source: AudioSource | None = None
+        self._barge_source: AudioSource | None = None  # the barge-in watch's: echo-cancelled, when that runs
         self._sink: AudioSink | None = None
         self._vad: local.SileroVad | None = None
         self._wake: local.SherpaWake | None = None
@@ -66,7 +73,8 @@ class Worker:
                 if self._ready() and not self._suspended:
                     if await self._speaker_stop():  # talking while Mei speaks: it stops for you
                         self.emit(wire.Spoken(stopped=True))
-                    await self._take_mic("listen", self._listen())
+                    await self._take_mic("listen", self._listen(no_speech_s=cmd.no_speech_s,
+                                                                continuous=cmd.continuous))
             case wire.DoneTalking():
                 if self._listener is not None:
                     self._listener.finish()
@@ -129,6 +137,7 @@ class Worker:
 
     async def _load(self, cfg: wire.Load) -> None:
         root = Path(cfg.models)
+        await self._release_mic()  # nothing keeps recording through the sources being replaced
         await self._close_tts()
         try:
             self._vad = local.SileroVad(root)
@@ -154,14 +163,21 @@ class Worker:
             return
         self._source = RecordedSource(Path(cfg.source_file), cfg.source_realtime) if cfg.source_file \
             else PipeWireSource(cfg.mic)
+        self._barge_source, echo_note = self._source, ""
+        if cfg.barge_in and cfg.echo_cancel and not cfg.source_file:
+            if missing := echo_canceller_missing():
+                echo_note = f"{missing}, so talking over Mei works with earphones only"
+            else:
+                self._barge_source = EchoCancelledSource(cfg.mic, cfg.output)
         self._sink = CaptureSink(Path(cfg.sink_file)) if cfg.sink_file else PipeWireSink(cfg.output)
-        ep = pipeline.Endpointing(end_silence_s=cfg.end_silence_s)
+        ep = pipeline.Endpointing(end_silence_s=cfg.end_silence_s, no_speech_s=cfg.quiet_s)
         self._listener = pipeline.Listener(self._source, self._vad, stt, ep)
         self._speaker = pipeline.Speaker(tts, self._sink, on_start=self._spoke, on_done=self._spoken,
                                          on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)))
         self._config, self._tts = cfg, tts
         self._armed = cfg.wake and self._wake is not None
-        self.emit(wire.Ready(stt=stt.name, tts=tts.name, device=device, note=note, wake=self._wake is not None))
+        self.emit(wire.Ready(stt=stt.name, tts=tts.name, device=device, note="; ".join(n for n in (note, echo_note) if n),
+                             wake=self._wake is not None, echo_cancel=self._barge_source is not self._source))
         self._rearm()
 
     # ── The microphone ───────────────────────────────────────────────────────
@@ -189,8 +205,8 @@ class Worker:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        if self._source is not None:
-            await self._source.stop()
+        for source in {self._source, self._barge_source} - {None}:
+            await source.stop()
 
     def _rearm(self) -> None:
         """Back to waiting for the wake word, if it is on and nothing else holds the microphone."""
@@ -198,25 +214,37 @@ class Worker:
                 and not (self._speaker and self._speaker.speaking):
             self._hand_mic("wake", self._wait_for_wake())
 
-    async def _listen(self, preroll: list | None = None) -> None:
+    async def _listen(self, preroll: list | None = None, source: AudioSource | None = None,
+                      no_speech_s: float | None = None, continuous: bool = False) -> None:
+        """One utterance, from `source` if given (the open one barge-in heard it on); or, if
+        `continuous`, one after another on the open microphone until the person says they're done
+        (dictation: the microphone stays open across pauses, decision 0026)."""
         task = asyncio.current_task()
+        source = source or self._source
+        self._listener.begin()
         self.emit(wire.Listening())
         if self._tts is not None:
             self._tts.warm()  # wake the GPU while the person talks
         try:
-            async for heard in self._listener.listen(preroll):
-                match heard:
-                    case pipeline.SpeechStarted():
-                        self.emit(wire.SpeechStarted())
-                    case pipeline.Partial(text=text):
-                        self.emit(wire.Partial(text=text))
-                    case pipeline.Final(text=text):
-                        self.emit(wire.Final(text=text))
-                    case pipeline.NoSpeech():
-                        self.emit(wire.NoSpeech())
+            while True:
+                async for heard in self._listener.listen(preroll, source, no_speech_s, keep_open=continuous):
+                    match heard:
+                        case pipeline.SpeechStarted():
+                            self.emit(wire.SpeechStarted())
+                        case pipeline.Partial(text=text):
+                            self.emit(wire.Partial(text=text))
+                        case pipeline.Final(text=text):
+                            self.emit(wire.Final(text=text))
+                        case pipeline.NoSpeech():
+                            self.emit(wire.NoSpeech())
+                if not continuous or self._listener.finished:
+                    break
+                preroll = None
         except VoiceError as e:
             self.emit(wire.Failed(part=e.part, message=e.message))
         finally:
+            if continuous:
+                await source.stop()
             if self._mic_task is task:
                 self._mic_task, self._mic_job = None, ""
         self._rearm()
@@ -243,7 +271,7 @@ class Worker:
         self._rearm()
 
     async def _wait_for_wake(self) -> None:
-        heard = await self._watch(pipeline.WakeGate(self._vad, self._wake).heard)
+        heard = await self._watch(pipeline.WakeGate(self._vad, self._wake).heard, self._source)
         if heard is not None:
             self._wake.reset()
             self.emit(wire.Woke())
@@ -260,18 +288,33 @@ class Worker:
             return self._vad.speaking_for() >= BARGE_SPEECH_S
 
         self._vad.reset()
-        heard = await self._watch(talking_over)
+        source = self._barge_source
+        if isinstance(source, EchoCancelledSource) and await output_into_ears(self._config.output):
+            source = self._source  # no echo to cancel, and the canceller would only slow barge-in down
+        try:
+            heard = await self._watch(talking_over, source, BARGE_CHUNK)
+        except VoiceError as e:
+            heard = None
+            if isinstance(source, EchoCancelledSource):
+                source.failure = e.message
         if heard is not None:
             await self._speaker.stop()
             self.emit(wire.BargeIn())
-            self._hand_mic("listen", self._listen(heard))
+            self._hand_mic("listen", self._listen(heard, source))
+        elif isinstance(source, EchoCancelledSource) and source.failure:
+            # From the next reply on, the plain microphone, as without echo cancellation: right
+            # with earphones. Not for this reply: with speakers, Mei would hear itself at once.
+            await source.stop()
+            self._barge_source = self._source
+            self.emit(wire.Failed(part="echo cancellation",
+                                  message=f"{source.failure}, so talking over Mei works with earphones only"))
 
-    async def _watch(self, hit) -> list | None:
-        """Read the microphone until `hit(chunk)`; returns the recent audio, the microphone still
-        open for listening. None if the microphone closed first."""
-        recent: collections.deque = collections.deque(maxlen=PREROLL_CHUNKS)
-        await self._source.start()
-        async for chunk in self._source.chunks():
+    async def _watch(self, hit, source: AudioSource, samples: int = CHUNK) -> list | None:
+        """Read `source` in chunks of `samples` until `hit(chunk)`; returns the recent audio, the
+        microphone still open for listening. None if the microphone closed first."""
+        recent: collections.deque = collections.deque(maxlen=math.ceil(PREROLL_S * SAMPLE_RATE / samples))
+        await source.start()
+        async for chunk in source.chunks(samples):
             recent.append(chunk)
             if hit(chunk):
                 return list(recent)

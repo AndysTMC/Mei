@@ -13,6 +13,7 @@ from typing import Literal, Protocol
 import numpy as np
 
 SAMPLE_RATE = 16_000  # microphone audio everywhere in voice
+CHUNK = SAMPLE_RATE // 10  # 100 ms: how microphone audio usually arrives
 Device = Literal["auto", "cpu", "gpu"]
 
 
@@ -40,8 +41,8 @@ class AudioSource(Protocol):
     microphone indicator off, so nothing listens while Mei isn't."""
 
     async def start(self) -> None: ...
-    def chunks(self) -> AsyncIterator[np.ndarray]:
-        """Audio as it arrives, in ~100 ms chunks, until `stop`."""
+    def chunks(self, samples: int = CHUNK) -> AsyncIterator[np.ndarray]:
+        """Audio as it arrives, in chunks of `samples`, until `stop`."""
         ...
     async def stop(self) -> None: ...
 

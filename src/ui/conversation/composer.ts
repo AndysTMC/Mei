@@ -18,6 +18,7 @@ import GLib from 'gi://GLib';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
 
+import { dictated } from '../../runtime/voice.js';
 import { addClickScale, wrapLabel } from '../effects.js';
 import type { SourceSet } from '../sources.js';
 
@@ -163,13 +164,16 @@ export class Composer {
         if (!talking) this.queueLayout();
     }
 
-    /** Dictated words so far (or final): after what was already typed, the cursor at the end. */
-    dictate(text: string): void {
+    /** Dictated words so far (`final`: an utterance done): after what was already typed and
+     * dictated, the cursor at the end. */
+    dictate(text: string, final: boolean): void {
         if (this._dictationBase === null) {
             const typed = this.entry.get_text().trimEnd();
             this._dictationBase = typed ? `${typed} ` : '';
         }
-        this.entry.set_text(this._dictationBase + text);
+        const { shown, base } = dictated(this._dictationBase, text, final);
+        this._dictationBase = base;
+        this.entry.set_text(shown);
         this.entry.clutter_text.set_cursor_position(-1);
         this.queueLayout('cursor');
     }

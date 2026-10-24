@@ -233,9 +233,19 @@ class VoiceSettings(msgspec.Struct, kw_only=True):
     # downloaded, woken while the person talks, let go after gpu_idle_min unused; "cpu", never.
     device: Literal["auto", "cpu", "gpu"] = "auto"
     gpu_idle_min: Annotated[int, msgspec.Meta(ge=1, le=60)] = 5
-    barge_in: bool = False  # interrupt by talking over Mei: reliable with earphones only (spike 0c)
+    # Interrupt by talking over Mei. Off by default: with speakers it relies on echo cancellation,
+    # which hasn't been measured in a real room (decision 0024); with earphones it is reliable.
+    barge_in: bool = False
+    # While Mei speaks, hear the microphone with Mei's own voice taken out (PipeWire's echo
+    # canceller), so talking over it works with speakers too (decision 0024).
+    echo_cancel: bool = True
     wake_word: bool = False  # "Hey Mei": off by default, it misses the latency target (decision 0017)
-    end_silence_ms: Annotated[int, msgspec.Meta(ge=300, le=2000)] = 500
+    # While another app records, Mei lets go of the microphone (the wake word, a conversation,
+    # dictation) and listens again after (decisions 0025, 0026).
+    pause_for_apps: bool = True
+    # The pause that sends what was said (decision 0026): 8 s, since people stop to think; pressing
+    # again sends at once. Was end_silence_ms (0.5 s, at most 2 s): a stored value is dropped.
+    end_pause_ms: Annotated[int, msgspec.Meta(ge=300, le=10_000)] = 8_000
     mic: str = ""  # a PipeWire node name; "" follows the system default
     output: str = ""
 
@@ -253,6 +263,9 @@ class VoiceListenArgs(msgspec.Struct):
     # Dictation (the mic button): hear one utterance and hand its words back (voice.partial with
     # "dictation"), to go into the input box; nothing is sent and nothing is said.
     dictate: bool = False
+    # What started it: the voice shortcut, or the voice button (decision 0026: a conversation the
+    # button started goes on until closed; the shortcut's, until 30 s pass with nothing said).
+    by: Literal["shortcut", "button"] = "shortcut"
 
 
 class ComputerSettings(msgspec.Struct, kw_only=True):

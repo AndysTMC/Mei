@@ -102,11 +102,10 @@ export default class MeiExtension extends Extension {
         const modes = Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP;
         Main.wm.addKeybinding('open-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT, modes,
             () => popup.toggle());
-        // Talk to Mei: open the popup (to show what is heard) and listen; again: done talking.
-        Main.wm.addKeybinding('voice-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT, modes, () => {
-            if (!popup.isOpen) popup.open();
-            runtime.voiceListen();
-        });
+        // Talk to Mei: listen, shown only in the top bar; the popup opens when Mei answers or needs
+        // something (decision 0026). Again: send what was said, or with nothing said, stop.
+        Main.wm.addKeybinding('voice-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT, modes,
+            () => runtime.voiceListen());
         // The kill switch for computer use: never through the popup, which may be what's being driven.
         Main.wm.addKeybinding('stop-computer-shortcut', this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
             modes | Shell.ActionMode.SYSTEM_MODAL, () => control.stop('Stopped with the keyboard shortcut'));

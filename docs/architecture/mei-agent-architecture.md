@@ -622,7 +622,7 @@ Any state → SUSPENDED when the screen locks, the user mutes Mei, or another ap
 
 ### 11.4 Barge-in and echo
 
-- Capture from a PipeWire **echo-cancel** source (`libpipewire-module-echo-cancel`, WebRTC AEC) so Mei's own speech doesn't trigger VAD. No echo-cancel module is loaded on this machine today; the voice step of setup offers to add a PipeWire drop-in. **[spike]** quality with laptop speakers.
+- Capture from a PipeWire **echo-cancel** source (`libpipewire-module-echo-cancel`, WebRTC AEC) so Mei's own speech doesn't trigger VAD. As built (decision 0024): a private `pipewire -c` client the worker runs in its jail only while Mei talks through speakers, not a drop-in; nothing in the person's PipeWire setup changes. Quality with the owner's speakers: `runtime/tests/voice_room.py`, with the owner.
 - Barge-in detection runs in the worker: VAD speech probability above threshold for ≥200 ms after a 300 ms grace window from playback start (the Hermes lesson). On detection the worker ramps playback to silence locally (<150 ms, including the audio device buffer), then tells the core. End to end, speech onset to silence is ≈350 ms; the 200 ms window is the price of not stopping on coughs and door noises, and is tunable.
 - **Interrupting speech is not cancelling the task.** Barge-in stops audio and opens LISTENING. The new utterance is a steer. "Stop" or "cancel that" (matched locally with a small intent grammar, not the LLM) cancels the task.
 
@@ -1337,7 +1337,7 @@ Progress (2026-10-22): **built; four criteria open** (decision 0018 has the deta
 | Criterion | Evidence |
 |---|---|
 | Latency targets in §4, measured and reported | `runtime/tests/voice_bench.py` (20 trials each). End of speech → final text 678 ms median; Piper's first sentence 149 ms. End of speech → first audio ≈ 0.83 s plus the model's first sentence: ~1.24 s with Groq (met), ~2.6 s with Gemini flash-lite, ~10.7 s with OpenRouter's free router (missed). Wake word → listening: ~0.6 s (spike 0c), **missed**; wake word is off by default. Listening for it costs 0.45 % of one core in a quiet room (the spotter runs only while someone talks), 2.9 % while people talk. |
-| Barge-in onset → silence <350 ms in 20/20 | 20/20, median 286 ms, max 302 ms, plus ≤20 ms of PipeWire buffer. With earphones only: **no echo cancellation yet**, so barge-in is off by default. |
+| Barge-in onset → silence <350 ms in 20/20 | Recorded audio: 20/20, median 286 ms (0018). On the real PipeWire path that was 358 ms; reading 32 ms windows, 20/20, median 288 ms, max 342 ms with earphones (0024); recorded audio now 263 ms median. With speakers, through the echo canceller: median 363 ms, max 769 ms, 4/20 under 350 ms, **missed**; Mei never stopped on its own voice (0/20); barge-in stays off by default until measured in the owner's room. |
 | False-wake rate on 8 h of recorded audio | **Open**: needs the owner's room audio (`spikes/0c/`). |
 | Mic stream closed while locked | `test_suspending_ends_the_real_capture_stream` (the recorder process ends, so `pw-dump` has no capture stream to show), `test_the_microphone_is_closed_while_the_screen_is_locked`. Not yet checked with `pw-dump` on the real microphone with the owner. |
 | No audio files written | Mei never records (§11.5's opt-in isn't built); `test_the_jail_has_nowhere_to_keep_audio`: the worker's only writable places are PipeWire's socket and a private tmpfs. |
@@ -1345,7 +1345,7 @@ Progress (2026-10-22): **built; four criteria open** (decision 0018 has the deta
 | The worker has no network | `test_in_its_jail_the_worker_loads_but_reaches_nothing`. |
 | A spoken "yes" can't approve outside §11.6 | `test_a_spoken_yes_approves_only_what_a_voice_may`, `test_a_spoken_yes_never_approves_a_command_on_the_computer`, `test_which_effects_a_voice_may_approve`. |
 
-What differs from the plan above, and why (0018): push to talk is the way in and the wake word is off by default; no echo cancellation, so barge-in needs earphones; cloud speech falls back to this computer per utterance and sentence; the voice engine installs with Mei; the natural voice can use the GPU on demand, woken while you talk and let go when idle (0019).
+What differs from the plan above, and why (0018): push to talk is the way in and the wake word is off by default; echo cancellation is a private canceller only while Mei talks through speakers, slower than the 350 ms target, so barge-in stays off by default (0024); cloud speech falls back to this computer per utterance and sentence; the voice engine installs with Mei; the natural voice can use the GPU on demand, woken while you talk and let go when idle (0019).
 
 ### Stage 6 — Computer use (L) — after 0b
 
