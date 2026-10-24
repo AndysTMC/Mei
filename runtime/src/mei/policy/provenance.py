@@ -1,6 +1,7 @@
 """Where an action's resources came from (§13.4).
 
-- user-anchored: the person named it, or a folder holding it, in this task's own messages;
+- user-anchored: the person named it, or a folder holding it, in this task's own messages (or
+  dropped it on Mei with one of them);
 - untrusted: it (or a folder holding it) showed up in content others could have written;
 - model-derived: neither.
 
@@ -32,9 +33,10 @@ _XDG_WORDS = {"DOWNLOAD": ("downloads", "download"), "DOCUMENTS": ("documents",)
               "PUBLICSHARE": ("public",)}
 
 
-def anchors(user_texts: list[str], env: Env) -> list[Path]:
-    """Folders and files the person named. Home and `/` themselves are too broad to count."""
-    found: list[Path] = []
+def anchors(user_texts: list[str], env: Env, pointed: tuple[Path, ...] = ()) -> list[Path]:
+    """Folders and files the person named, in words or by dropping them on Mei (`pointed`). Home and
+    `/` themselves are too broad to count."""
+    found: list[Path] = list(pointed)
     for text in user_texts:
         quoted = [q for q in _QUOTED.findall(text) if "/" in q or q.startswith("~")]
         rest = _QUOTED.sub(" ", text)  # a quoted path with spaces is one path, not several words

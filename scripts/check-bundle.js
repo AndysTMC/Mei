@@ -13,7 +13,7 @@ const FORBIDDEN = [
 ];
 
 let failures = 0;
-for (const bundle of ['dist/extension.js', 'dist/prefs.js']) {
+for (const bundle of ['dist/extension.js', 'dist/prefs.js', 'dist/dropWindow.js']) {
     const source = readFileSync(bundle, 'utf8');
     for (const [needle, why] of FORBIDDEN) {
         if (source.includes(needle)) {

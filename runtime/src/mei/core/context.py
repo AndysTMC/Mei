@@ -157,20 +157,31 @@ def _current(inputs: Inputs, task_id: str, rows: list, actions: dict) -> list[Ch
 
 
 def attachment_of(message) -> dict | None:
-    """What the person attached to this message with "Ask about this", if anything."""
+    """What the person attached to this message ("Ask about this", or a drop on Mei), if anything."""
     return json.loads(message["metadata"] or "{}").get("attachment")
 
 
 def _user_turn(message) -> ChatTurn:
-    """The person's words, then what they attached, marked as content others wrote."""
+    """The person's words, then what they attached: text marked as content others wrote, dropped
+    files by their paths (the person chose them; what they hold is read like any file)."""
     attachment = attachment_of(message)
     if not attachment:
         return ChatTurn("user", message["content"])
+    kind = attachment.get("kind", "selection")
+    if kind == "files":
+        # One JSON string per line, so a name with quotes or a line break still reads back exactly. Not
+        # redacted: the model needs the very path to open the file, and the policy judges that path.
+        body = "\n".join(json.dumps(p, ensure_ascii=False) for p in attachment.get("paths", []))
+        return ChatTurn("user", f'{message["content"]}\n\n<attachment kind="files">\n{_unclosable(body)}\n</attachment>')
     named = (("app", attachment.get("app_id", "").removesuffix(".desktop")), ("window", attachment.get("window_title", "")))
     attrs = "".join(f' {name}="{_attr(value)}"' for name, value in named if value)
-    body = attachment.get("text", "").replace("</attachment>", "</attachment_>")
-    block = f'<attachment kind="selection"{attrs} trust="untrusted">\n{body}\n</attachment>'
+    block = f'<attachment kind="{kind}"{attrs} trust="untrusted">\n{_unclosable(attachment.get("text", ""))}\n</attachment>'
     return ChatTurn("user", f"{message['content']}\n\n{redact(block)}")
+
+
+def _unclosable(body: str) -> str:
+    """What others wrote can't close its own wrapper."""
+    return body.replace("</attachment>", "</attachment_>")
 
 
 def _attr(value: str) -> str:

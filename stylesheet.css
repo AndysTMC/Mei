@@ -787,3 +787,9 @@
 }
 
 
+
+/* Drag and drop (decision 0026): a drag from another app is over the button and will attach there. */
+.mei-panel-button.drop-target {
+    background-color: rgba(128, 128, 128, 0.3);
+    box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.6);
+}

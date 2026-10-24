@@ -22,3 +22,4 @@
 | 0020 | The conversation is requests and replies; what Mei waits for is the input; details on demand | accepted | 2026-10-23 | — (narrows §18.2) |
 | 0022 | Computer use as measured: AT-SPI first; one RemoteDesktop session for pixels and input; the desktop worker behind a filtered bus | accepted | 2026-10-23 | — (revises ADR-8 in the architecture) |
 | 0023 | Computer use as built: Mei makes way before input, a stop from the Shell ends the task, and pictures reach models that see | accepted | 2026-10-23 | — (builds on 0022; narrows §10.3) |
+| 0026 | Files and text dropped on Mei are taken by a window of its own; dropped files count as named by the person | accepted | 2026-10-24 | — |
