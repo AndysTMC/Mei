@@ -58,6 +58,8 @@ export class RuntimeChatController {
     private _attachment: Attachment | null = null;
     /** Voice (2.4): the runtime's voice state and what it has heard. */
     private _voice: VoiceView = { state: 'off', note: '', transcript: '', dictating: false };
+    /** The runtime holds the attachment for the next thing said in a conversation. */
+    private _voiceHasAttachment = false;
     /** Called once when setup was never offered (the extension opens Settings). */
     onSetupNeeded: (() => void) | null = null;
     /** Whether this controller asked for setup to open (read by the dev-build test hooks). */
@@ -263,6 +265,20 @@ export class RuntimeChatController {
     private _setAttachment(attachment: Attachment | null): void {
         this._attachment = attachment;
         this._popup.showAttachment(attachment ? attachmentLabel(attachment) : null);
+        if (this._talking()) this._attachToVoice();
+    }
+
+    /** In a conversation, what's said goes to Mei from the runtime, not from the message box: the
+     * attachment goes there too, with the next thing said (decision 0028). */
+    private _attachToVoice(): void {
+        this._voiceHasAttachment = this._attachment !== null;
+        this._client.call('VoiceAttach', { attachment: this._attachment })
+            .catch((e: RuntimeError) => this._showFailure(e));
+    }
+
+    /** Talking with Mei (not dictating): listening, thinking, speaking, or paused for another app. */
+    private _talking(): boolean {
+        return !this._voice.dictating && ['listening', 'thinking', 'speaking', 'paused'].includes(this._voice.state);
     }
 
     approve(approvalId: string, scope: ApprovalScope): void {
@@ -469,7 +485,16 @@ export class RuntimeChatController {
             if (state === 'speaking' && this._voice.state === 'thinking' && !this._popup.isOpen) this._popup.open();
             // Dictating or talking: as the runtime says (a reload mid-dictation mustn't lose it).
             const dictating = typeof p.dictating === 'boolean' ? p.dictating : this._voice.dictating;
+            const wasTalking = this._talking();
             this._voice = { ...this._voice, state, note: String(p.note ?? ''), dictating };
+            // An attachment waiting in the box joins a conversation that starts; once something is
+            // said (thinking), it went with that request.
+            if (this._talking() && !wasTalking && this._attachment && !this._voiceHasAttachment) this._attachToVoice();
+            if (state === 'thinking' && this._voiceHasAttachment) {
+                this._voiceHasAttachment = false;
+                this._attachment = null;
+                this._popup.showAttachment(null);
+            }
             // A spoken request starts or continues a conversation: show it, as sending one would.
             if (state === 'thinking' && conversation && conversation !== this._current) this.loadChat(conversation);
             if (state === 'idle' || state === 'off' || state === 'unavailable')

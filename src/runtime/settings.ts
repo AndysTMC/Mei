@@ -385,7 +385,7 @@ export type VoiceField = 'enabled' | 'speak_replies' | 'stt' | 'tts' | 'voice' |
 const VOICE_DEFAULTS: VoiceSettingsDoc = {
     enabled: false, speak_replies: true, stt: 'local', tts: 'piper', voice: 'amy', cloud_voice: '', kokoro_speaker: 0,
     speed: 1.0, device: 'auto', gpu_idle_min: 5, barge_in: false, echo_cancel: true, wake_word: false, pause_for_apps: true,
-    end_pause_ms: 8000,
+    end_pause_ms: 800,
     mic: '', output: '',
 };
 

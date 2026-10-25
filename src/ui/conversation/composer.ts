@@ -79,6 +79,10 @@ export class Composer {
             accessible_name: 'Message input',
         });
         this._configureText(this.entry.clutter_text);
+        // Measured while hidden (the popup closed), the input's height is wrong: measure again when shown.
+        this.entry.connect('notify::mapped', () => {
+            if (this.entry.mapped) this.queueLayout(this._voiceMode === 'dictating' ? 'bottom' : 'cursor');
+        });
 
         const inputBox = new St.BoxLayout({ vertical: true, x_expand: true });
         inputBox.add_child(this.entry);
@@ -115,10 +119,24 @@ export class Composer {
         buttons.add_child(this.micButton);
         buttons.add_child(this.voiceButton);
         this.actor.add_child(buttons);
+        // Enter anywhere in the input area while the mic or a conversation is on ends it.
+        this.actor.connect('key-press-event', (_actor: Clutter.Actor, event: Clutter.Event) => {
+            const key = event.get_key_symbol();
+            if ((key !== Clutter.KEY_Return && key !== Clutter.KEY_KP_Enter) || this._voiceMode === 'idle')
+                return Clutter.EVENT_PROPAGATE;
+            if (this._voiceMode === 'dictating') this._actions.onDictate();
+            else this._actions.onVoice();
+            return Clutter.EVENT_STOP;
+        });
         this.queueLayout();
     }
 
+    /** The box, or during a conversation (no box) the voice button: Enter then ends it. */
     focus(): void {
+        if (this._voiceMode === 'talking') {
+            this.voiceButton.grab_key_focus();
+            return;
+        }
         this.entry.grab_key_focus();
         this.queueLayout('cursor');
     }
@@ -150,7 +168,14 @@ export class Composer {
         const dictating = v.mode === 'dictating';
         const talking = v.mode === 'talking';
         if (this._voiceMode === 'dictating' && !dictating) this._dictationBase = null;
+        const startedTalking = talking && this._voiceMode !== 'talking';
+        const startedDictating = dictating && this._voiceMode !== 'dictating';
         this._voiceMode = v.mode;
+        // While the mic writes, the box shows what's heard and can't be edited (that would fight the
+        // words arriving); when the mic stops, it's yours to edit and send.
+        this.entry.clutter_text.set_editable(!dictating);
+        if (dictating) this.entry.add_style_class_name('dictating');
+        else this.entry.remove_style_class_name('dictating');
         this.askButton.visible = !dictating && !talking;
         this.micButton.visible = v.available && !talking;
         this.voiceButton.visible = v.available && !dictating;
@@ -161,6 +186,9 @@ export class Composer {
         this._voiceStatus.text = v.status;
         this._voiceHeard.text = v.transcript;
         this._voiceHeard.visible = Boolean(v.transcript);
+        // The mic or a conversation starting: keyboard focus in the input area, so Enter reaches it
+        // (clicking the mic doesn't move the focus).
+        if ((startedTalking || startedDictating) && this.actor.mapped) this.focus();
         if (!talking) this.queueLayout();
     }
 
@@ -175,7 +203,7 @@ export class Composer {
         this._dictationBase = base;
         this.entry.set_text(shown);
         this.entry.clutter_text.set_cursor_position(-1);
-        this.queueLayout('cursor');
+        this.queueLayout('bottom');  // the latest words in view
     }
 
     stopBlink(): void {
@@ -215,7 +243,10 @@ export class Composer {
             const shift = (event.get_state() & Clutter.ModifierType.SHIFT_MASK) !== 0;
             if ((key === Clutter.KEY_Return || key === Clutter.KEY_KP_Enter) && !shift) {
                 this._sources.idle(() => {
-                    this._send();
+                    // Enter while the mic is on stops it, leaving the words to edit; a second Enter sends.
+                    if (this._voiceMode === 'dictating') this._actions.onDictate();
+                    else if (this._voiceMode === 'talking') this._actions.onVoice();
+                    else this._send();
                     return GLib.SOURCE_REMOVE;
                 });
                 return Clutter.EVENT_STOP;
@@ -253,6 +284,7 @@ export class Composer {
     }
 
     private _layout(scrollTarget: InputScrollTarget): void {
+        if (!this.entry.mapped) return; // hidden: measured again when shown (notify::mapped)
         const width = Math.max(1, Math.floor(this.entry.get_width()));
         const [, natural] = this.entry.clutter_text.get_preferred_height(width);
         const contentHeight = Math.max(MIN_HEIGHT, Math.ceil(natural));

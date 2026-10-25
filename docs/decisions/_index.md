@@ -26,3 +26,4 @@
 | 0025 | "Hey Mei" pauses while another app records | accepted | 2026-10-23 | — |
 | 0026 | Listening ends when the person ends it; an 8 s pause before sending; the shortcut keeps the popup closed | accepted | 2026-10-24 | 0018 (in part: how listening ends) |
 | 0027 | Files and text dropped on Mei are taken by a window of its own; dropped files count as named by the person | accepted | 2026-10-24 | — |
+| 0028 | Enter ends listening; the pause adapts to how finished a sentence sounds; a drop goes with what's said | accepted | 2026-10-25 | 0026 (in part: the 8 s pause) |

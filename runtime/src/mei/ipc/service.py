@@ -26,10 +26,9 @@ from mei.core.engine import Engine
 from mei.obs import RECENT
 from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, ForgetMemoryArgs,
                           GetLogsArgs, HelloArgs, KillSwitchArgs, ListModelsArgs, MemoriesArgs, ProtocolError,
-                          ResolveApprovalArgs,
-                          RevokeGrantArgs, SetupApplyArgs, SubmitInputArgs, TaskCommandArgs, TestProviderArgs,
-                          UpdateConfigArgs, UpdateMemoryArgs, VoiceDownloadArgs, VoiceListenArgs, decode_args,
-                          encode)
+                          ResolveApprovalArgs, RevokeGrantArgs, SetupApplyArgs, SubmitInputArgs, TaskCommandArgs,
+                          TestProviderArgs, UpdateConfigArgs, UpdateMemoryArgs, VoiceAttachArgs, VoiceDownloadArgs,
+                          VoiceListenArgs, decode_args, encode)
 from mei.providers.profiles import PROFILES
 from mei.setup import Setup
 from mei.store import repo
@@ -88,7 +87,7 @@ class RuntimeService:
             "VoiceModels": self._voice_models, "VoiceDownload": self._voice_download, "VoiceCheckMic": self._voice_check_mic,
             "VoiceFixMic": self._voice_fix_mic, "VoiceTestSpeaker": self._voice_test_speaker,
             "VoiceDevices": self._voice_devices, "VoiceRemove": self._voice_remove,
-            "KillSwitch": self._kill_switch, "ComputerStatus": self._computer_status,
+            "KillSwitch": self._kill_switch, "VoiceAttach": self._voice_attach, "ComputerStatus": self._computer_status,
             "ComputerAllowScreen": self._computer_allow_screen,
         }
 
@@ -354,6 +353,13 @@ class RuntimeService:
         if self._voice is None:
             raise ProtocolError("Unavailable", "voice isn't installed")
         return self._voice
+
+    async def _voice_attach(self, sender: str, data: str) -> dict:
+        """What was dropped on Mei during a conversation: it goes with the next thing said."""
+        args = decode_args(data, VoiceAttachArgs)
+        await self._shell_only(sender, "attach files to what's said")
+        self._voice_required().attach(args.attachment)
+        return {}
 
     async def _kill_switch(self, _sender: str, data: str) -> dict:
         """Computer use's kill switch (§10.3). It goes first: no caller check and nothing awaited before

@@ -27,8 +27,8 @@ from pathlib import Path
 from typing import Literal
 
 from mei.core.states import TERMINAL
-from mei.protocol import (Envelope, ProtocolError, ResolveApprovalArgs, SubmitInputArgs, TaskCommandArgs,
-                          VoiceSettings)
+from mei.protocol import (Attachment, Envelope, ProtocolError, ResolveApprovalArgs, SubmitInputArgs,
+                          TaskCommandArgs, VoiceSettings)
 from mei.store import repo
 from mei.store.db import new_id
 
@@ -107,6 +107,7 @@ class VoiceController:
         self._session: Session | None = None  # listening goes on until this ends
         self._speech_heard = False  # in the utterance being heard now
         self._dictating = False  # this utterance goes into the input box, not to Mei
+        self._attachment: Attachment | None = None  # dropped on Mei during a conversation: goes with the next request
         self._asking: str | None = None  # an approval Mei read out and waits on a spoken answer for
         self._locked = False
         self._stopping = False
@@ -322,7 +323,12 @@ class VoiceController:
         `dictate` (the mic button): only to write down what's said. While listening: if someone
         is talking, what they said is sent at once; if not (or when dictating), it ends."""
         if self.state == "listening":
-            if self._session == "dictate" or not self._speech_heard:
+            if self._session == "dictate":
+                # Done dictating: the words still being heard are dictation too, so `_dictating`
+                # stays until they arrive (cleared, they would go to Mei as a request).
+                self._session = None
+                await self._follow_mic_users()
+            elif not self._speech_heard:
                 await self._end_session()
             await self._send(wire.DoneTalking())
             return
@@ -331,6 +337,10 @@ class VoiceController:
         self._conversation = conversation_id
         self._dictating = dictate
         await self._start_session("dictate" if dictate else "button" if by == "button" else "quiet")
+
+    def attach(self, attachment: Attachment | None) -> None:
+        """Files or text dropped on Mei while talking with it: they go with what's said next (None: removed)."""
+        self._attachment = attachment
 
     async def hush(self) -> None:
         """Close voice: stop listening or speaking, and listen no more (Esc, Stop, the voice button).
@@ -553,10 +563,12 @@ class VoiceController:
             self._set("idle")
             await self._go_on()  # stopping the task isn't closing voice
             return
+        attachment, self._attachment = self._attachment, None
         try:
-            reply = self._engine.submit_input(SubmitInputArgs(command_id=new_id(), text=text,
+            reply = self._engine.submit_input(SubmitInputArgs(command_id=new_id(), text=text, attachment=attachment,
                                                               conversation_id=self._conversation, source="voice"))
         except ProtocolError as e:
+            self._attachment = attachment  # not sent: it goes with the next one
             self._set("idle", e.message)
             await self._go_on()
             return

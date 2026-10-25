@@ -266,6 +266,11 @@ export class ChatPopup {
             transcript: talking && view.state !== 'speaking' ? view.transcript : '' });
     }
 
+    /** What's in the message box now (for the dev hooks' tests). */
+    get inputText(): string {
+        return this._composer.entry.get_text();
+    }
+
     /** Dictated words so far (`final`: an utterance done), into the message box. */
     dictate(text: string, final: boolean): void {
         this._composer.dictate(text, final);

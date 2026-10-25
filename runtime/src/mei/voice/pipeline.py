@@ -40,16 +40,31 @@ class NoSpeech:
 Heard = SpeechStarted | Partial | Final | NoSpeech
 
 
+# Words a sentence doesn't end on: after them the person is still thinking, so Mei waits longer.
+TRAILING = frozenset("""a an and are as at because but by for from if in is like my of on or so than that the then to
+uh um was what when where which while who why will with would your""".split())
+UNFINISHED_S = 2.5  # how long Mei waits after "and…", "um…", or a single word
+
+
+def unfinished(said: str) -> bool:
+    """Does what was heard so far sound like it stops mid-thought?"""
+    words = said.lower().replace(",", " ").split()
+    return len(words) < 2 or words[-1].strip(".!?") in TRAILING
+
+
 @dataclass(frozen=True)
 class Endpointing:
-    # The pause that ends an utterance. Settings choose it (8 s by default, decision 0026: people
-    # pause mid-thought; pressing again sends at once); this default is the mechanism's, for tests.
+    # The pause that ends an utterance. Settings choose it (0.8 s by default, decision 0028); after
+    # words that leave a sentence open it is at least UNFINISHED_S. This default is the mechanism's.
     end_silence_s: float = 0.5
     # Silence fed after the end so the recognizer emits the last words: Kroko drops whole words with
     # under ~1 s (and the owner's "ready"/"Monday" in spike 0c). Fed at once: ~40 ms of compute.
     tail_s: float = 1.2
     no_speech_s: float = 30.0  # waiting for someone to start talking; 0: as long as it takes
     max_s: float = 30.0
+
+    def pause_for(self, said: str) -> float:
+        return max(self.end_silence_s, UNFINISHED_S) if unfinished(said) else self.end_silence_s
 
 
 class WakeGate:
@@ -115,6 +130,7 @@ class Listener:
         self._vad.reset()
         text = self._stt.open()
         heard = False
+        said = ""  # the latest partial: how finished it sounds decides how long the pause must be
         total = 0.0
         await source.start()
         try:
@@ -131,8 +147,9 @@ class Listener:
                     heard = True
                     yield SpeechStarted()
                 if (partial := await text.accept(chunk)) is not None:
+                    said = partial
                     yield Partial(partial)
-                if heard and (self._vad.quiet_for() >= self._ep.end_silence_s or self._done.is_set()):
+                if heard and (self._vad.quiet_for() >= self._ep.pause_for(said) or self._done.is_set()):
                     break
                 if not heard and ((wait and total >= wait) or self._done.is_set()):
                     yield NoSpeech()

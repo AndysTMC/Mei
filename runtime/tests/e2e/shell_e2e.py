@@ -586,8 +586,8 @@ async def main() -> int:
             conv = await h.runtime("GetConversation", {"conversation_id": st["controller"]["current"]})
             user = conv["messages"][0]
             played = os.path.getsize(os.environ["MEI_VOICE_SINK_FILE"]) / 4 / 16000
-            await h.hook("PressVoiceShortcut")  # nothing said: that's the end of it
-            await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 20, "voice to stop when asked")
+            await h.hook("PressEnter")  # the popup is open: Enter ends the conversation (decision 0028)
+            await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 20, "Enter to end the conversation")
             h.check("voice_question_answered_out_loud", closed_while_listening and opened_with_answer
                     and user["metadata"].get("source") == "voice"
                     and user["content"].lower().startswith("what's the weather") and played > 2.0,
@@ -615,17 +615,36 @@ async def main() -> int:
             st = await h.state()
             still = st["controller"]["voice"]["state"] == "listening"
             text = box(st)
-            [done] = await h._call(*named, ["Done dictating"])
-            st = await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 20, "dictation to stop when asked")
-            h.check("dictation_goes_on_until_the_mic_again", dictating and done and still and "milk" in text.lower()
-                    and "eggs" in text.lower() and len(st["controller"]["messages"]) == sent_before,
-                    {"box": text, "still_listening_after_a_pause": still, "sent": len(st["controller"]["messages"]) - sent_before})
+            await h.hook("PressEnter")  # Enter with the mic on: the mic stops, the words stay to edit
+            st = await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 20, "Enter to stop dictation")
+            await asyncio.sleep(3.0)  # nothing more arrives, and nothing went to Mei
+            st = await h.state()
+            kept = st["input"]
+            h.check("dictation_goes_on_until_enter_and_sends_nothing", dictating and still and "milk" in text.lower()
+                    and "eggs" in text.lower() and "eggs" in kept.lower()
+                    and len(st["controller"]["messages"]) == sent_before,
+                    {"box": text, "still_listening_after_a_pause": still, "kept": kept,
+                     "sent": len(st["controller"]["messages"]) - sent_before})
+            await h.use_fake([{"text": "Added to your list."}])
+            await h.hook("PressEnter")  # a second Enter sends what's in the box, once
+            st = await h.until(lambda s: len(s["controller"]["messages"]) >= sent_before + 2, 30, "the dictated message sent")
+            await asyncio.sleep(3.0)  # and the words don't come back into the box
+            st = await h.state()
+            mine = [m["content"] for m in st["controller"]["messages"] if m["role"] == "user"]
+            h.check("the_second_enter_sends_once_and_the_box_stays_empty",
+                    len(mine) == 1 and "eggs" in mine[0].lower() and st["input"] == "",
+                    {"sent": mine, "box_after": st["input"]})
     except AssertionError as e:
         h.results["error"] = str(e)
     finally:
         h.stop_shell()
         server.shutdown()
-        subprocess.run(["pkill", "-f", "-m", "mei serve"], check=False)
+        # This session's runtime only, by its PID on this private bus: never by name, which would
+        # also match the person's own runtime ("… -m mei serve").
+        try:
+            os.kill((await h.runtime("Hello", {"client": {"kind": "e2e"}, "protocol": [2, 1]}))["pid"], signal.SIGTERM)
+        except (RuntimeError, ProcessLookupError, KeyError):
+            pass  # not running
     print(json.dumps(h.results, indent=1))
     return 0 if h.results and all(v.get("ok") for k, v in h.results.items() if k != "error") \
         and "error" not in h.results else 1

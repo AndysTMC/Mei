@@ -176,10 +176,11 @@ export class VoicePage {
             () => v().stt, (id: SttChoice) => settings.setVoice('stt', id));
         const mic = listRow(settings, 'Microphone', () => deviceOptions(devices.mics, v().mic), () => v().mic,
             id => settings.setVoice('mic', id));
-        // 8 s by default: people stop to think mid-sentence; pressing again sends at once (decision 0026).
+        // 0.8 s by default, as voice assistants do; longer by itself after "and…", "um…" (decision 0028).
         const pause = numberRow(settings, 'Pause before Mei answers',
-            'Seconds of quiet before what you said is sent. Press the shortcut or the voice button again to send at once.',
-            [0.3, 10.0, 0.5, 1], () => v().end_pause_ms / 1000, s => settings.setVoice('end_pause_ms', Math.round(s * 1000)));
+            'Seconds of quiet before what you said is sent. Mei waits longer when you stop mid-sentence. '
+            + 'Press the shortcut or the voice button again to send at once.',
+            [0.3, 10.0, 0.1, 1], () => v().end_pause_ms / 1000, s => settings.setVoice('end_pause_ms', Math.round(s * 1000)));
         const wake = toggle(settings, 'Listen for “Hey Mei”',
             'The microphone stays on. Slower to react than the shortcut, and it can wake on similar words.', 'wake_word');
         // Another app recording (a call, a recorder) has the microphone to itself (decisions 0025, 0026).

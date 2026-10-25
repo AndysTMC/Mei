@@ -272,4 +272,10 @@ MIGRATIONS: list[str] = [
     ALTER TABLE input_requests_v5 RENAME TO input_requests;
     CREATE INDEX input_requests_by_task ON input_requests (task_id, state)
     """,
+    # 6: the pause before Mei answers (decision 0028). A stored 8 s is decision 0026's default of one
+    # day, not a choice anyone made: it becomes the new default, 0.8 s. Any other value is kept.
+    """
+    UPDATE config SET document = json_set(document, '$.voice.end_pause_ms', 800)
+        WHERE json_extract(document, '$.voice.end_pause_ms') = 8000
+    """,
 ]

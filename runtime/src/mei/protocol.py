@@ -255,13 +255,17 @@ class VoiceSettings(msgspec.Struct, kw_only=True):
     pause_for_apps: bool = True
     # The pause that sends what was said (decision 0026): 8 s, since people stop to think; pressing
     # again sends at once. Was end_silence_ms (0.5 s, at most 2 s): a stored value is dropped.
-    end_pause_ms: Annotated[int, msgspec.Meta(ge=300, le=10_000)] = 8_000
+    end_pause_ms: Annotated[int, msgspec.Meta(ge=300, le=10_000)] = 800
     mic: str = ""  # a PipeWire node name; "" follows the system default
     output: str = ""
 
 
 class VoiceDownloadArgs(msgspec.Struct):
     models: list[str]  # ids from VoiceModels (VoiceDownload and VoiceRemove)
+
+
+class VoiceAttachArgs(msgspec.Struct):
+    attachment: Attachment | None = None
 
 
 class KillSwitchArgs(msgspec.Struct):

@@ -32,6 +32,7 @@ const XML = `
     <method name="PressAskShortcut"/>
     <method name="PressVoiceShortcut"/>
     <method name="PressStopShortcut"/>
+    <method name="PressEnter"/>
     <method name="ActivateWindow"><arg type="s" direction="in" name="title"/><arg type="b" direction="out" name="found"/></method>
     <method name="SetPrimarySelection"><arg type="s" direction="in" name="text"/></method>
     <method name="ClickButton"><arg type="s" direction="in" name="label"/><arg type="b" direction="out" name="found"/></method>
@@ -204,6 +205,11 @@ export class DevHooks {
         this._press([Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_space]);
     }
 
+    /** Presses Enter, into whatever has the keyboard focus. */
+    PressEnter(): void {
+        this._press([Clutter.KEY_Return]);
+    }
+
     /** Presses Super+Alt+Escape (the default stop-computer-shortcut, computer use's kill switch). */
     PressStopShortcut(): void {
         this._press([Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_Escape]);
@@ -272,6 +278,7 @@ export class DevHooks {
             })),
             clicks: this._clicks.slice(-5),
             shown: visibleText(this._popup.contentActor),
+            input: this._popup.inputText,
             controller: this._runtime.debugState(),
             drop: this._dropZone?.debugState ?? null,
             // Every notification in the tray: Mei's own, and those the runtime sent while detached.

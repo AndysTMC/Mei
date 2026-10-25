@@ -125,6 +125,15 @@
     border-width: 0;
 }
 
+/* While the mic writes: what's heard, read-only, a little dimmer until it's yours to edit. */
+.mei-input.dictating {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.mei-light .mei-input.dictating {
+    color: rgba(0, 0, 0, 0.62);
+}
+
 /* ── Ask button ──────────────────────────────────── */
 .mei-ask-btn {
     border-radius: 8px;

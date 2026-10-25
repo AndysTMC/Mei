@@ -22,7 +22,8 @@ import pytest
 pytest.importorskip("sherpa_onnx")
 
 from mei.core.fanout import Fanout  # noqa: E402
-from mei.protocol import VoiceSettings  # noqa: E402
+from mei.protocol import Attachment, VoiceSettings  # noqa: E402
+from mei.voice.pipeline import Endpointing, unfinished  # noqa: E402
 from mei.store import repo  # noqa: E402
 from mei.voice.controller import PAUSED_NOTE, QUIET_S, VoiceController  # noqa: E402
 
@@ -86,7 +87,7 @@ async def test_a_conversation_the_shortcut_started_ends_after_30_s_of_quiet(tmp_
 
 
 async def test_pressing_again_sends_at_once_instead_of_waiting_out_the_pause(tmp_path, models, voice):
-    """The 8 s pause (decision 0026) costs replies speed; pressing again is the way not to wait."""
+    """The pause (0.8 s by default, decision 0028) can be skipped: pressing again sends at once."""
     question = await say(voice, 0.3, "What's the weather like tomorrow?")
     spoken_s = len(question) / 16000
     timing = {}
@@ -95,7 +96,7 @@ async def test_pressing_again_sends_at_once_instead_of_waiting_out_the_pause(tmp
         (tmp_path / str(press)).mkdir(exist_ok=True)
         v, seen = controller(h, models, tmp_path / str(press), np.concatenate([question, np.zeros(16000 * 12, np.float32)]),
                              realtime=True)
-        await v.apply(VoiceSettings(enabled=True))  # the default pause: 8 s
+        await v.apply(VoiceSettings(enabled=True))  # the default pause: 0.8 s
         await v.wait_ready()
         t0 = time.monotonic()
         await v.listen(None, by="button")
@@ -107,7 +108,7 @@ async def test_pressing_again_sends_at_once_instead_of_waiting_out_the_pause(tmp
         timing[press] = time.monotonic() - pressed
         await v.stop()
     print(f"\nfinal text after pressing again: {timing[True] * 1000:.0f} ms; waiting out the pause: {timing[False]:.1f} s")
-    assert timing[True] < 1.5 and 7.5 < timing[False] < 10.0, timing
+    assert timing[True] < 1.5 and 0.3 < timing[False] < 3.0, timing  # ~0.85 s after the last word
 
 
 async def test_the_lock_pauses_a_conversation_and_unlocking_brings_it_back(tmp_path, models, voice):
@@ -246,4 +247,46 @@ async def test_a_setting_changed_mid_dictation_doesnt_end_it(tmp_path, models, v
     assert states(seen)[-1] == "listening" and "idle" not in states(seen)[states(seen).index("listening"):]
     await v.listen(None, dictate=True)
     await until(lambda: states(seen)[-1] == "idle")
+    await v.stop()
+
+
+# ── Decision 0028 ────────────────────────────────────────────────────────────
+
+
+def test_mei_waits_longer_when_the_sentence_sounds_unfinished():
+    ep = Endpointing(end_silence_s=0.8)
+    assert ep.pause_for("what's the weather like tomorrow") == 0.8
+    for open_ended in ("search for shoes and", "I want um", "hey", "send it to the"):
+        assert unfinished(open_ended) and ep.pause_for(open_ended) == 2.5, open_ended
+    assert Endpointing(end_silence_s=4.0).pause_for("and") == 4.0  # a longer setting is never shortened
+
+
+async def test_done_dictating_puts_the_last_words_in_the_box_not_to_mei(tmp_path, models, voice):
+    """Pressing the mic again while the words are still being heard: they are dictation too. (They
+    used to go to Mei as a request, and so showed up twice.)"""
+    speech = await say(voice, 0.3, "Hey, are you there?")
+    h = Harness(tmp_path, script=[{"text": "I'm here."}])
+    v, seen = controller(h, models, tmp_path, np.concatenate([speech, np.zeros(16000 * 6, np.float32)]), realtime=True)
+    await v.apply(VoiceSettings(enabled=True, end_pause_ms=3000))
+    await v.wait_ready()
+    await v.listen(None, dictate=True)
+    await asyncio.sleep(len(speech) / 16000 + 0.2)
+    await v.listen(None, dictate=True)  # the mic again (Enter), before the pause ends
+    await until(lambda: finals(seen) and states(seen)[-1] == "idle", 10)
+    assert [f["dictation"] for f in finals(seen)] == [True] and "are you there" in finals(seen)[0]["text"].lower()
+    assert h.store.read("SELECT id FROM tasks") == []  # nothing went to Mei
+    await v.stop()
+
+
+async def test_a_drop_during_a_conversation_goes_with_the_next_request(tmp_path, models, voice):
+    h = Harness(tmp_path, script=[{"text": "It's a list of invoices."}])
+    v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "What is in this file?", 3.0))
+    await v.apply(VoiceSettings(enabled=True, end_pause_ms=500))
+    await v.wait_ready()
+    v.attach(Attachment(kind="files", paths=[str(tmp_path / "invoices.txt")]))
+    await v.listen(None, by="button")
+    await until(lambda: h.store.read("SELECT id FROM tasks"), 20)
+    message = h.store.read_one("SELECT metadata FROM messages WHERE role = 'user'")
+    assert json.loads(message["metadata"])["attachment"]["paths"] == [str(tmp_path / "invoices.txt")]
+    assert v._attachment is None  # it went with that request, not the next
     await v.stop()
