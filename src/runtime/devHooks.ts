@@ -279,6 +279,7 @@ export class DevHooks {
             clicks: this._clicks.slice(-5),
             shown: visibleText(this._popup.contentActor),
             input: this._popup.inputText,
+            inputSizes: this._popup.inputSizes,
             controller: this._runtime.debugState(),
             drop: this._dropZone?.debugState ?? null,
             // Every notification in the tray: Mei's own, and those the runtime sent while detached.

@@ -79,7 +79,7 @@ export class Composer {
             accessible_name: 'Message input',
         });
         this._configureText(this.entry.clutter_text);
-        // Measured while hidden (the popup closed), the input's height is wrong: measure again when shown.
+        // Measured while hidden (the popup closed), the height is wrong: measure again when shown.
         this.entry.connect('notify::mapped', () => {
             if (this.entry.mapped) this.queueLayout(this._voiceMode === 'dictating' ? 'bottom' : 'cursor');
         });
@@ -129,6 +129,14 @@ export class Composer {
             return Clutter.EVENT_STOP;
         });
         this.queueLayout();
+    }
+
+    /** The box's sizes as laid out, against what its text needs (for the dev hooks' tests). */
+    debugSizes(): Record<string, number> {
+        const width = this._width();
+        const [, natural] = this.entry.clutter_text.get_preferred_height(Math.max(1, width));
+        const needed = Math.min(Math.max(MIN_HEIGHT, Math.ceil(natural)), this._maxHeight);
+        return { width, entry: this.entry.get_height(), scroll: this._scroll.get_allocation_box().get_height(), needed };
     }
 
     /** The box, or during a conversation (no box) the voice button: Enter then ends it. */
@@ -285,13 +293,21 @@ export class Composer {
 
     private _layout(scrollTarget: InputScrollTarget): void {
         if (!this.entry.mapped) return; // hidden: measured again when shown (notify::mapped)
-        const width = Math.max(1, Math.floor(this.entry.get_width()));
+        const width = this._width();
         const [, natural] = this.entry.clutter_text.get_preferred_height(width);
         const contentHeight = Math.max(MIN_HEIGHT, Math.ceil(natural));
         this.entry.set_height(contentHeight);
         this._scroll.set_height(Math.min(contentHeight, this._maxHeight));
         if (scrollTarget === 'top') this._scroll.get_vadjustment().set_value(0);
         else if (scrollTarget !== 'none') this._queueScroll(scrollTarget);
+    }
+
+    /** The width the box is laid out at. Not get_width(): after the text changes, before the next
+     * layout, that is the text's preferred width (the whole text on one line), and the box was sized
+     * for one line until clicked. */
+    private _width(): number {
+        const allocated = Math.floor(this.entry.get_allocation_box().get_width());
+        return Math.max(1, allocated > 0 ? allocated : Math.floor(this.entry.get_width()));
     }
 
     private _queueScroll(target: 'cursor' | 'bottom'): void {

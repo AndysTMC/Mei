@@ -634,6 +634,28 @@ async def main() -> int:
             h.check("the_second_enter_sends_once_and_the_box_stays_empty",
                     len(mine) == 1 and "eggs" in mine[0].lower() and st["input"] == "",
                     {"sent": mine, "box_after": st["input"]})
+
+            # 14. The box keeps its size: text in it, voice on and off again, several times (it used to
+            #     shrink to nearly nothing until clicked).
+            await h.hook("Popup", "new")
+            await h.hook("Popup", "open")
+            await asyncio.sleep(1.0)
+            await h._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "TypeText", "s",
+                          ["Hey, what's up? I want to search for some products on Amazon and also some products on Flipkart"])
+            await asyncio.sleep(1.0)
+            sizes = []
+            for _ in range(5):
+                await h._call(*named, ["Talk with Mei"])
+                await h.until(lambda s: s["controller"]["voice"]["state"] == "listening", 20, "a conversation to start")
+                await asyncio.sleep(0.8)
+                await h._call(*named, ["Stop talking with Mei"])
+                await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 20, "the conversation to end")
+                for wait in (0.1, 0.5, 1.0):
+                    await asyncio.sleep(wait)
+                    sizes.append((await h.state())["inputSizes"])
+            await h.hook("Screenshot", os.path.join(OUT, "input-after-voice.png"))
+            h.check("the_box_keeps_its_size_after_voice", all(abs(z["scroll"] - z["needed"]) <= 2 for z in sizes[2::3])
+                    and sizes[-1]["needed"] > 30, {"sizes": sizes})
     except AssertionError as e:
         h.results["error"] = str(e)
     finally:

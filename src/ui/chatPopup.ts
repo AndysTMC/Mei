@@ -266,6 +266,11 @@ export class ChatPopup {
             transcript: talking && view.state !== 'speaking' ? view.transcript : '' });
     }
 
+    /** The message box's sizes (for the dev hooks' tests). */
+    get inputSizes(): Record<string, number> {
+        return this._composer.debugSizes();
+    }
+
     /** What's in the message box now (for the dev hooks' tests). */
     get inputText(): string {
         return this._composer.entry.get_text();
