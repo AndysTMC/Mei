@@ -258,7 +258,7 @@ class TaskLoop:
                                                      proposal.params_hash):
             return self._refuse_repeat(task, batch, action, fields)
         _revision, config = repo.get_config(store)
-        d = decide.judge(store, env, task, proposal, config.approvals.preset)
+        d = decide.judge(store, env, task, proposal, config.approvals.preset, config.computer)
         fields |= {"decision": d.decision, "decision_reason": d.reason, "policy_version": d.version,
                    "grant_id": d.grant_id}
         with store.tx() as tx:
@@ -302,7 +302,7 @@ class TaskLoop:
         if [msgspec.to_builtins(s) for s in proposal.subjects] == json.loads(action["resources"]):
             return True
         _revision, config = repo.get_config(self.d.store)
-        d = decide.judge(self.d.store, self.d.env, task, proposal, config.approvals.preset)
+        d = decide.judge(self.d.store, self.d.env, task, proposal, config.approvals.preset, config.computer)
         taskd = repo.task_dict(task)
         with self.d.store.tx() as tx:
             fields = {**_judged_fields(proposal), "decision": d.decision, "decision_reason": d.reason}

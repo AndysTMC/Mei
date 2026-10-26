@@ -56,6 +56,14 @@ class AudioSink(Protocol):
     async def stop(self) -> None: ...
 
 
+class Denoiser(Protocol):
+    """Noise out of microphone audio, as it streams. It may hold back a few milliseconds, so what
+    comes out of a chunk can be shorter (or empty); `reset` starts a new stream."""
+
+    def process(self, chunk: np.ndarray) -> np.ndarray: ...
+    def reset(self) -> None: ...
+
+
 class Vad(Protocol):
     """Voice activity: is someone speaking in this chunk, and for how long have they been?"""
 

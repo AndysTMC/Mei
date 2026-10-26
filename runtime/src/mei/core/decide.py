@@ -16,6 +16,7 @@ from pathlib import Path
 from mei.capabilities.base import WORKSPACE, Capability, CapabilityError, Effects, Env, Resource
 from mei.capabilities.registry import InvalidArguments, Registry
 from mei.policy import provenance
+from mei.protocol import ComputerSettings
 from mei.policy.engine import PRESETS, Decision, Facts, Grant, GrantRule, Subject, evaluate, rules_for
 from mei.store import agent
 from mei.store.db import Store
@@ -38,6 +39,7 @@ _REASONS = {
     "needs_approval": "this changes something you didn't name",
     "asks_first": "your approval setting asks before Mei changes things",
     "after_reading": "Mei read a document in this task, and you didn't name this exactly",
+    "sees_screen": "Mei would see what's on your screen",
 }
 
 
@@ -138,12 +140,21 @@ def _says(text: str, name: str) -> bool:
 _WORD = re.compile(r"\w+(?:[.-]\w+)*")  # "org.gnome.Nautilus" and "24-hour" are one word; "Files." is "files"
 
 
-def judge(store: Store, env: Env, task, proposal: Proposal, preset_name: str) -> Decision:
+def judge(store: Store, env: Env, task, proposal: Proposal, preset_name: str,
+          computer: ComputerSettings | None = None) -> Decision:
     grants = [Grant(g["id"], g["capability"], tuple(GrantRule(**r) for r in json.loads(g["resources"])), g["task_id"])
               for g in agent.active_grants(store, task["id"])]
     facts = Facts(proposal.cap.name, proposal.cap.meta, proposal.effects, proposal.subjects, bool(task["tainted"]),
-                  always_ask=proposal.cap.always_ask)
+                  always_ask=proposal.cap.always_ask,
+                  screen_ok=bool(computer and computer.see_without_asking) or spoken(store, task["id"]))
     return evaluate(facts, PRESETS.get(preset_name, PRESETS["balanced"]), grants, env.rules, env.home)
+
+
+def spoken(store: Store, task_id: str) -> bool:
+    """Was this task's request said out loud (Live)?"""
+    row = store.read_one("SELECT m.metadata FROM tasks t JOIN messages m ON m.id = t.input_message_id WHERE t.id = ?",
+                         (task_id,))
+    return row is not None and json.loads(row["metadata"] or "{}").get("source") == "voice"
 
 
 def repeated(store: Store, task_id: str, action_id: str, capability: str, params_hash: str) -> bool:

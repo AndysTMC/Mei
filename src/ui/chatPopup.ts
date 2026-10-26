@@ -60,6 +60,8 @@ export class ChatPopup {
     onOpenStateChanged: ((isOpen: boolean) => void) | null = null;
     /** Called when the user asks to regenerate the reply at this index. */
     onReload: ((index: number) => void) | null = null;
+    /** A reply's Read aloud: read it out, or stop. */
+    onReadAloud: ((text: string) => void) | null = null;
     /** Called when the user starts a new chat. */
     onNewChat: (() => void) | null = null;
     /** Called when the user asks for the history list. */
@@ -104,6 +106,7 @@ export class ChatPopup {
     private readonly _history: HistoryPanel;
     private readonly _themeSignal: number;
     private _expanded = false;
+    private _voiceReady = false;
     private _loading = false;
     private _showingHistory = false;
     private _focusId = 0;
@@ -142,6 +145,8 @@ export class ChatPopup {
             animateHeight: change => this._animateHeight(change),
             isDark: () => this._theme.isDark,
             onReload: index => this.onReload?.(index),
+            canReadAloud: () => this._voiceReady,
+            onReadAloud: text => this.onReadAloud?.(text),
         });
         this._composer = new Composer(this._sources, Math.round(screenHeight * 0.20), {
             onSend: text => this.onSend?.(text),
@@ -262,6 +267,7 @@ export class ChatPopup {
         const talking = ['listening', 'thinking', 'speaking', 'paused'].includes(view.state) && !view.dictating;
         const dictating = view.dictating && ['listening', 'paused'].includes(view.state);
         const mode = dictating ? 'dictating' : talking ? 'talking' : 'idle';
+        this._voiceReady = !['off', 'unavailable', 'starting'].includes(view.state);
         this._composer.setVoice({ available: view.state !== 'off', mode, status: voiceLine(view).status,
             transcript: talking && view.state !== 'speaking' ? view.transcript : '' });
     }
@@ -277,8 +283,8 @@ export class ChatPopup {
     }
 
     /** Dictated words so far (`final`: an utterance done), into the message box. */
-    dictate(text: string, final: boolean): void {
-        this._composer.dictate(text, final);
+    dictate(text: string, final: boolean, raw = text): void {
+        this._composer.dictate(text, final, raw);
     }
 
     /** Show what the next message will carry ("About: …"), or nothing. */

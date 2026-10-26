@@ -29,8 +29,8 @@ const SETTLE_MS = 600;
 export function voiceBasics(window: Gtk.Window, settings: RuntimeSettings): { groups: Adw.PreferencesGroup[]; destroy(): void } {
     const voice = new Adw.PreferencesGroup({ title: 'Voice' });
     const enabled = new Adw.SwitchRow({ title: 'Talk to Mei',
-        subtitle: 'Press the voice button and talk; Mei answers out loud and keeps listening until you close it. With ' +
-            'Super+Alt+Space, it stops after 30 seconds of quiet. The mic button types what you say until you press it again.' });
+        subtitle: 'Press Live and talk; Mei answers out loud and keeps listening until you end it. Started with ' +
+            'Super+Alt+Space, Live ends after 30 seconds of quiet. The mic button types what you say until you press it again.' });
     const status = new Adw.ActionRow({ title: 'Status', subtitle: 'Checking…' });
     voice.add(enabled);
     voice.add(status);
@@ -179,7 +179,7 @@ export class VoicePage {
         // 0.8 s by default, as voice assistants do; longer by itself after "and…", "um…" (decision 0028).
         const pause = numberRow(settings, 'Pause before Mei answers',
             'Seconds of quiet before what you said is sent. Mei waits longer when you stop mid-sentence. '
-            + 'Press the shortcut or the voice button again to send at once.',
+            + 'Press the shortcut or Live again to send at once.',
             [0.3, 10.0, 0.1, 1], () => v().end_pause_ms / 1000, s => settings.setVoice('end_pause_ms', Math.round(s * 1000)));
         const wake = toggle(settings, 'Listen for “Hey Mei”',
             'The microphone stays on. Slower to react than the shortcut, and it can wake on similar words.', 'wake_word');
@@ -198,6 +198,21 @@ export class VoicePage {
             this._parts.push(r);
         }
         prefs.add(listening);
+
+        // Names the recognizer has never heard, put back where something close was (decision 0029).
+        const words = new Adw.PreferencesGroup({ title: 'Words Mei listens for',
+            description: 'Names Mei might mishear. Where it hears something close, it writes the name instead.' });
+        const yours = new Adw.EntryRow({ title: 'Your words, separated by commas', show_apply_button: true });
+        const known = new Adw.ActionRow({ title: 'Also listens for', subtitle: 'Checking…', subtitle_lines: 3 });
+        const showYours = () => yours.set_text(v().boost_words.join(', '));
+        yours.connect('apply', () => settings.setVoice('boost_words',
+            [...new Set(yours.get_text().split(',').map(w => w.trim()).filter(Boolean))].slice(0, 200)));
+        words.add(yours);
+        words.add(known);
+        prefs.add(words);
+        showYours();
+        const wordsSignal = settings.connect('changed::voice', showYours);
+        this._parts.push({ destroy: () => settings.disconnect(wordsSignal) });
         const showDependent = () => echo.row.set_visible(v().barge_in);
         const dependentSignal = settings.connect('changed::voice', showDependent);
         this._parts.push({ destroy: () => settings.disconnect(dependentSignal) });
@@ -236,6 +251,7 @@ export class VoicePage {
         this._parts.push({ destroy: () => settings.disconnect(gpuSignal) });
         showGpu();
         settings.voiceModels().then(reply => {
+            known.set_subtitle(boostText(reply.boost));
             voices = reply.voices;
             hasGpu = reply.gpu;
             who.render();
@@ -330,4 +346,17 @@ function numberRow(settings: RuntimeSettings, title: string, subtitle: string,
             settings.disconnect(id);
         },
     };
+}
+
+
+/** "Names from your chats: Mukesh, Anjali · 42 app names" */
+export function boostText(boost: { apps: string[]; learned: string[] } | undefined): string {
+    if (!boost) return 'Nothing yet';
+    const parts = [];
+    if (boost.learned.length) {
+        const shown = boost.learned.slice(0, 8).join(', ');
+        parts.push(`Names from your chats and memories: ${shown}${boost.learned.length > 8 ? '…' : ''}`);
+    }
+    if (boost.apps.length) parts.push(`${boost.apps.length} app ${boost.apps.length === 1 ? 'name' : 'names'}`);
+    return parts.join(' · ') || 'Nothing yet';
 }

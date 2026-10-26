@@ -1,7 +1,7 @@
 /**
  * The scrolling list of messages. Compact mode shows the latest message (or a card waiting on the
  * person) alone; expanded mode shows the whole conversation, with the agent's cards in place, and
- * Copy, ↻ and an info panel under each reply. While Mei answers, a
+ * Copy, Read aloud, ↻ and an info panel under each reply. While Mei answers, a
  * loading bubble sits at the end: a spinner in compact mode; in expanded mode the streamed answer,
  * with any thinking shown above it and folded away once the answer starts.
  *
@@ -42,6 +42,10 @@ export interface MessageListHost {
     animateHeight(change: () => void): void;
     isDark(): boolean;
     onReload(index: number): void;
+    /** Voice is set up: replies offer Read aloud. */
+    canReadAloud(): boolean;
+    /** Read a reply out, or stop reading. */
+    onReadAloud(text: string): void;
 }
 
 const STREAM_RENDER_MS = 50;
@@ -228,6 +232,12 @@ export class MessageList {
         });
         bar.add_child(copy);
         if (role !== 'assistant') return bar;
+
+        if (this._host.canReadAloud()) {
+            const read = footerButton('audio-speakers-symbolic', 'Read aloud');
+            read.connect('clicked', () => this._host.onReadAloud(text));
+            bar.add_child(read);
+        }
 
         if (resumable) {
             const reload = footerButton('view-refresh-symbolic', 'Regenerate');

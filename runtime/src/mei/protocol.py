@@ -258,10 +258,17 @@ class VoiceSettings(msgspec.Struct, kw_only=True):
     end_pause_ms: Annotated[int, msgspec.Meta(ge=300, le=10_000)] = 800
     mic: str = ""  # a PipeWire node name; "" follows the system default
     output: str = ""
+    # Words Mei listens for besides app names and names it learned (decision 0029): put back where
+    # the recognizer heard something close.
+    boost_words: Annotated[list[Annotated[str, msgspec.Meta(max_length=60)]], msgspec.Meta(max_length=200)] = []
 
 
 class VoiceDownloadArgs(msgspec.Struct):
     models: list[str]  # ids from VoiceModels (VoiceDownload and VoiceRemove)
+
+
+class VoiceReadAloudArgs(msgspec.Struct):
+    text: Annotated[str, msgspec.Meta(max_length=100_000)]  # a reply, read out as it is spoken (markdown as words)
 
 
 class VoiceAttachArgs(msgspec.Struct):
@@ -285,6 +292,9 @@ class VoiceListenArgs(msgspec.Struct):
 class ComputerSettings(msgspec.Struct, kw_only=True):
     # Computer use (§10, decision 0022). Off until the person allows it in setup or Settings.
     enabled: bool = False
+    # Mei asks before it looks at the screen when asked in chat; in Live it looks (decision 0029).
+    # On, it looks without asking in chat too.
+    see_without_asking: bool = False
 
 
 class Config(msgspec.Struct, kw_only=True):

@@ -220,6 +220,15 @@ export class RuntimeChatController {
         this._listen(true, 'button');
     }
 
+    /** A reply's Read aloud: Mei reads it out; pressed while Mei speaks, it stops. */
+    readAloud(text: string): void {
+        if (this._voice.state === 'speaking') {
+            this.voiceStop();
+            return;
+        }
+        this._client.call('VoiceReadAloud', { text }).catch((e: RuntimeError) => this._showFailure(e));
+    }
+
     voiceStop(): void {
         this._client.call('VoiceStop', {}).catch((e: RuntimeError) => this._showFailure(e));
     }
@@ -475,7 +484,10 @@ export class RuntimeChatController {
     private _onVoice(event: Envelope): void {
         const p = event.payload;
         if (event.type === 'voice.partial') {
-            if (p.dictation) this._popup.dictate(String(p.text ?? ''), Boolean(p.final));  // into the message box
+            if (p.dictation) {  // into the message box; the words as heard, before the tidy-up, go along
+                const text = String(p.text ?? '');
+                this._popup.dictate(text, Boolean(p.final), typeof p.raw === 'string' ? p.raw : text);
+            }
             else this._voice = { ...this._voice, transcript: String(p.text ?? '') };
         } else {
             const state = p.state as VoiceStateName;

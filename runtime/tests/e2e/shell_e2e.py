@@ -645,10 +645,10 @@ async def main() -> int:
             await asyncio.sleep(1.0)
             sizes = []
             for _ in range(5):
-                await h._call(*named, ["Talk with Mei"])
+                await h._call(*named, ["Live"])
                 await h.until(lambda s: s["controller"]["voice"]["state"] == "listening", 20, "a conversation to start")
                 await asyncio.sleep(0.8)
-                await h._call(*named, ["Stop talking with Mei"])
+                await h._call(*named, ["End Live"])
                 await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 20, "the conversation to end")
                 for wait in (0.1, 0.5, 1.0):
                     await asyncio.sleep(wait)

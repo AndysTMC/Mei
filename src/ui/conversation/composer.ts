@@ -54,6 +54,7 @@ export class Composer {
     readonly askButton: St.Button;
     readonly micButton: St.Button;
     readonly voiceButton: St.Button;
+    readonly restoreButton: St.Button;
     private readonly _scroll: St.ScrollView;
     private readonly _voiceLine = new St.BoxLayout({ vertical: true, x_expand: true, visible: false, style_class: 'mei-voice-line' });
     private readonly _voiceStatus = new St.Label({ style_class: 'mei-voice-status' });
@@ -61,6 +62,10 @@ export class Composer {
     private _voiceMode: ComposerVoice['mode'] = 'idle';
     /** What was typed before dictation began; dictated words follow it. */
     private _dictationBase: string | null = null;
+    /** The same, with the words as they were heard, before the tidy-up (decision 0029). */
+    private _rawBase: string | null = null;
+    /** The box as dictation left it, tidied and as heard: Restore puts back the second. */
+    private _tidied: { shown: string; raw: string } | null = null;
     private _loading = false;
     private _expanded = false;
     private _layoutId = 0;
@@ -112,10 +117,24 @@ export class Composer {
             if (this._voiceMode !== 'dictating') this._dictationBase = null;
             this._actions.onDictate();
         });
-        this.voiceButton = voiceControl(new St.Icon({ gicon: voiceIcon, icon_size: 14 }), 'Talk with Mei');
+        this.voiceButton = voiceControl(new St.Icon({ gicon: voiceIcon, icon_size: 14 }), 'Live');
         this.voiceButton.connect('clicked', () => this._actions.onVoice());
+        // After dictation, if the words were tidied: put them back as heard.
+        this.restoreButton = voiceControl(new St.Icon({ icon_name: 'edit-undo-symbolic', icon_size: 14 }),
+            'Restore the words as heard');
+        this.restoreButton.visible = false;
+        this.restoreButton.connect('clicked', () => {
+            const raw = this._tidied?.raw;
+            this._tidied = null;
+            this.restoreButton.visible = false;
+            if (raw === undefined) return;
+            this.entry.set_text(raw);
+            this.entry.clutter_text.set_cursor_position(-1);
+            this.focus();
+        });
         const buttons = new St.BoxLayout({ x_expand: true, style_class: 'mei-composer-buttons' });
         buttons.add_child(this.askButton);
+        buttons.add_child(this.restoreButton);
         buttons.add_child(this.micButton);
         buttons.add_child(this.voiceButton);
         this.actor.add_child(buttons);
@@ -175,20 +194,28 @@ export class Composer {
     setVoice(v: ComposerVoice): void {
         const dictating = v.mode === 'dictating';
         const talking = v.mode === 'talking';
-        if (this._voiceMode === 'dictating' && !dictating) this._dictationBase = null;
+        if (this._voiceMode === 'dictating' && !dictating) this._dictationBase = this._rawBase = null;
         const startedTalking = talking && this._voiceMode !== 'talking';
         const startedDictating = dictating && this._voiceMode !== 'dictating';
+        const stoppedDictating = !dictating && this._voiceMode === 'dictating';
+        if (startedDictating || talking) {
+            this._tidied = null;
+            this.restoreButton.visible = false;
+        }
         this._voiceMode = v.mode;
         // While the mic writes, the box shows what's heard and can't be edited (that would fight the
         // words arriving); when the mic stops, it's yours to edit and send.
         this.entry.clutter_text.set_editable(!dictating);
+        if (startedDictating) this.stopBlink();
+        else if (stoppedDictating && this.entry.clutter_text.has_key_focus()) this._startBlink();
+        if (stoppedDictating) this._offerRaw();
         if (dictating) this.entry.add_style_class_name('dictating');
         else this.entry.remove_style_class_name('dictating');
         this.askButton.visible = !dictating && !talking;
         this.micButton.visible = v.available && !talking;
         this.voiceButton.visible = v.available && !dictating;
         setActive(this.micButton, dictating, dictating ? 'Done dictating' : 'Dictate');
-        setActive(this.voiceButton, talking, talking ? 'Stop talking with Mei' : 'Talk with Mei');
+        setActive(this.voiceButton, talking, talking ? 'End Live' : 'Live');
         this._scroll.visible = !talking;
         this._voiceLine.visible = talking;
         this._voiceStatus.text = v.status;
@@ -202,16 +229,25 @@ export class Composer {
 
     /** Dictated words so far (`final`: an utterance done): after what was already typed and
      * dictated, the cursor at the end. */
-    dictate(text: string, final: boolean): void {
-        if (this._dictationBase === null) {
+    dictate(text: string, final: boolean, raw = text): void {
+        if (this._dictationBase === null || this._rawBase === null) {
             const typed = this.entry.get_text().trimEnd();
-            this._dictationBase = typed ? `${typed} ` : '';
+            this._dictationBase = this._rawBase = typed ? `${typed} ` : '';
         }
         const { shown, base } = dictated(this._dictationBase, text, final);
+        const heard = dictated(this._rawBase, final ? raw : text, final);
         this._dictationBase = base;
+        this._rawBase = heard.base;
+        this._tidied = { shown, raw: heard.shown };
         this.entry.set_text(shown);
         this.entry.clutter_text.set_cursor_position(-1);
         this.queueLayout('bottom');  // the latest words in view
+    }
+
+    /** Dictation ended: offer the words as heard, if the tidy-up changed them. */
+    private _offerRaw(): void {
+        const t = this._tidied;
+        this.restoreButton.visible = t !== null && t.raw.trim() !== t.shown.trim() && this.entry.get_text() === t.shown;
     }
 
     stopBlink(): void {
@@ -242,6 +278,8 @@ export class Composer {
         text.connect('key-focus-in', () => this._startBlink());
         text.connect('key-focus-out', () => this.stopBlink());
         text.connect('text-changed', () => {
+            // Edited (or sent) after dictation: the words as heard no longer fit what's there.
+            if (this.restoreButton.visible && text.get_text() !== this._tidied?.shown) this.restoreButton.visible = false;
             this._startBlink(); // typing restarts the blink with the cursor shown
             this.queueLayout('cursor');
         });
@@ -282,6 +320,7 @@ export class Composer {
     }
 
     private _startBlink(): void {
+        if (this._voiceMode === 'dictating') return; // the words arrive by themselves: no caret blinking at them
         this._sources.remove(this._blinkId);
         const text = this.entry.clutter_text;
         text.cursor_visible = true;

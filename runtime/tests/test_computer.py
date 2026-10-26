@@ -198,7 +198,8 @@ class Bridge:
         return 100
 
 
-def computer_harness(tmp_path, script, **kw) -> tuple[Harness, FakeDesktop]:
+def computer_harness(tmp_path, script, see_without_asking=True, **kw) -> tuple[Harness, FakeDesktop]:
+    """Looking needs no asking here unless `see_without_asking` is False (the default people get)."""
     h = Harness(tmp_path, script=script, **kw)
     desktop = FakeDesktop([FIELD | {"states": []}, SECRET | {"states": []}, UNKNOWN_BUTTON | {"states": []}])
     h.env.desktop = desktop
@@ -206,7 +207,7 @@ def computer_harness(tmp_path, script, **kw) -> tuple[Harness, FakeDesktop]:
     h.env.bridge = lambda: bridge
     config = h.engine.get_config()
     doc = config["config"] if isinstance(config.get("config"), dict) else msgspec.to_builtins(config["config"])
-    doc["computer"] = msgspec.to_builtins(ComputerSettings(enabled=True))
+    doc["computer"] = msgspec.to_builtins(ComputerSettings(enabled=True, see_without_asking=see_without_asking))
     h.engine.update_config(msgspec.convert({"revision": config["revision"], "config": doc}, UpdateConfigArgs))
     return h, desktop
 
@@ -488,3 +489,28 @@ print(said)
     src = str(Path(__file__).resolve().parents[1] / "src")
     out = subprocess.run(["/usr/bin/python3", "-c", script, src], capture_output=True, text=True, timeout=30)
     assert out.stdout.strip() == "['lease: the core stopped renewing control']", out.stderr
+
+
+# ── Seeing the screen (decision 0029) ───────────────────────────────────────
+
+
+async def test_asked_in_chat_mei_asks_before_it_looks_and_an_always_grant_holds(tmp_path):
+    script = [turn(call("desktop_observe")), {"text": "It's a login form."}]
+    h, desktop = computer_harness(tmp_path, script * 2, see_without_asking=False)
+    r = h.submit("what's on my screen?")
+    assert await h.until(r["task_id"]) == S.WAITING_APPROVAL
+    approval = h.approval(r["task_id"])
+    assert "Mei would see what's on your screen" in str(approval["card"])
+    h.approve(r["task_id"], scope="always")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    r = h.submit("and now?")
+    assert await h.until(r["task_id"]) == S.COMPLETED  # always: no second card
+
+
+async def test_asked_in_live_mei_looks_without_asking(tmp_path):
+    from mei.protocol import SubmitInputArgs
+    h, desktop = computer_harness(tmp_path, [turn(call("desktop_observe")), {"text": "A login form."}],
+                                  see_without_asking=False)
+    r = h.engine.submit_input(SubmitInputArgs(command_id="spoken-1", text="what's on my screen?", source="voice"))
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    assert h.actions(r["task_id"])[0]["execution"] == E.SUCCEEDED

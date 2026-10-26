@@ -34,6 +34,8 @@ class Load(Command, tag="load"):
     # talking over Mei works with speakers too (decision 0024). Without it, only with earphones.
     echo_cancel: bool = True
     end_silence_s: float = 0.5
+    turn: str = "words"  # the turn detector (build.TURN)
+    denoise: str = "gtcrn"  # noise suppression while listening (build.DENOISE); "" none
     quiet_s: float = 30.0  # listening the wake word started, or a Listen without no_speech_s, waits this long
     mic: str = ""  # PipeWire node; "" = the default
     output: str = ""
@@ -69,6 +71,11 @@ class End(Command, tag="end"):
 
 class StopSpeaking(Command, tag="stop_speaking"):
     pass
+
+
+class Cue(Command, tag="cue"):
+    """Outside any reply, while Mei works on a spoken request: the soft tone (""), or a few words."""
+    text: str = ""
 
 
 class Arm(Command, tag="arm"):

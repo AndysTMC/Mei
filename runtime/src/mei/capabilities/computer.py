@@ -114,6 +114,9 @@ class DesktopObserve(Capability):
     def available(self, env: Env) -> Availability:
         return _available(env)
 
+    def resources(self, p: ObserveParams, env: Env) -> list[Resource]:
+        return [Resource(kind="screen", value="screen", access="read", role="screen", aliases=("screen",))]
+
     def describe(self, p: ObserveParams, env: Env) -> str:
         what = p.window or "the window in front"
         return f"Look at {what}" + (" and take a picture of it" if p.picture else "")

@@ -30,7 +30,10 @@ export function computerBasics(window: Gtk.Window, settings: RuntimeSettings, ca
     const screen = new Adw.ActionRow({ title: 'Screen', subtitle: 'Checking…' });
     const allow = new Gtk.Button({ label: 'Allow…', valign: Gtk.Align.CENTER, visible: false });
     screen.add_suffix(allow);
-    for (const row of [enabled, accessibility, screen]) group.add(row);
+    // Asked in chat, Mei asks before it looks; in Live it looks (decision 0029).
+    const look = new Adw.SwitchRow({ title: 'Look at the screen without asking',
+        subtitle: 'When you ask in a chat, Mei asks before it looks at your screen. In Live, it looks when you ask.' });
+    for (const row of [enabled, look, accessibility, screen]) group.add(row);
 
     let updating = false;
     const fail = (e: unknown) => window instanceof Adw.PreferencesWindow
@@ -54,11 +57,16 @@ export function computerBasics(window: Gtk.Window, settings: RuntimeSettings, ca
     const render = () => {
         updating = true;
         enabled.set_active(settings.computerEnabled);
+        look.set_active(settings.seeWithoutAsking);
+        look.set_sensitive(settings.computerEnabled);
         updating = false;
     };
 
     enabled.connect('notify::active', () => {
         if (!updating) settings.setComputerEnabled(enabled.get_active());
+    });
+    look.connect('notify::active', () => {
+        if (!updating) settings.setSeeWithoutAsking(look.get_active());
     });
     // A system setting, changed only when the person presses this.
     turnOn.connect('clicked', () => {

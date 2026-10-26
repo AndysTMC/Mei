@@ -156,11 +156,10 @@ async def test_models_download_with_progress_then_voice_starts(tmp_path, monkeyp
     import hashlib
     from dataclasses import replace
     import httpx
-    from mei.voice import controller as voice_controller
-    from mei.voice.models import SILERO
+    from mei.voice.models import CATALOG, SILERO
     body = b"silero bytes"
     fake = replace(SILERO, sha256=hashlib.sha256(body).hexdigest(), size=len(body))
-    monkeypatch.setitem(voice_controller.CATALOG, "silero", fake)
+    monkeypatch.setitem(CATALOG, "silero", fake)
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=body)))
     h = Harness(tmp_path)
     v = VoiceController(h.engine, lambda *_: None, lambda *_: WORKER, tmp_path / "models", client=client,

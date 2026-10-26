@@ -73,6 +73,7 @@ export interface VoiceSettingsDoc {
     end_pause_ms: number; // the pause that sends what was said (decision 0026)
     mic: string; // a PipeWire node name; '' = the system default
     output: string;
+    boost_words: string[]; // words Mei listens for, besides app names and names it learned (decision 0029)
     [field: string]: unknown;
 }
 
@@ -113,6 +114,8 @@ export interface VoiceModelsReply {
     voices: Record<TtsChoice, VoiceOption[]>;
     /** An NVIDIA GPU is present. */
     gpu: boolean;
+    /** The words Mei listens for, by where they come from (decision 0029). */
+    boost: { apps: string[]; learned: string[]; yours: string[] };
 }
 
 export interface MicLevelReply {
@@ -159,7 +162,7 @@ export type Execution =
 export type Provenance = 'user' | 'untrusted' | 'model';
 
 export interface ActionResource {
-    kind: 'path' | 'app' | 'setting';
+    kind: 'path' | 'app' | 'setting' | 'memory' | 'screen';
     value: string;
     access: 'read' | 'write';
     role: string;
@@ -372,7 +375,8 @@ export interface ConfigDoc {
     approvals?: { preset: ApprovalPreset; [field: string]: unknown };
     memory?: { enabled: boolean; auto_save: boolean; [field: string]: unknown };
     voice?: VoiceSettingsDoc;
-    computer?: { enabled: boolean; [field: string]: unknown };
+    // see_without_asking: look at the screen without asking in chat too (in Live it never asks; decision 0029)
+    computer?: { enabled: boolean; see_without_asking?: boolean; [field: string]: unknown };
     /** Fields a newer runtime added; kept as they are when this client writes the config back. */
     [field: string]: unknown;
 }

@@ -24,9 +24,9 @@ from pathlib import Path
 import msgspec
 import numpy as np
 
-from . import local, pipeline, remote, wire
+from . import build, local, pipeline, remote, wire
 from .gpu_speaker import GpuKokoro
-from .parts import CHUNK, SAMPLE_RATE, AudioSink, AudioSource, VoiceError, level_db
+from .parts import CHUNK, SAMPLE_RATE, AudioSink, AudioSource, Speech, VoiceError, level_db
 from .pipewire import EchoCancelledSource, PipeWireSink, PipeWireSource, echo_canceller_missing, output_into_ears
 from .recorded import CaptureSink, RecordedSource
 
@@ -87,6 +87,9 @@ class Worker:
             case wire.End():
                 if self._ready() and not self._suspended:
                     self._speaker.end()
+            case wire.Cue(text=text):
+                if self._ready() and not self._suspended and not self._speaker.speaking:
+                    asyncio.ensure_future(self._cue(text))
             case wire.StopSpeaking():
                 if await self._speaker_stop():
                     self.emit(wire.Spoken(stopped=True))
@@ -141,19 +144,10 @@ class Worker:
         await self._close_tts()
         try:
             self._vad = local.SileroVad(root)
-            stt = local.KrokoStt(root) if cfg.stt == "kroko" or local.have_kroko(root) else None
-            if cfg.stt == "core":
-                stt = remote.CoreStt(self._link, local=stt)
-            if cfg.tts == "kokoro":
-                tts, device, note = local.kokoro(root, cfg.speaker, cfg.speed, "cpu")
-                if cfg.gpu_engine and cfg.device != "cpu":  # the GPU when awake, this CPU voice meanwhile
-                    load = {"models": cfg.models, "speaker": cfg.speaker, "speed": cfg.speed}
-                    tts, device = GpuKokoro(tts, Path(cfg.gpu_engine), load, cfg.gpu_idle_s, self._note_gpu), "gpu"
-            elif cfg.tts == "core":  # Piper says what the cloud can't
-                fallback = local.piper(root, cfg.voice, cfg.speed) if local.have_piper(root, cfg.voice) else None
-                tts, device, note = remote.CoreTts(self._link, fallback), "cloud", ""
-            else:
-                tts, device, note = local.piper(root, cfg.voice, cfg.speed), "cpu", ""
+            stt = build.stt(cfg, root, self._link)
+            tts, device, note = build.tts(cfg, root, self._link, self._note_gpu)
+            turn = build.turn(cfg)
+            denoiser = build.denoiser(cfg, root)
             self._wake = local.SherpaWake(root, Path("/tmp"), cfg.wake_threshold) if cfg.wake else None
         except VoiceError as e:
             self.emit(wire.Failed(part=e.part, message=e.message))
@@ -171,7 +165,7 @@ class Worker:
                 self._barge_source = EchoCancelledSource(cfg.mic, cfg.output)
         self._sink = CaptureSink(Path(cfg.sink_file)) if cfg.sink_file else PipeWireSink(cfg.output)
         ep = pipeline.Endpointing(end_silence_s=cfg.end_silence_s, no_speech_s=cfg.quiet_s)
-        self._listener = pipeline.Listener(self._source, self._vad, stt, ep)
+        self._listener = pipeline.Listener(self._source, self._vad, stt, ep, turn, denoiser)
         self._speaker = pipeline.Speaker(tts, self._sink, on_start=self._spoke, on_done=self._spoken,
                                          on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)))
         self._config, self._tts = cfg, tts
@@ -334,6 +328,15 @@ class Worker:
         if self._config is not None and self._config.barge_in and self._speaker.speaking:
             self._hand_mic("barge", self._watch_barge_in())
 
+    async def _cue(self, text: str) -> None:
+        """Played straight to the speakers: not a reply, so no Speaking or Spoken, and nothing to talk over."""
+        try:
+            speech = await self._tts.synthesize(text) if text else tone()
+            if not self._speaker.speaking:
+                await self._sink.play(speech)
+        except VoiceError as e:
+            self.emit(wire.Failed(part=e.part, message=e.message))
+
     def _spoken(self) -> None:
         self.emit(wire.Spoken())
         asyncio.ensure_future(self._after_speaking())
@@ -350,6 +353,16 @@ class Worker:
             await self._release_mic()
         await self._speaker.stop()
         return True
+
+
+def tone(rate: int = 24_000) -> Speech:
+    """Mei heard you and is working: two soft notes, a fifth apart, faded in and out (~0.3 s, quiet)."""
+    notes = []
+    for hz in (587.33, 880.0):  # D5, A5
+        t = np.arange(int(0.14 * rate)) / rate
+        fade = np.minimum(1.0, np.minimum(t, t[::-1]) / 0.03)
+        notes.append((0.06 * np.sin(2 * np.pi * hz * t) * fade).astype(np.float32))
+    return Speech(np.concatenate(notes), rate)
 
 
 def diagnose() -> wire.Diagnosis:

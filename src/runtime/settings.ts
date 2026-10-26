@@ -187,6 +187,18 @@ export class RuntimeSettings {
         return this._doc.computer?.enabled ?? false;
     }
 
+    /** Mei looks at the screen without asking, in chat too (in Live it never asks; decision 0029). */
+    get seeWithoutAsking(): boolean {
+        return this._doc.computer?.see_without_asking ?? false;
+    }
+
+    setSeeWithoutAsking(on: boolean): void {
+        if (!this._writable() || on === this.seeWithoutAsking) return;
+        this._mutate(doc => {
+            doc.computer = { enabled: false, ...doc.computer, see_without_asking: on };
+        }, 'computer');
+    }
+
     setComputerEnabled(enabled: boolean): void {
         if (!this._writable() || enabled === this.computerEnabled) return;
         this._mutate(doc => {
@@ -380,13 +392,14 @@ export class RuntimeSettings {
 }
 
 export type VoiceField = 'enabled' | 'speak_replies' | 'stt' | 'tts' | 'voice' | 'cloud_voice' | 'kokoro_speaker'
-    | 'speed' | 'device' | 'gpu_idle_min' | 'barge_in' | 'echo_cancel' | 'wake_word' | 'pause_for_apps' | 'end_pause_ms' | 'mic' | 'output';
+    | 'speed' | 'device' | 'gpu_idle_min' | 'barge_in' | 'echo_cancel' | 'wake_word' | 'pause_for_apps' | 'end_pause_ms' | 'mic' | 'output'
+    | 'boost_words';
 
 const VOICE_DEFAULTS: VoiceSettingsDoc = {
     enabled: false, speak_replies: true, stt: 'local', tts: 'piper', voice: 'amy', cloud_voice: '', kokoro_speaker: 0,
     speed: 1.0, device: 'auto', gpu_idle_min: 5, barge_in: false, echo_cancel: true, wake_word: false, pause_for_apps: true,
     end_pause_ms: 800,
-    mic: '', output: '',
+    mic: '', output: '', boost_words: [],
 };
 
 function voiceOf(doc: ConfigDoc): VoiceSettingsDoc {

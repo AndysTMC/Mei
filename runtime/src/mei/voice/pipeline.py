@@ -1,20 +1,22 @@
 """Listening and speaking, built from the parts (parts.py) whatever their backends.
 
 Listening feeds the recognizer everything from the moment it starts (push-to-talk), so nothing is
-cut, and ends an utterance after `end_silence_s` of silence, then flushes the recognizer with a
-tail of silence: without it the last word or two are lost (spike 0c). Speaking synthesizes one sentence
+cut, and ends an utterance after the pause its turn detector asks for (turns.py), then flushes the
+recognizer with a tail of silence: without it the last word or two are lost (spike 0c). Speaking synthesizes one sentence
 ahead of the one playing, and stops at once on barge-in.
 """
 
 import asyncio
 import collections
 import contextlib
+import math
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 
 import numpy as np
 
-from .parts import SAMPLE_RATE, AudioSink, AudioSource, SpeechToText, TextToSpeech, Vad, VoiceError, WakeWord
+from .parts import CHUNK, SAMPLE_RATE, AudioSink, AudioSource, Denoiser, SpeechToText, TextToSpeech, Vad, VoiceError, WakeWord
+from .turns import TurnDetector, WordTurn
 
 
 @dataclass(frozen=True)
@@ -40,31 +42,16 @@ class NoSpeech:
 Heard = SpeechStarted | Partial | Final | NoSpeech
 
 
-# Words a sentence doesn't end on: after them the person is still thinking, so Mei waits longer.
-TRAILING = frozenset("""a an and are as at because but by for from if in is like my of on or so than that the then to
-uh um was what when where which while who why will with would your""".split())
-UNFINISHED_S = 2.5  # how long Mei waits after "and…", "um…", or a single word
-
-
-def unfinished(said: str) -> bool:
-    """Does what was heard so far sound like it stops mid-thought?"""
-    words = said.lower().replace(",", " ").split()
-    return len(words) < 2 or words[-1].strip(".!?") in TRAILING
-
-
 @dataclass(frozen=True)
 class Endpointing:
-    # The pause that ends an utterance. Settings choose it (0.8 s by default, decision 0028); after
-    # words that leave a sentence open it is at least UNFINISHED_S. This default is the mechanism's.
+    # The pause that ends an utterance, for the word-list turn detector (turns.py). Settings choose it
+    # (0.8 s by default, decision 0028). This default is the mechanism's.
     end_silence_s: float = 0.5
     # Silence fed after the end so the recognizer emits the last words: Kroko drops whole words with
     # under ~1 s (and the owner's "ready"/"Monday" in spike 0c). Fed at once: ~40 ms of compute.
     tail_s: float = 1.2
     no_speech_s: float = 30.0  # waiting for someone to start talking; 0: as long as it takes
     max_s: float = 30.0
-
-    def pause_for(self, said: str) -> float:
-        return max(self.end_silence_s, UNFINISHED_S) if unfinished(said) else self.end_silence_s
 
 
 class WakeGate:
@@ -100,11 +87,14 @@ class WakeGate:
 
 
 class Listener:
-    def __init__(self, source: AudioSource, vad: Vad, stt: SpeechToText, endpointing: Endpointing = Endpointing()) -> None:
+    def __init__(self, source: AudioSource, vad: Vad, stt: SpeechToText, endpointing: Endpointing = Endpointing(),
+                 turn: TurnDetector | None = None, denoiser: Denoiser | None = None) -> None:
         self._source = source
         self._vad = vad
         self._stt = stt
         self._ep = endpointing
+        self._turn = turn or WordTurn(endpointing.end_silence_s)
+        self._denoiser = denoiser  # noise out before voice detection and the recognizer hear it
         self._done = asyncio.Event()
 
     def begin(self) -> None:
@@ -128,28 +118,43 @@ class Listener:
         source = source or self._source
         wait = self._ep.no_speech_s if no_speech_s is None else no_speech_s
         self._vad.reset()
+        if self._denoiser is not None:
+            self._denoiser.reset()
         text = self._stt.open()
         heard = False
         said = ""  # the latest partial: how finished it sounds decides how long the pause must be
+        pause: tuple[str, float] | None = None  # (said, quiet that ends the turn): asked once per pause and text
+        recent: collections.deque = collections.deque(maxlen=max(1, math.ceil(self._turn.audio_s * SAMPLE_RATE / CHUNK)))
         total = 0.0
         await source.start()
         try:
             chunks = source.chunks()
-            for chunk in preroll or []:
+            for chunk in map(self._clean, preroll or []):
                 heard = heard or self._vad.is_speech(chunk)
+                if self._turn.audio_s:
+                    recent.append(chunk)
                 if (partial := await text.accept(chunk)) is not None:
                     yield Partial(partial)
             if heard:
                 yield SpeechStarted()
             async for chunk in chunks:
                 total += len(chunk) / SAMPLE_RATE
+                chunk = self._clean(chunk)
                 if self._vad.is_speech(chunk) and not heard:
                     heard = True
                     yield SpeechStarted()
                 if (partial := await text.accept(chunk)) is not None:
                     said = partial
                     yield Partial(partial)
-                if heard and (self._vad.quiet_for() >= self._ep.pause_for(said) or self._done.is_set()):
+                if self._turn.audio_s:
+                    recent.append(chunk)
+                quiet = self._vad.quiet_for()
+                if not quiet:
+                    pause = None
+                elif heard and (pause is None or pause[0] != said):  # the last words can arrive after the quiet began
+                    audio = np.concatenate(recent) if recent else np.zeros(0, np.float32)
+                    pause = (said, self._turn.pause_for(said, audio))
+                if heard and ((pause is not None and quiet >= pause[1]) or self._done.is_set()):
                     break
                 if not heard and ((wait and total >= wait) or self._done.is_set()):
                     yield NoSpeech()
@@ -162,6 +167,10 @@ class Listener:
         await text.accept(np.zeros(int(self._ep.tail_s * SAMPLE_RATE), np.float32))
         final = await text.finish()
         yield Final(final) if final else NoSpeech()
+
+
+    def _clean(self, chunk: np.ndarray) -> np.ndarray:
+        return chunk if self._denoiser is None else self._denoiser.process(chunk)
 
 
 class Speaker:

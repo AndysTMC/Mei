@@ -285,7 +285,7 @@ def use_script(script: list[dict], preset: str = "balanced") -> None:
     config = cfg["config"]
     config["providers"]["fake"] = {"options": {"script": script, "delay_ms": 0}}
     config.update(active="fake", approvals={**config.get("approvals", {}), "preset": preset},
-                  computer={"enabled": True})
+                  computer={"enabled": True, "see_without_asking": True})  # asking first is unit-tested
     runtime("UpdateConfig", {"revision": cfg["revision"], "config": config})
     until(lambda: state()["controller"]["provider"] == "fake", 10, "the popup to see the scripted model")
 

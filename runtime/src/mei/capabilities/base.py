@@ -39,7 +39,7 @@ LOCAL_UNDOABLE = Effects(mutates="local", undo="recorded")
 class Resource(msgspec.Struct, frozen=True, kw_only=True):
     """Something an action touches: an absolute path, an app id, or a `schema key` setting."""
 
-    kind: Literal["path", "app", "setting", "memory"]
+    kind: Literal["path", "app", "setting", "memory", "screen"]
     value: str
     access: Literal["read", "write"]
     role: str = ""  # which parameter it came from ("source", "destination"), for the approval card

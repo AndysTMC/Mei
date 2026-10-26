@@ -38,7 +38,7 @@ PRESETS = {p.name: p for p in (
 class Subject(msgspec.Struct, frozen=True, kw_only=True):
     """A resource as policy sees it."""
 
-    kind: Literal["path", "app", "setting", "memory"]
+    kind: Literal["path", "app", "setting", "memory", "screen"]
     value: str
     access: Literal["read", "write"]
     role: str = ""
@@ -48,7 +48,7 @@ class Subject(msgspec.Struct, frozen=True, kw_only=True):
 
 
 class GrantRule(msgspec.Struct, frozen=True, kw_only=True):
-    kind: Literal["path", "app", "setting", "memory"]
+    kind: Literal["path", "app", "setting", "memory", "screen"]
     access: Literal["read", "write"]
     value: str  # a folder for paths (things directly in it match, not deeper); the exact value otherwise
     tree: bool = False  # for a folder a command works in: the folder itself and everything inside it
@@ -70,6 +70,9 @@ class Facts:
     subjects: tuple[Subject, ...]
     tainted: bool
     always_ask: bool = False  # the capability asks every time (shell.run_host)
+    # Looking at the screen needs no asking: the task was asked for in Live (the person is there,
+    # talking about what's in front of them), or the person's setting says so.
+    screen_ok: bool = False
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,12 @@ def evaluate(facts: Facts, preset: Preset, grants: list[Grant], rules: PathRules
         return _ask("sensitive", preset, floor=True)
     if facts.always_ask:
         return _ask("host_command", preset, floor=True)
+    if any(s.kind == "screen" for s in facts.subjects):
+        # Seeing the screen (decision 0029): asked in chat, not in Live.
+        if facts.screen_ok:
+            return Decision("allow", "screen_ok")
+        return _granted(next((g for g in grants if covers(g, facts)), None)) \
+            or _ask("sees_screen", preset, scopes=("once", "task", "always"))
     if e.mutates == "no" and e.disclosure == "none":
         return Decision("allow", "read_only")
     if not facts.subjects:

@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import sherpa_onnx as so
 
-from .models import KOKORO, KROKO, KWS, PIPER, SILERO
+from .models import GTCRN, KOKORO, KROKO, KWS, PIPER, SILERO
 from .parts import SAMPLE_RATE, Device, Speech, VoiceError
 
 log = logging.getLogger("mei.voice")
@@ -37,6 +37,26 @@ def _need(path: Path, part: str) -> str:
     if not path.exists():
         raise VoiceError(part, f"the model isn't downloaded ({path.name})")
     return str(path)
+
+
+class GtcrnDenoiser:
+    """GTCRN, streaming (decision 0029): at 5 dB of fan-like noise Kroko's errors went from 13 % to
+    3 %, clean speech unchanged; ~14 % of one core, only while listening."""
+
+    def __init__(self, root: Path) -> None:
+        model = _need(root / GTCRN.folder, "noise suppression")
+        self._denoiser = so.OnlineSpeechDenoiser(so.OnlineSpeechDenoiserConfig(model=so.OfflineSpeechDenoiserModelConfig(
+            gtcrn=so.OfflineSpeechDenoiserGtcrnModelConfig(model=model), num_threads=1)))
+
+    def process(self, chunk: np.ndarray) -> np.ndarray:
+        return np.asarray(self._denoiser(chunk, SAMPLE_RATE).samples, dtype=np.float32)
+
+    def reset(self) -> None:
+        self._denoiser.reset()
+
+
+def have_gtcrn(root: Path) -> bool:
+    return (root / GTCRN.folder).exists()
 
 
 class SileroVad:

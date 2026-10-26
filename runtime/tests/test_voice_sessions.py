@@ -23,7 +23,7 @@ pytest.importorskip("sherpa_onnx")
 
 from mei.core.fanout import Fanout  # noqa: E402
 from mei.protocol import Attachment, VoiceSettings  # noqa: E402
-from mei.voice.pipeline import Endpointing, unfinished  # noqa: E402
+from mei.voice.turns import WordTurn, unfinished  # noqa: E402
 from mei.store import repo  # noqa: E402
 from mei.voice.controller import PAUSED_NOTE, QUIET_S, VoiceController  # noqa: E402
 
@@ -254,11 +254,11 @@ async def test_a_setting_changed_mid_dictation_doesnt_end_it(tmp_path, models, v
 
 
 def test_mei_waits_longer_when_the_sentence_sounds_unfinished():
-    ep = Endpointing(end_silence_s=0.8)
+    ep = WordTurn(0.8)
     assert ep.pause_for("what's the weather like tomorrow") == 0.8
     for open_ended in ("search for shoes and", "I want um", "hey", "send it to the"):
         assert unfinished(open_ended) and ep.pause_for(open_ended) == 2.5, open_ended
-    assert Endpointing(end_silence_s=4.0).pause_for("and") == 4.0  # a longer setting is never shortened
+    assert WordTurn(4.0).pause_for("and") == 4.0  # a longer setting is never shortened
 
 
 async def test_done_dictating_puts_the_last_words_in_the_box_not_to_mei(tmp_path, models, voice):
