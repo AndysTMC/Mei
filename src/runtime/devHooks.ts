@@ -33,6 +33,10 @@ const XML = `
     <method name="PressVoiceShortcut"/>
     <method name="PressStopShortcut"/>
     <method name="PressEnter"/>
+    <method name="PressEscape"/>
+    <method name="OpenFile"><arg type="s" direction="in" name="path"/></method>
+    <method name="AttachFile"><arg type="s" direction="in" name="path"/></method>
+    <method name="SetDebugPicture"><arg type="s" direction="in" name="json"/></method>
     <method name="ActivateWindow"><arg type="s" direction="in" name="title"/><arg type="b" direction="out" name="found"/></method>
     <method name="SetPrimarySelection"><arg type="s" direction="in" name="text"/></method>
     <method name="ClickButton"><arg type="s" direction="in" name="label"/><arg type="b" direction="out" name="found"/></method>
@@ -210,6 +214,28 @@ export class DevHooks {
         this._press([Clutter.KEY_Return]);
     }
 
+    /** Presses Escape (the large page goes back to the chat). */
+    PressEscape(): void {
+        this._press([Clutter.KEY_Escape]);
+    }
+
+    /** Opens a file on the large page, as clicking an attachment would (decision 0029). */
+    OpenFile(path: string): void {
+        this._popup.openFile(path);
+    }
+
+    /** Attaches a file to the next message, as dropping it on Mei's button would. */
+    AttachFile(path: string): void {
+        this._runtime.attachDrop({ kind: 'files', paths: [path] });
+    }
+
+    /** A picture standing for computer use's latest (the nested Shell has no screen session to take
+     * one); "" clears it. JSON: { path, width, height }. */
+    SetDebugPicture(json: string): void {
+        const p = json ? JSON.parse(json) as { path: string; width: number; height: number } : null;
+        this._runtime.debugPicture = p ? { action_id: 'debug-picture', task_id: '', taken_at: Date.now(), ...p } : null;
+    }
+
     /** Presses Super+Alt+Escape (the default stop-computer-shortcut, computer use's kill switch). */
     PressStopShortcut(): void {
         this._press([Clutter.KEY_Super_L, Clutter.KEY_Alt_L, Clutter.KEY_Escape]);
@@ -264,6 +290,7 @@ export class DevHooks {
         const buffer = focused?.get_buffer_rect();
         return JSON.stringify({
             popup: { open: this._popup.isOpen, expanded: this._popup.isExpanded },
+            page: this._popup.pageState,
             // Where the focused window is (Settings opens wherever the Shell places it).
             // The Shell takes no input until its startup animation is over: drive it only after.
             startingUp: Main.layoutManager._startingUp,

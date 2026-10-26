@@ -82,6 +82,15 @@ export default class MeiExtension extends Extension {
         popup.onResume = id => runtime.resume(id);
         popup.onStopTask = id => runtime.stopTask(id);
         popup.onRemoveAttachment = () => runtime.removeAttachment();
+        // The large page (decision 0029): what Mei is doing, and attachments.
+        popup.onOpenWork = id => runtime.openWork(id);
+        popup.onPauseTask = id => runtime.pause(id);
+        popup.onStopWork = id => {
+            control.stop('Stopped from Mei’s popup'); // the kill switch's path: input stops at once
+            runtime.stopTask(id);
+        };
+        popup.findPicture = (taskId, actionId) => runtime.findPicture(taskId, actionId);
+        popup.pdf = runtime.pdfPages;
         // Files or text dragged from another app onto the button go with the next message (0027).
         this._dropZone = new DropZone(this._indicator.actor, `${this.path}/dropWindow.js`);
         this._dropZone.onDrop = drop => runtime.attachDrop(drop);

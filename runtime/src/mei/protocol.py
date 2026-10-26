@@ -272,6 +272,21 @@ class KillSwitchArgs(msgspec.Struct):
     reason: str = ""
 
 
+class LatestPictureArgs(msgspec.Struct):
+    conversation_id: str
+    task_id: str | None = None  # only this task's pictures
+
+
+class FileArgs(msgspec.Struct):
+    path: Annotated[str, msgspec.Meta(min_length=1, max_length=MAX_PATH_CHARS)]  # absolute, as the Shell got it
+
+
+class PdfPageArgs(msgspec.Struct):
+    path: Annotated[str, msgspec.Meta(min_length=1, max_length=MAX_PATH_CHARS)]
+    page: Annotated[int, msgspec.Meta(ge=1)]
+    width: Annotated[int, msgspec.Meta(ge=1, le=10_000)]  # drawn between 100 and 2400 px
+
+
 class VoiceListenArgs(msgspec.Struct):
     conversation_id: str | None = None  # the conversation the popup shows; None starts a new one
     # Dictation (the mic button): hear one utterance and hand its words back (voice.partial with

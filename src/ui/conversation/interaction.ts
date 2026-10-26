@@ -131,7 +131,8 @@ export class InteractionPanel {
 
     private _paused(taskId: string, note: string): void {
         this.actor.add_child(wrapLabel(new St.Label({ text: note, style_class: 'mei-interaction-title' })));
-        this.actor.add_child(muted('Mei goes on when you stop.'));
+        // Paused by the person (the work page's Pause) or while they used the computer.
+        this.actor.add_child(muted(note === 'Paused by you' ? 'Mei waits until you say go on.' : 'Mei goes on when you stop.'));
         const row = this._row();
         const resume = this._button('Resume', 'Go on now', 'suggested');
         resume.connect('clicked', () => this._settle(() => this._actions.onResume(taskId)));

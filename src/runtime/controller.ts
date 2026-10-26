@@ -17,13 +17,14 @@ import { Logger, Tag } from '../utils/logger.js';
 import { RuntimeClient, RuntimeError, type ConnectionStatus } from './client.js';
 import { activeLabel, noticeFor, reaction, wantsPerson, type Notice, type Reaction } from './notices.js';
 import { Projection } from './projection.js';
-import { attachmentLabel, withDrop, type Drop } from './attachment.js';
+import { withDrop, type Drop } from './attachment.js';
 import type { VoiceView } from './voice.js';
 import type {
-    ApprovalScope, Attachment, ConversationReply, Envelope, SetupStatusReply, SubmitReply, VoiceStateName, VoiceStatusReply,
+    ApprovalScope, Attachment, ConversationReply, Envelope, LatestPictureReply, PdfInfoReply, PdfPageReply, Picture,
+    SetupStatusReply, SubmitReply, VoiceStateName, VoiceStatusReply,
 } from './protocol.js';
 import { RuntimeSettings } from './settings.js';
-import { buildTimeline, latestReply, pendingInteraction, type TimelineItem } from './timeline.js';
+import { buildTimeline, latestReply, pendingInteraction, workView, type TimelineItem } from './timeline.js';
 
 const LOAD_ATTEMPTS = 3;
 /** Events that change what a conversation shows besides its messages. */
@@ -60,6 +61,11 @@ export class RuntimeChatController {
     private _voice: VoiceView = { state: 'off', note: '', transcript: '', dictating: false };
     /** The runtime holds the attachment for the next thing said in a conversation. */
     private _voiceHasAttachment = false;
+    /** Pictures of the screen already looked up, by the action that kept them. */
+    private readonly _pictures = new Map<string, Picture>();
+    /** Dev-build test hooks only: a picture to show as the latest, since the nested Shell's e2e has
+     * no screen session to take one. Never set otherwise. */
+    debugPicture: Picture | null = null;
     /** Called once when setup was never offered (the extension opens Settings). */
     onSetupNeeded: (() => void) | null = null;
     /** Whether this controller asked for setup to open (read by the dev-build test hooks). */
@@ -264,7 +270,7 @@ export class RuntimeChatController {
 
     private _setAttachment(attachment: Attachment | null): void {
         this._attachment = attachment;
-        this._popup.showAttachment(attachment ? attachmentLabel(attachment) : null);
+        this._popup.showAttachment(attachment);
         if (this._talking()) this._attachToVoice();
     }
 
@@ -311,6 +317,70 @@ export class RuntimeChatController {
                 this._popup.retryInteraction();
                 this._showFailure(e);
             });
+    }
+
+    /** The work page's Pause: no further act until Go on (Resume). */
+    pause(taskId: string): void {
+        this._client.call('Pause', { command_id: GLib.uuid_string_random(), task_id: taskId })
+            .catch((e: RuntimeError) => this._showFailure(e));
+    }
+
+    // ── The large page (decision 0029) ──────────────────────────────────────
+
+    /** The work page for this task of the conversation shown, with its latest picture. */
+    openWork(taskId: string): void {
+        const conv = this._current ? this._projection.loaded.get(this._current) : undefined;
+        const view = conv ? workView(conv, taskId) : null;
+        if (!view) return;
+        this._popup.showWork(this._withDebugPicture(view));
+        void this._showWorkPicture();
+    }
+
+    /** The newest picture a task kept; looked up once per picture. */
+    async findPicture(taskId: string, actionId: string): Promise<Picture | null> {
+        if (this.debugPicture) return this.debugPicture;
+        const known = this._pictures.get(actionId);
+        if (known) return known;
+        if (!this._current) return null;
+        const reply = await this._client.call<LatestPictureReply>('LatestPicture',
+            { conversation_id: this._current, task_id: taskId });
+        if (reply.picture) this._pictures.set(reply.picture.action_id, reply.picture);
+        return reply.picture;
+    }
+
+    /** The runtime draws PDF pages for the viewer: the Shell has no Poppler. */
+    readonly pdfPages = {
+        info: (path: string) => this._client.call<PdfInfoReply>('PdfInfo', { path }),
+        page: (path: string, page: number, width: number) => this._client.call<PdfPageReply>('PdfPage', { path, page, width }),
+    };
+
+    /** The work page, if it shows a task of this conversation: its newer state, and a newer picture. */
+    private _refreshWork(): void {
+        const taskId = this._popup.workTaskId;
+        const conv = this._current ? this._projection.loaded.get(this._current) : undefined;
+        const view = taskId && conv ? workView(conv, taskId) : null;
+        if (!view) return;
+        this._popup.showWork(this._withDebugPicture(view));
+        if (view.picture !== this._popup.workPicture || this.debugPicture) void this._showWorkPicture();
+    }
+
+    private async _showWorkPicture(): Promise<void> {
+        const taskId = this._popup.workTaskId;
+        const conv = this._current ? this._projection.loaded.get(this._current) : undefined;
+        const found = taskId && conv ? workView(conv, taskId) : null;
+        const view = found ? this._withDebugPicture(found) : null;
+        if (!view?.picture) return;
+        try {
+            const picture = await this.findPicture(view.taskId, view.picture);
+            if (picture && this._popup.workTaskId === view.taskId) this._popup.showWorkPicture(picture);
+        } catch (e) {
+            Logger.warn(Tag.Extension, `LatestPicture: ${(e as Error).message}`);
+        }
+    }
+
+    /** In dev-build tests, the test's picture stands for the latest one (see `debugPicture`). */
+    private _withDebugPicture<T extends { picture: string | null }>(item: T): T {
+        return this.debugPicture && !item.picture ? { ...item, picture: this.debugPicture.action_id } : item;
     }
 
     stopTask(taskId: string): void {
@@ -443,6 +513,7 @@ export class RuntimeChatController {
         else if (ASKS.has(event.type)) this._onAsk(react === 'open' || voice);
         else if (event.type === 'message.completed' || AGENT_EVENTS.has(event.type)) this._render();
         else this._syncLoading(); // status-only events (task accepted/running, model started)
+        if (event.task_id && event.task_id === this._popup.workTaskId) this._refreshWork();
         this.onStateChanged?.();
     }
 
@@ -564,7 +635,7 @@ export class RuntimeChatController {
     private _timeline(): TimelineItem[] {
         const conv = this._current ? this._projection.loaded.get(this._current) : undefined;
         if (!conv || !this._current) return [];
-        const items = buildTimeline(conv);
+        const items = buildTimeline(conv).map(i => (i.kind === 'progress' ? this._withDebugPicture(i) : i));
         const interrupted = this._projection.interruptedTask(this._current);
         this._draftIndex = -1;
         if (interrupted?.draft) {

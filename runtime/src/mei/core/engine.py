@@ -21,6 +21,7 @@ from mei.capabilities.base import Env, backups_dir
 from mei.capabilities.computer import HANDOFF_DONE
 from mei.capabilities.registry import Registry
 from mei.core.states import TERMINAL, Disposition, Execution, TaskState
+from mei.desktop.png import png_size
 from mei.protocol import (MAX_INPUT_CHARS, AnswerInputArgs, Attachment, Config, ConversationCommandArgs, ForgetMemoryArgs,
                           MemoriesArgs, ProtocolError, UpdateMemoryArgs,
                           ProviderConfig, ResolveApprovalArgs, RevokeGrantArgs, SubmitInputArgs, TaskCommandArgs,
@@ -166,6 +167,7 @@ class Engine:
             repo.set_task_state(tx, args.task_id, S.CANCEL_REQUESTED)
             return {"task_id": args.task_id, "state": S.CANCEL_REQUESTED}, []
 
+        self.loop.d.held.discard(args.task_id)
         result = self._command("Cancel", args, apply)
         runner = self._runners.get(args.task_id)
         if result["state"] == S.CANCEL_REQUESTED:
@@ -181,14 +183,31 @@ class Engine:
                 ledger.cancel_now(tx, task_id)
         self._publish(tx.events)
 
+    def pause(self, args: TaskCommandArgs) -> dict:
+        """The work page's Pause: the task does no further act until Resume. A model turn or an act
+        under way finishes first; the next act waits in WAITING_RESOURCE ("Paused by you")."""
+        row = repo.get_task(self.store, args.task_id)
+        if row is None:
+            raise ProtocolError("NotFound", "no such task")
+        state = S(row["state"])
+        if state in TERMINAL or state == S.CANCEL_REQUESTED:
+            return {"task_id": args.task_id, "state": state, "paused": False}
+        self.loop.d.held.add(args.task_id)
+        return {"task_id": args.task_id, "state": state, "paused": True}
+
     def resume(self, args: TaskCommandArgs) -> dict:
+        held = args.task_id in self.loop.d.held
+        self.loop.d.held.discard(args.task_id)
+
         def apply(tx: Tx) -> tuple[dict, list[str]]:
             row = repo.get_task(tx, args.task_id)
             if row is None:
                 raise ProtocolError("NotFound", "no such task")
-            if S(row["state"]) == S.WAITING_RESOURCE:  # paused while the person used the computer: go on now
+            if S(row["state"]) == S.WAITING_RESOURCE:  # paused (by the person, or while they used the computer): go on now
                 repo.set_task_state(tx, args.task_id, S.RUNNING)
                 return {"task_id": args.task_id, "state": S.RUNNING}, []
+            if held and S(row["state"]) not in TERMINAL:  # paused before its next act came: nothing waited yet
+                return {"task_id": args.task_id, "state": row["state"]}, []
             if S(row["state"]) != S.INTERRUPTED:
                 raise ProtocolError("Conflict", f"only interrupted tasks can be resumed (this one is {row['state']})")
             if repo.blocking_task(tx, row["conversation_id"]) is not None:
@@ -196,6 +215,21 @@ class Engine:
             return {"task_id": args.task_id, "state": S.INTERRUPTED}, [args.task_id]
 
         return self._command("Resume", args, apply)
+
+    def latest_picture(self, conversation_id: str, task_id: str | None = None) -> dict | None:
+        """The newest picture computer use kept in this conversation (or task), if its file is still
+        there: where it is, and its size from the PNG's header."""
+        folder = self.env.artifacts(conversation_id).resolve()
+        for row in agent.pictured_actions(self.store, conversation_id, task_id):
+            for path in json.loads(row["result"]).get("images", [])[:1]:
+                file = Path(path)
+                if file.resolve().parent != folder:
+                    continue  # only the conversation's own artifacts
+                size = png_size(file)
+                if size is not None:
+                    return {"action_id": row["id"], "task_id": row["task_id"], "path": str(file),
+                            "width": size[0], "height": size[1], "taken_at": row["finished_at"]}
+        return None
 
     def stop_computer_use(self) -> list[str]:
         """The kill switch's second step (§10.3), after the worker is dead: cancel every unfinished task

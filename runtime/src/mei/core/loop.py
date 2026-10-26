@@ -37,6 +37,7 @@ from .streaming import CALL_TIMEOUT_S, Reply, Stream, Streamer
 
 log = logging.getLogger("mei.loop")
 BUSY_POLL_S = 1.0
+PAUSED_BY_PERSON = "Paused by you"
 E, S, V = Execution, TaskState, Verification
 MAX_ACTION_S = 600.0
 MORE_CALLS = 25
@@ -59,6 +60,9 @@ class Deps:
     env: Env
     boundary: Callable[[str], None] = field(default=lambda _name: None)
     now: Callable[[], datetime.datetime] = field(default=lambda: datetime.datetime.now(datetime.UTC))
+    # Tasks the person paused (the work page's Pause): no further act until Resume. In memory only:
+    # a restart interrupts the task anyway.
+    held: set[str] = field(default_factory=set)
 
 
 class TaskLoop:
@@ -349,11 +353,12 @@ class TaskLoop:
         return True
 
     async def _until_free(self, task, cap: Capability, params) -> bool:
-        """While the capability says the world is busy (the person took over the pointer), the task waits
-        in WAITING_RESOURCE; Resume goes on at once. False: it was stopped meanwhile."""
+        """While the person paused the task, or the capability says the world is busy (the person took
+        over the pointer), the task waits in WAITING_RESOURCE; Resume goes on at once. False: it was
+        stopped meanwhile."""
         store, task_id = self.d.store, task["id"]
         ctx = ActionContext(self.d.env, "", task["conversation_id"], task_id)
-        why = await cap.busy(params, ctx)
+        why = await self._busy(task_id, cap, params, ctx)
         if not why:
             return True
         with store.tx() as tx:
@@ -366,11 +371,14 @@ class TaskLoop:
                 return True
             if state != S.WAITING_RESOURCE:
                 return False
-            if not await cap.busy(params, ctx):
+            if not await self._busy(task_id, cap, params, ctx):
                 with store.tx() as tx:
                     repo.set_task_state(tx, task_id, S.RUNNING)
                 self.d.publish(tx.events)
                 return True
+
+    async def _busy(self, task_id: str, cap: Capability, params, ctx: ActionContext) -> str:
+        return PAUSED_BY_PERSON if task_id in self.d.held else await cap.busy(params, ctx)
 
     async def _meta(self, task, action, cap: Capability, params) -> bool:
         store, taskd = self.d.store, repo.task_dict(task)

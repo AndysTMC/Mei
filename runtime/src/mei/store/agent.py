@@ -36,7 +36,19 @@ def action_view(row) -> dict:
             "decision": row["decision"], "decision_reason": row["decision_reason"], "error": row["error"],
             "summary": result.get("summary", ""), "effects": _loads(row["effects"]),
             "resources": json.loads(row["resources"]), "undo_recorded": bool(result.get("undo")),
+            "pictures": len(result.get("images") or []),
             "created_at": row["created_at"], "finished_at": row["finished_at"]}
+
+
+def pictured_actions(src, conversation_id: str, task_id: str | None = None, limit: int = 5) -> list:
+    """The newest actions that kept a picture (computer use's look at the screen), newest first."""
+    sql = ("SELECT a.id, a.task_id, a.result, a.finished_at FROM actions a JOIN tasks t ON t.id = a.task_id "
+           "WHERE t.conversation_id = ? AND json_array_length(a.result, '$.images') > 0")
+    params: tuple = (conversation_id,)
+    if task_id is not None:
+        sql += " AND a.task_id = ?"
+        params += (task_id,)
+    return _all(src, sql + " ORDER BY a.finished_at DESC, a.created_at DESC LIMIT ?", (*params, limit))
 
 
 # ── Batches and actions ─────────────────────────────────────────────────────
