@@ -41,6 +41,6 @@ export function listedMessage(m: MessageView, details?: ReplyDetails): ListedMes
         tokens: tokens ? { inputTokens: tokens.input ?? undefined, outputTokens: tokens.output ?? undefined } : undefined,
     };
     const attachment = m.role === 'user' ? attachmentOf(meta) : null;
-    return { role: m.role, content: m.content, thinking: m.thinking ?? undefined, metadata,
+    return { id: m.id, role: m.role, content: m.content, thinking: m.thinking ?? undefined, metadata,
         note: attachment ? attachmentLabel(attachment) : undefined, details };
 }

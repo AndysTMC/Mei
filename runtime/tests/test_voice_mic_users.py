@@ -149,5 +149,5 @@ async def test_the_graph_is_watched_only_while_the_wake_word_listens(monkeypatch
 async def test_a_reload_while_paused_keeps_the_wake_word_paused():
     v, _seen, proc = controller(VoiceSettings(enabled=True, wake_word=True))
     v._mic_users.others = True
-    await v._on_worker(wire.Ready(stt="kroko", tts="piper", device="cpu", wake=True))
+    await v._on_worker(wire.Ready(stt="kroko", tts="piper", device="cpu", wake=True, version=wire.VERSION))
     assert proc.stdin.sent == [wire.Arm(on=False)]

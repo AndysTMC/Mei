@@ -61,7 +61,7 @@ export class ChatPopup {
     /** Called when the user asks to regenerate the reply at this index. */
     onReload: ((index: number) => void) | null = null;
     /** A reply's Read aloud: read it out, or stop. */
-    onReadAloud: ((text: string) => void) | null = null;
+    onReadAloud: ((messageId: string, text: string) => void) | null = null;
     /** Called when the user starts a new chat. */
     onNewChat: (() => void) | null = null;
     /** Called when the user asks for the history list. */
@@ -146,7 +146,7 @@ export class ChatPopup {
             isDark: () => this._theme.isDark,
             onReload: index => this.onReload?.(index),
             canReadAloud: () => this._voiceReady,
-            onReadAloud: text => this.onReadAloud?.(text),
+            onReadAloud: (messageId, text) => this.onReadAloud?.(messageId, text),
         });
         this._composer = new Composer(this._sources, Math.round(screenHeight * 0.20), {
             onSend: text => this.onSend?.(text),
@@ -270,6 +270,11 @@ export class ChatPopup {
         this._voiceReady = !['off', 'unavailable', 'starting'].includes(view.state);
         this._composer.setVoice({ available: view.state !== 'off', mode, status: voiceLine(view).status,
             transcript: talking && view.state !== 'speaking' ? view.transcript : '' });
+    }
+
+    /** The reply Read aloud is reading, or none: its button shows Stop. */
+    setReading(messageId: string | null): void {
+        this._messages.setReading(messageId);
     }
 
     /** The message box's sizes (for the dev hooks' tests). */

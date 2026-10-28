@@ -15,7 +15,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .parts import CHUNK, SAMPLE_RATE, AudioSink, AudioSource, Denoiser, SpeechToText, TextToSpeech, Vad, VoiceError, WakeWord
+from .parts import (CHUNK, SAMPLE_RATE, AudioSink, AudioSource, Denoiser, Speech, SpeechToText, TextToSpeech, Vad,
+                    VoiceError, WakeWord)
 from .turns import TurnDetector, WordTurn
 
 
@@ -174,8 +175,10 @@ class Listener:
 
 
 class Speaker:
-    """Speaks sentences in order. `say` queues one; `end` marks the reply complete. `on_start` is
-    called when the first audio of a reply plays, `on_done` once all of it has been heard."""
+    """Speaks sentences in order. `say` queues one (text, or audio already made: a tone); `end` marks
+    the reply complete. `on_start` is called when the first audio of a reply plays, `on_done` once
+    all of it has been heard. `pending` is true from the first `say` until then, so a Stop while the
+    first sentence is still being synthesized stops it too."""
 
     LOOKAHEAD = 2
 
@@ -186,14 +189,20 @@ class Speaker:
         self._on_start = on_start
         self._on_done = on_done
         self._on_error = on_error
-        self._texts: asyncio.Queue[str | None] = asyncio.Queue()
+        self._texts: asyncio.Queue[str | Speech | None] = asyncio.Queue()
         self._speech: asyncio.Queue = asyncio.Queue(maxsize=self.LOOKAHEAD)
         self._tasks: list[asyncio.Task] = []
+        self._unheard = 0  # sentences said but not yet played
         self.speaking = False
         self.started_at = 0.0
 
-    def say(self, sentence: str) -> None:
+    @property
+    def pending(self) -> bool:
+        return self.speaking or self._unheard > 0
+
+    def say(self, sentence: str | Speech) -> None:
         self._ensure_running()
+        self._unheard += 1
         self._texts.put_nowait(sentence)
 
     def end(self) -> None:
@@ -212,6 +221,7 @@ class Speaker:
         self._texts = asyncio.Queue()
         self._speech = asyncio.Queue(maxsize=self.LOOKAHEAD)
         await self._sink.stop()
+        self._unheard = 0
         self.speaking = False
 
     def _ensure_running(self) -> None:
@@ -226,8 +236,9 @@ class Speaker:
                 await self._speech.put(None)
                 continue
             try:
-                await self._speech.put(await self._tts.synthesize(text))
+                await self._speech.put(text if isinstance(text, Speech) else await self._tts.synthesize(text))
             except VoiceError as e:  # one sentence that can't be said: say the rest
+                self._unheard -= 1
                 self._on_error(e)
 
     async def _play(self) -> None:
@@ -244,3 +255,4 @@ class Speaker:
                 self.started_at = loop.time()
                 self._on_start()
             await self._sink.play(speech)
+            self._unheard -= 1

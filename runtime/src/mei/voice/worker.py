@@ -49,6 +49,11 @@ class Worker:
         self._wake: local.SherpaWake | None = None
         self._listener: pipeline.Listener | None = None
         self._speaker: pipeline.Speaker | None = None
+        # Speech outside any conversation, on a stream of its own (decision 0030): the tone and
+        # check-ins while Mei works, and a reply's Read aloud. No Speaking or Spoken, nothing to
+        # talk over, no listening after.
+        self._aside: pipeline.Speaker | None = None
+        self._reading: str | None = None  # the message Read aloud is reading
         self._tts = None  # what speaks: warmed when listening starts
         self._gpu_note = ""
         self._config: wire.Load | None = None
@@ -71,6 +76,7 @@ class Worker:
                 await self._load(cmd)
             case wire.Listen():
                 if self._ready() and not self._suspended:
+                    await self._aside_stop()  # Live starting ends Read aloud
                     if await self._speaker_stop():  # talking while Mei speaks: it stops for you
                         self.emit(wire.Spoken(stopped=True))
                     await self._take_mic("listen", self._listen(no_speech_s=cmd.no_speech_s,
@@ -83,13 +89,25 @@ class Worker:
                 self._rearm()
             case wire.Say(text=text):
                 if self._ready() and not self._suspended and text.strip():
+                    if self._reading is not None:
+                        await self._aside_stop()  # a spoken answer takes over from Read aloud
                     self._speaker.say(text)
             case wire.End():
                 if self._ready() and not self._suspended:
                     self._speaker.end()
             case wire.Cue(text=text):
-                if self._ready() and not self._suspended and not self._speaker.speaking:
-                    asyncio.ensure_future(self._cue(text))
+                if self._ready() and not self._suspended and not self._speaker.pending and self._reading is None:
+                    self._aside.say(tone() if not text else text)
+                    self._aside.end()
+            case wire.ReadAloud(id=read_id, sentences=sentences):
+                if self._ready() and not self._suspended:
+                    await self._aside_stop()
+                    self._reading = read_id
+                    for sentence in (s for s in sentences if s.strip()):
+                        self._aside.say(sentence)
+                    self._aside.end()
+            case wire.StopReading():
+                await self._aside_stop()
             case wire.StopSpeaking():
                 if await self._speaker_stop():
                     self.emit(wire.Spoken(stopped=True))
@@ -104,6 +122,7 @@ class Worker:
                 self._suspended = True
                 await self._release_mic()
                 await self._speaker_stop()
+                await self._aside_stop()
                 self.emit(wire.Suspended())
             case wire.Resume():
                 self._suspended = False
@@ -118,6 +137,7 @@ class Worker:
             case wire.Quit():
                 await self._release_mic()
                 await self._speaker_stop()
+                await self._aside_stop()
                 await self._close_tts()
                 return False
         return True
@@ -141,6 +161,8 @@ class Worker:
     async def _load(self, cfg: wire.Load) -> None:
         root = Path(cfg.models)
         await self._release_mic()  # nothing keeps recording through the sources being replaced
+        await self._speaker_stop()  # nor speaking through the speakers being replaced
+        await self._aside_stop()
         await self._close_tts()
         try:
             self._vad = local.SileroVad(root)
@@ -164,14 +186,18 @@ class Worker:
             else:
                 self._barge_source = EchoCancelledSource(cfg.mic, cfg.output)
         self._sink = CaptureSink(Path(cfg.sink_file)) if cfg.sink_file else PipeWireSink(cfg.output)
+        aside_sink = CaptureSink(Path(cfg.sink_file + ".aside")) if cfg.sink_file else PipeWireSink(cfg.output)
         ep = pipeline.Endpointing(end_silence_s=cfg.end_silence_s, no_speech_s=cfg.quiet_s)
         self._listener = pipeline.Listener(self._source, self._vad, stt, ep, turn, denoiser)
         self._speaker = pipeline.Speaker(tts, self._sink, on_start=self._spoke, on_done=self._spoken,
                                          on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)))
+        self._aside = pipeline.Speaker(tts, aside_sink, on_start=self._aside_started, on_done=self._aside_done,
+                                       on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)))
         self._config, self._tts = cfg, tts
         self._armed = cfg.wake and self._wake is not None
         self.emit(wire.Ready(stt=stt.name, tts=tts.name, device=device, note="; ".join(n for n in (note, echo_note) if n),
-                             wake=self._wake is not None, echo_cancel=self._barge_source is not self._source))
+                             wake=self._wake is not None, echo_cancel=self._barge_source is not self._source,
+                             version=wire.VERSION))
         self._rearm()
 
     # ── The microphone ───────────────────────────────────────────────────────
@@ -205,7 +231,7 @@ class Worker:
     def _rearm(self) -> None:
         """Back to waiting for the wake word, if it is on and nothing else holds the microphone."""
         if self._armed and not self._suspended and self._mic_task is None and self._wake is not None \
-                and not (self._speaker and self._speaker.speaking):
+                and not (self._speaker and self._speaker.speaking) and not (self._aside and self._aside.pending):
             self._hand_mic("wake", self._wait_for_wake())
 
     async def _listen(self, preroll: list | None = None, source: AudioSource | None = None,
@@ -318,6 +344,7 @@ class Worker:
 
     def _spoke(self) -> None:
         self.emit(wire.Speaking())
+        asyncio.ensure_future(self._aside_stop())  # an answer starting ends the tone or a check-in
         if self._mic_job == "wake":
             asyncio.ensure_future(self._release_then_watch())
         elif self._config is not None and self._config.barge_in and self._mic_task is None:
@@ -328,14 +355,27 @@ class Worker:
         if self._config is not None and self._config.barge_in and self._speaker.speaking:
             self._hand_mic("barge", self._watch_barge_in())
 
-    async def _cue(self, text: str) -> None:
-        """Played straight to the speakers: not a reply, so no Speaking or Spoken, and nothing to talk over."""
-        try:
-            speech = await self._tts.synthesize(text) if text else tone()
-            if not self._speaker.speaking:
-                await self._sink.play(speech)
-        except VoiceError as e:
-            self.emit(wire.Failed(part=e.part, message=e.message))
+    def _aside_started(self) -> None:
+        if self._reading is not None:
+            self.emit(wire.Reading(id=self._reading))
+        if self._mic_job == "wake":  # "Hey Mei" doesn't listen to Mei reading
+            asyncio.ensure_future(self._release_mic())
+
+    def _aside_done(self) -> None:
+        read_id, self._reading = self._reading, None
+        if read_id is not None:
+            self.emit(wire.ReadDone(id=read_id))
+        self._rearm()
+
+    async def _aside_stop(self) -> None:
+        """Silence the tone, a check-in, or Read aloud (which then says it was stopped)."""
+        if self._aside is None:
+            return
+        if self._aside.pending:
+            await self._aside.stop()
+        read_id, self._reading = self._reading, None
+        if read_id is not None:
+            self.emit(wire.ReadDone(id=read_id, stopped=True))
 
     def _spoken(self) -> None:
         self.emit(wire.Spoken())
@@ -347,7 +387,8 @@ class Worker:
         self._rearm()
 
     async def _speaker_stop(self) -> bool:
-        if self._speaker is None or not self._speaker.speaking:
+        """Stop a reply, even one whose first sentence is still being synthesized. True: there was one."""
+        if self._speaker is None or not self._speaker.pending:
             return False
         if self._mic_job == "barge":
             await self._release_mic()

@@ -28,3 +28,4 @@
 | 0027 | Files and text dropped on Mei are taken by a window of its own; dropped files count as named by the person | accepted | 2026-10-24 | — |
 | 0028 | Enter ends listening; the pause adapts to how finished a sentence sounds; a drop goes with what's said | accepted | 2026-10-25 | 0026 (in part: the 8 s pause) |
 | 0029 | Voice seams (engine registry, turn detector, clean-up chain), noise suppression, a tone while Mei works, asking before looking at the screen in chat | accepted | 2026-10-26 | — |
+| 0030 | Read aloud stands on its own; the voice worker says its version; Stop reaches speech not yet playing | accepted | 2026-10-28 | 0029 (in part: how Read aloud plays) |

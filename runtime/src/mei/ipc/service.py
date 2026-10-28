@@ -87,7 +87,7 @@ class RuntimeService:
             "VoiceModels": self._voice_models, "VoiceDownload": self._voice_download, "VoiceCheckMic": self._voice_check_mic,
             "VoiceFixMic": self._voice_fix_mic, "VoiceTestSpeaker": self._voice_test_speaker,
             "VoiceDevices": self._voice_devices, "VoiceRemove": self._voice_remove,
-            "KillSwitch": self._kill_switch, "VoiceAttach": self._voice_attach, "VoiceReadAloud": self._voice_read_aloud, "ComputerStatus": self._computer_status,
+            "KillSwitch": self._kill_switch, "VoiceAttach": self._voice_attach, "VoiceReadAloud": self._voice_read_aloud, "VoiceStopReading": self._voice_stop_reading, "ComputerStatus": self._computer_status,
             "ComputerAllowScreen": self._computer_allow_screen,
         }
 
@@ -365,7 +365,13 @@ class RuntimeService:
         """A reply's speaker icon: Mei reads it out (VoiceStop stops it)."""
         args = decode_args(data, VoiceReadAloudArgs)
         await self._shell_only(sender, "read aloud")
-        await self._voice_required().read_aloud(args.text)
+        await self._voice_required().read_aloud(args.message_id, args.text)
+        return {}
+
+    async def _voice_stop_reading(self, sender: str, _data: str) -> dict:
+        await self._shell_only(sender, "stop reading aloud")
+        if self._voice is not None:
+            await self._voice.stop_reading()
         return {}
 
     async def _kill_switch(self, _sender: str, data: str) -> dict:

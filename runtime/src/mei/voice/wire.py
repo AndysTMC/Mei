@@ -7,6 +7,10 @@ import msgspec
 
 from .parts import Device
 
+# What the worker and the core both speak. The worker says it in Ready; a core that hears another
+# (a worker started from older code) starts it again (decision 0030).
+VERSION = 2
+
 
 class Command(msgspec.Struct, tag_field="op", kw_only=True):
     pass
@@ -94,6 +98,17 @@ class Diagnose(Command, tag="diagnose"):
     pass
 
 
+class ReadAloud(Command, tag="read_aloud"):
+    """A reply's Read aloud (decision 0030): said outside any conversation, so no Speaking or Spoken,
+    no listening after, and nothing to talk over. A new one replaces the one being read."""
+    id: str  # the message, echoed in Reading and ReadDone
+    sentences: list[str]
+
+
+class StopReading(Command, tag="stop_reading"):
+    pass
+
+
 class Quit(Command, tag="quit"):
     pass
 
@@ -118,8 +133,8 @@ class Audio(Command, tag="audio"):
     error: str = ""
 
 
-AnyCommand = (Load | Listen | DoneTalking | CancelListen | Say | End | StopSpeaking | Arm | Suspend | Resume
-              | Diagnose | Quit | Transcript | Audio | MeasureMic)
+AnyCommand = (Load | Listen | DoneTalking | CancelListen | Say | End | StopSpeaking | Cue | ReadAloud | StopReading
+              | Arm | Suspend | Resume | Diagnose | Quit | Transcript | Audio | MeasureMic)
 
 
 class Event(msgspec.Struct, tag_field="ev", kw_only=True):
@@ -133,6 +148,7 @@ class Ready(Event, tag="ready"):
     note: str = ""  # why not the GPU, or no echo cancellation, if wanted
     wake: bool = False
     echo_cancel: bool = False  # the barge-in watch hears through the echo canceller
+    version: int = 0  # VERSION, as this worker knows it (0: from before there was one)
 
 
 class Failed(Event, tag="error"):
@@ -165,6 +181,15 @@ class Speaking(Event, tag="speaking"):
 
 
 class Spoken(Event, tag="spoken"):
+    stopped: bool = False
+
+
+class Reading(Event, tag="reading"):
+    id: str
+
+
+class ReadDone(Event, tag="read_done"):
+    id: str
     stopped: bool = False
 
 
@@ -206,7 +231,7 @@ class Diagnosis(Event, tag="diagnosis"):
 
 
 AnyEvent = (Ready | Failed | Listening | SpeechStarted | Partial | Final | NoSpeech | Speaking | Spoken | BargeIn | Woke
-            | Suspended | Diagnosis | Transcribe | Synthesize | MicLevel)
+            | Suspended | Diagnosis | Transcribe | Synthesize | MicLevel | Reading | ReadDone)
 
 # One message per line; a line can carry audio (up to a 30 s utterance or a long sentence, base64).
 MAX_LINE = 8 << 20

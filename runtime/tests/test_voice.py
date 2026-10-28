@@ -222,3 +222,57 @@ def test_in_its_jail_the_worker_loads_but_reaches_nothing(models):
     assert (diagnosis.network, diagnosis.home_visible, diagnosis.session_bus, diagnosis.pulse_socket) == (
         False, False, False, False)
     assert any(isinstance(e, wire.Ready) for e in events) and proc.returncode == 0
+
+
+# ── Read aloud and the tone, outside any conversation (decision 0030) ────────
+
+
+def test_every_command_and_event_can_be_decoded():
+    """A message type left out of its union is refused by the other side ("Invalid value 'cue'")."""
+    import typing
+    for base, union in ((wire.Command, wire.AnyCommand), (wire.Event, wire.AnyEvent)):
+        kinds = {c for c in vars(wire).values() if isinstance(c, type) and issubclass(c, base) and c is not base}
+        assert kinds == set(typing.get_args(union)), kinds ^ set(typing.get_args(union))
+
+
+async def test_read_aloud_reads_on_its_own_stream_and_is_not_a_conversation(tmp_path, models):
+    w, events, played = await worker(tmp_path, models, barge_in=True)
+    await w.handle(wire.ReadAloud(id="m1", sentences=["Here is the reply.", "It has two sentences."]))
+    assert (await events.until(wire.Reading)).id == "m1"
+    done = await events.until(wire.ReadDone)
+    assert done.id == "m1" and not done.stopped
+    assert not {"Speaking", "Spoken", "Listening", "BargeIn"} & set(events.kinds())  # not Live
+    aside = Path(str(played) + ".aside")
+    assert aside.exists() and len(np.fromfile(aside, dtype=np.float32)) > 16000 and not played.exists()
+    await w.handle(wire.Quit())
+
+
+async def test_stop_reading_and_live_starting_end_read_aloud(tmp_path, models):
+    w, events, _ = await worker(tmp_path, models)
+    long = ["This reply goes on for a while, so that there is time to stop it."] * 4
+    await w.handle(wire.ReadAloud(id="m1", sentences=long))
+    await events.until(wire.Reading)
+    await w.handle(wire.StopReading())
+    assert (await events.until(wire.ReadDone)).stopped
+    events.got.clear()
+    await w.handle(wire.ReadAloud(id="m2", sentences=long))
+    await events.until(wire.Reading)
+    await w.handle(wire.Listen())  # Live starts: reading ends
+    done = await events.until(wire.ReadDone)
+    assert done.id == "m2" and done.stopped
+    await w.handle(wire.Quit())
+
+
+async def test_the_tone_plays_aside_and_stop_catches_a_reply_still_being_synthesized(tmp_path, models):
+    w, events, played = await worker(tmp_path, models)
+    await w.handle(wire.Cue())
+    await asyncio.sleep(0.6)
+    aside = Path(str(played) + ".aside")
+    assert aside.exists() and 0 < len(np.fromfile(aside, dtype=np.float32)) and "Speaking" not in events.kinds()
+    await w.handle(wire.Say(text="This sentence is stopped before a word of it is heard."))
+    await w.handle(wire.End())
+    await w.handle(wire.StopSpeaking())  # still synthesizing: nothing is playing yet
+    assert (await events.until(wire.Spoken)).stopped
+    await asyncio.sleep(1.0)
+    assert not played.exists() or len(np.fromfile(played, dtype=np.float32)) == 0
+    await w.handle(wire.Quit())

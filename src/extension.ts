@@ -68,7 +68,7 @@ export default class MeiExtension extends Extension {
         popup.onSend = text => runtime.send(text);
         popup.onCancel = () => runtime.cancel();
         popup.onReload = index => runtime.reload(index);
-        popup.onReadAloud = text => runtime.readAloud(text);
+        popup.onReadAloud = (messageId, text) => runtime.readAloud(messageId, text);
         popup.onNewChat = () => runtime.newChat();
         popup.onHistoryRequested = () => runtime.showHistoryList();
         popup.onLoadChat = id => {

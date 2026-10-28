@@ -101,6 +101,8 @@ class VoiceController:
         self._locked = False
         self._stopping = False
         self._restarts = 0
+        self._version_restarted = False  # a worker of another version was started again once
+        self._reading: str | None = None  # the message Read aloud is reading
         self._ready = asyncio.Event()
         # "Hey Mei" pauses while another app records (decision 0025).
         self._mic_users = MicUsers(self._others_recording, self._mic_users_trouble, pw_dump)
@@ -277,18 +279,20 @@ class VoiceController:
         self._fresh_boost()
         await self._start_session("dictate" if dictate else "button" if by == "button" else "quiet")
 
-    async def read_aloud(self, text: str) -> None:
-        """Read a reply out (its speaker icon): what's being said stops first. Code and tables are
-        left out with a note, as in spoken answers."""
-        if self.state not in ("idle", "speaking", "thinking"):
+    async def read_aloud(self, message_id: str, text: str) -> None:
+        """A reply's Read aloud (decision 0030): read out on its own, not as Live. Voice's state doesn't
+        change, nothing listens after, and talking doesn't interrupt it; its button (or Esc) stops
+        it. Code and tables are left out with a note, as in spoken answers."""
+        if self._session is not None or self.state in ("listening", "thinking", "speaking", "paused"):
+            raise ProtocolError("Busy", "Live is on: end it to hear a reply read aloud")
+        if self.state != "idle":
             raise ProtocolError("Unavailable", self.note or f"voice is {self.state}")
-        if self.state == "speaking":
-            await self._send(wire.StopSpeaking())
-        self._replies.follow(None)
         reading = Sentences()
-        for sentence in reading.feed(text + "\n") + reading.flush():
-            await self._send(wire.Say(text=sentence))
-        await self._send(wire.End())
+        self._reading = message_id
+        await self._send(wire.ReadAloud(id=message_id, sentences=reading.feed(text + "\n") + reading.flush()))
+
+    async def stop_reading(self) -> None:
+        await self._send_quietly(wire.StopReading())
 
     def boost_words(self) -> dict[str, list[str]]:
         return boost.words(getattr(self._engine, "store", None), self._settings.boost_words)
@@ -315,6 +319,8 @@ class VoiceController:
         A reply still being written is shown, not spoken."""
         await self._end_session()
         self._replies.follow(None)
+        if self._reading is not None:
+            await self._send_quietly(wire.StopReading())
         if self.state == "listening":
             await self._send(wire.CancelListen())
             self._set("idle")
@@ -393,6 +399,11 @@ class VoiceController:
         self._proc = None
         await self._restart()
 
+    async def _respawn(self) -> None:
+        await self.stop()
+        if self._settings.enabled:
+            await self._spawn()
+
     async def _restart(self) -> None:
         if self._restarts >= len(RESTARTS):
             self._set("unavailable", "the voice worker keeps stopping; see the Mei log")
@@ -411,8 +422,21 @@ class VoiceController:
 
     async def _on_worker(self, event: wire.Event) -> None:
         match event:
+            case wire.Ready() if event.version != wire.VERSION:
+                # A worker started from other code than this core's (Mei updated while running): it
+                # would refuse what it doesn't know. Start it again, once; then say so.
+                if self._version_restarted:
+                    self._set("unavailable", "Mei was updated while running: log out and back in to use voice")
+                    return
+                self._version_restarted = True
+                log.warning("voice worker speaks %s, the core %s: starting it again", event.version, wire.VERSION)
+                asyncio.ensure_future(self._respawn())
             case wire.Ready():
                 self._restarts = 0
+                self._version_restarted = False
+                if self._reading is not None:  # a new worker isn't reading anything
+                    self._emit("voice.reading", {"message_id": self._reading, "reading": False})
+                    self._reading = None
                 note = event.note or ""
                 # A reload (a setting changed) closed the microphone; a conversation or dictation
                 # going on listens again rather than ending.
@@ -478,6 +502,12 @@ class VoiceController:
                 self._dictating = False
                 self._session = "quiet"  # the worker is listening already
                 await self._follow_mic_users()
+            case wire.Reading(id=read_id):
+                self._emit("voice.reading", {"message_id": read_id, "reading": True})
+            case wire.ReadDone(id=read_id):
+                if self._reading == read_id:
+                    self._reading = None
+                self._emit("voice.reading", {"message_id": read_id, "reading": False})
             case wire.Suspended():
                 self._set("suspended")
             case wire.Transcribe() | wire.Synthesize():

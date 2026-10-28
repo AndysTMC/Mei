@@ -25,6 +25,8 @@ import { checksPanel, stepsPanel } from './cards.js';
 import type { ListedItem } from './timelineView.js';
 
 export interface ListedMessage {
+    /** The message's id, where it has one (Read aloud follows it). */
+    id?: string;
     role: string;
     content: string;
     thinking?: string;
@@ -44,8 +46,8 @@ export interface MessageListHost {
     onReload(index: number): void;
     /** Voice is set up: replies offer Read aloud. */
     canReadAloud(): boolean;
-    /** Read a reply out, or stop reading. */
-    onReadAloud(text: string): void;
+    /** Read a reply out, or stop reading it. */
+    onReadAloud(messageId: string, text: string): void;
 }
 
 const STREAM_RENDER_MS = 50;
@@ -70,6 +72,9 @@ export class MessageList {
     private _expanded = false;
     private _loading = false;
     private _hasMessages = false;
+    /** Each shown reply's Read aloud button, by message id; and the reply being read. */
+    private readonly _readButtons = new Map<string, St.Button>();
+    private _reading: string | null = null;
     private _bubble?: St.BoxLayout;
     private _streaming?: StreamingBubble;
     private _thinkingOpen = true;
@@ -101,6 +106,7 @@ export class MessageList {
     showItems(items: ListedItem[], fadeLastAssistant = false): void {
         if (this._loading) this._removeBubble();
         this._box.destroy_all_children();
+        this._readButtons.clear();
         items.forEach((item, position) => {
             if (item.kind === 'card') {
                 this._box.add_child(item.build());
@@ -126,8 +132,19 @@ export class MessageList {
         this._queueScroll('bottom');
     }
 
+    /** The reply Read aloud is reading (its button shows Stop), or none. */
+    setReading(messageId: string | null): void {
+        const was = this._reading;
+        this._reading = messageId;
+        for (const id of [was, messageId]) {
+            const button = id ? this._readButtons.get(id) : undefined;
+            if (button) showReading(button, id === messageId);
+        }
+    }
+
     clear(): void {
         this._box.destroy_all_children();
+        this._readButtons.clear();
         this.actor.visible = false;
         this._hasMessages = false;
     }
@@ -205,7 +222,7 @@ export class MessageList {
             panels.push({ icon: CHECKS_ICON[outcomeLine(details.outcome).tone], label: 'Checks', panel: checksPanel(details.outcome) });
         if (role === 'assistant')
             panels.push({ icon: 'dialog-information-symbolic', label: 'Info', panel: createMessageInfoPanel(message.metadata, this._host.isDark()) });
-        container.add_child(this._footer(role, message.content, index, panels, Boolean(message.resumable)));
+        container.add_child(this._footer(role, message.content, index, panels, Boolean(message.resumable), message.id));
         for (const { panel } of panels) {
             panel.visible = false;
             container.add_child(panel);
@@ -215,7 +232,8 @@ export class MessageList {
 
     /** Under a message: Copy; under a reply Steps, Checks and Info, each opening its panel below (one
      * at a time), and Regenerate where it works. Labels show on hover or focus. */
-    private _footer(role: MessageRole, text: string, index: number, panels: FooterPanel[], resumable: boolean): St.BoxLayout {
+    private _footer(role: MessageRole, text: string, index: number, panels: FooterPanel[], resumable: boolean,
+        messageId?: string): St.BoxLayout {
         const bar = new St.BoxLayout({
             style_class: 'mei-action-bar',
             x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START,
@@ -233,9 +251,11 @@ export class MessageList {
         bar.add_child(copy);
         if (role !== 'assistant') return bar;
 
-        if (this._host.canReadAloud()) {
-            const read = footerButton('audio-speakers-symbolic', 'Read aloud');
-            read.connect('clicked', () => this._host.onReadAloud(text));
+        if (messageId && this._host.canReadAloud()) {
+            const read = footerButton(READ_ICON, 'Read aloud');
+            read.connect('clicked', () => this._host.onReadAloud(messageId, text));
+            this._readButtons.set(messageId, read);
+            if (this._reading === messageId) showReading(read, true);
             bar.add_child(read);
         }
 
@@ -407,6 +427,17 @@ function footerButton(iconName: string, label: string): St.Button {
     button.connect('key-focus-out', sync);
     addClickScale(button);
     return button;
+}
+
+const READ_ICON = 'audio-speakers-symbolic';
+const STOP_READING_ICON = 'media-playback-stop-symbolic';
+
+/** Read aloud's button: Stop while its reply is being read. */
+function showReading(button: St.Button, reading: boolean): void {
+    const name = reading ? 'Stop reading' : 'Read aloud';
+    footerIcon(button).icon_name = reading ? STOP_READING_ICON : READ_ICON;
+    footerLabel(button).text = name;
+    button.accessible_name = name;
 }
 
 function footerIcon(button: St.Button): St.Icon {

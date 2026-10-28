@@ -60,6 +60,8 @@ export class RuntimeChatController {
     private _voice: VoiceView = { state: 'off', note: '', transcript: '', dictating: false };
     /** The runtime holds the attachment for the next thing said in a conversation. */
     private _voiceHasAttachment = false;
+    /** The reply Read aloud is reading (decision 0030), or none. */
+    private _reading: string | null = null;
     /** Called once when setup was never offered (the extension opens Settings). */
     onSetupNeeded: (() => void) | null = null;
     /** Whether this controller asked for setup to open (read by the dev-build test hooks). */
@@ -221,12 +223,12 @@ export class RuntimeChatController {
     }
 
     /** A reply's Read aloud: Mei reads it out; pressed while Mei speaks, it stops. */
-    readAloud(text: string): void {
-        if (this._voice.state === 'speaking') {
-            this.voiceStop();
-            return;
-        }
-        this._client.call('VoiceReadAloud', { text }).catch((e: RuntimeError) => this._showFailure(e));
+    /** A reply's Read aloud (decision 0030): Mei reads it out on its own, not as Live; pressed again
+     * while that reply is being read, it stops. */
+    readAloud(messageId: string, text: string): void {
+        const method = this._reading === messageId ? 'VoiceStopReading' : 'VoiceReadAloud';
+        this._client.call(method, method === 'VoiceReadAloud' ? { message_id: messageId, text } : {})
+            .catch((e: RuntimeError) => this._showFailure(e));
     }
 
     voiceStop(): void {
@@ -422,6 +424,13 @@ export class RuntimeChatController {
     private _onEvent(event: Envelope): void {
         if (event.type === 'voice.state' || event.type === 'voice.partial') {
             this._onVoice(event);
+            return;
+        }
+        if (event.type === 'voice.reading') {
+            const id = String(event.payload.message_id ?? '');
+            if (event.payload.reading) this._reading = id;
+            else if (this._reading === id) this._reading = null;
+            this._popup.setReading(this._reading);
             return;
         }
         const result = this._projection.applyEvent(event);

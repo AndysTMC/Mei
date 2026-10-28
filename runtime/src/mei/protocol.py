@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 import msgspec
 
 PROTOCOL_MAJOR = 2  # 2.0: the runtime owns all provider settings (Config.active + Config.providers)
-PROTOCOL_MINOR = 4  # 2.4: voice; 2.3: memory; 2.2: the agent loop (actions, approvals, questions, grants)
+PROTOCOL_MINOR = 5  # 2.5: read aloud; 2.4: voice; 2.3: memory; 2.2: the agent loop (actions, approvals, questions, grants)
 BUS_NAME = "com.andystmc.Mei1"
 EXTENSION_UUID = "mei@andystmc.com"  # the Shell extension this runtime pairs with
 OBJECT_PATH = "/com/andystmc/Mei1"
@@ -53,7 +53,7 @@ DURABLE_EVENTS = frozenset({
     "memory.updated",
     "memory.deleted",
 })
-EPHEMERAL_EVENTS = frozenset({"message.delta", "runtime.notice", "voice.state", "voice.partial"})
+EPHEMERAL_EVENTS = frozenset({"message.delta", "runtime.notice", "voice.state", "voice.partial", "voice.reading"})
 
 
 class Envelope(msgspec.Struct, kw_only=True):
@@ -269,6 +269,7 @@ class VoiceDownloadArgs(msgspec.Struct):
 
 class VoiceReadAloudArgs(msgspec.Struct):
     text: Annotated[str, msgspec.Meta(max_length=100_000)]  # a reply, read out as it is spoken (markdown as words)
+    message_id: str = ""  # echoed in voice.reading, so its button shows Stop
 
 
 class VoiceAttachArgs(msgspec.Struct):
