@@ -454,7 +454,8 @@ class RuntimeService:
             raise ProtocolError("InvalidArgument", f"Mei couldn't read this PDF: {e}") from None
 
     async def _shell_only(self, sender: str, what: str) -> None:
-        if not await self._is_shell(sender):
+        if not await self._is_shell(sender):  # logged here, where it refuses; elsewhere the check only labels
+            log.warning("refused %s from %s: not the Shell", what, sender)
             raise ProtocolError("AccessDenied", f"only Mei in the top bar can {what}")
 
     async def _resolve_approval(self, sender: str, data: str) -> dict:

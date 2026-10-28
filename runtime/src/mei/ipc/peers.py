@@ -9,13 +9,11 @@ same user (it could replace the Shell's extension itself).
 
 from collections.abc import Awaitable, Callable
 
-import logging
 import os
 
 from dbus_fast import Message, MessageType
 from dbus_fast.aio import MessageBus
 
-log = logging.getLogger("mei.ipc")
 SHELL = "gnome-shell"
 SHELL_NAME = "org.gnome.Shell"
 
@@ -50,9 +48,6 @@ def shell_check(bus: MessageBus,
     async def is_shell(sender: str) -> bool:
         owner = await name_owner(bus, SHELL_NAME)
         pid = await caller_pid(bus, sender) if owner == sender else None
-        ok = pid is not None and executable(pid)
-        if not ok:
-            log.warning("refused a Shell-only call from %s (pid %s)", sender, pid)
-        return ok
+        return pid is not None and executable(pid)
 
     return is_shell

@@ -172,6 +172,35 @@ async def test_a_local_only_memory_never_reaches_a_cloud_model_through_the_memor
     assert FACT not in sent and "marked local only" in sent  # (their own earlier message may be in the history)
 
 
+async def test_with_a_few_memories_mei_knows_them_all_whatever_the_words(tmp_path):
+    """Decision 0035, from the owner's chat of 2026-10-28: "Do you know what I like?" got "nothing saved"
+    with "I love Android" saved, because no word matched."""
+    h = Harness(tmp_path, scripts={"Remember": [turn(call("memory_save", text="I love Android")), {"text": "ok"}],
+                                   "like": [{"text": "You love Android."}]})
+    r = h.submit("Remember: I love Android")
+    await h.until(r["task_id"])
+    nxt = h.submit("Do you know what I like?")
+    await h.until(nxt["task_id"])
+    assert "I love Android" in system_prompt(h)
+    recalled = h.store.read_one("SELECT recalled FROM tasks WHERE id = ?", (nxt["task_id"],))["recalled"]
+    assert json.loads(recalled) == []  # shown, but not taken as their words for policy
+
+
+async def test_with_more_memories_than_room_a_general_question_gets_the_ones_that_matter_most(tmp_path):
+    """The same cause beyond a handful of memories: no word of "What do you know about me?" matches any."""
+    h = Harness(tmp_path, script=[{"text": "ok"}])
+    with h.store.tx() as tx:
+        for fact in ["Takes the 8:10 train", "Keeps receipts in Dropbox", "Allergic to peanuts", "Plays chess on Sundays",
+                     "Drives a blue Corolla", "Has a cat called Miso", "Runs on Tuesdays", "Speaks Telugu",
+                     "Works from Hyderabad", "Uses Neovim", "Likes jazz", "Their name is Andy"]:
+            mem.add_memory(tx, fact, provenance="user_stated", status="active", task_id=None, conversation_id=None)
+        tx.execute("UPDATE memories SET use_count = 9 WHERE text = 'Their name is Andy'")  # the one most used
+    nxt = h.submit("What do you know about me?")
+    await h.until(nxt["task_id"])
+    shown = [line for line in system_prompt(h).splitlines() if line.startswith("- ") and "(they said this)" in line]
+    assert len(shown) == 8 and "Their name is Andy" in system_prompt(h)
+
+
 async def test_memory_off_means_no_recall_and_no_memory_tools(tmp_path):
     h = Harness(tmp_path, scripts={"Remember": [turn(call("memory_save", text=FACT)), {"text": "ok"}],
                                    "invoices": [{"text": "ok"}]})

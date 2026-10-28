@@ -276,3 +276,22 @@ async def test_the_tone_plays_aside_and_stop_catches_a_reply_still_being_synthes
     await asyncio.sleep(1.0)
     assert not played.exists() or len(np.fromfile(played, dtype=np.float32)) == 0
     await w.handle(wire.Quit())
+
+
+async def test_through_speakers_without_the_canceller_talking_over_mei_stays_off(tmp_path, models, voice, monkeypatch):
+    """Decision 0035: Mei would hear its own first words, stop, and take them for the person's."""
+    from mei.voice import worker as worker_module
+
+    async def speakers(_output: str = "") -> bool:
+        return False
+    monkeypatch.setattr(worker_module, "output_into_ears", speakers)
+    mic = await say(voice, 1.5, "Pause the music please.", 2.0)
+    w, events, played = await worker(tmp_path, models, mic, barge_in=True, echo_cancel=False)
+    w._config.sink_file = ""  # as on a real computer, where the speakers are speakers
+    await w.handle(wire.Say(text="Here is a long answer about the weather this week, which will be mostly sunny."))
+    await w.handle(wire.End())
+    failed = await events.until(wire.Failed, timeout=30)
+    assert failed.part == "talking over Mei" and "earphones" in failed.message
+    await events.until(wire.Spoken, timeout=30)
+    assert "BargeIn" not in events.kinds()  # the person spoke 1.5 s in: through speakers it doesn't count
+    await w.handle(wire.Quit())

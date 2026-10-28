@@ -346,11 +346,16 @@ async def test_in_its_jail_mei_does_not_hear_itself_through_the_speakers(lab, mo
     assert played > 5.0 and pipewire_lab.level_db(heard["mic"]) > -35  # all of it, and loud at the microphone
 
 
-async def test_without_the_canceller_the_same_echo_stops_mei(lab, models, jailed):
+async def test_without_the_canceller_talking_over_mei_stays_off_through_speakers(lab, models, jailed):
+    """The same echo would stop Mei at its own first words, and they came back as the person's (the owner's
+    chat of 2026-10-28). Decision 0035: through speakers, talking over Mei needs the canceller."""
     ready = await jailed.load(models, echo_cancel=False)
     assert not ready.echo_cancel
     await jailed.send(wire.Say(text=REPLY), wire.End())
-    await jailed.events.until(wire.BargeIn, 30)  # the echo is loud enough to matter
+    failed = await jailed.events.until(wire.Failed, 30)
+    assert failed.part == "talking over Mei" and "earphones" in failed.message
+    spoken = await jailed.events.until(wire.Spoken, 60)
+    assert not spoken.stopped and not jailed.events.of(wire.BargeIn)  # the whole reply, uninterrupted
 
 
 async def test_talking_over_mei_through_the_canceller_stops_it_and_is_heard(lab, models, jailed, piper):

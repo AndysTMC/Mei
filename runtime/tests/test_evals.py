@@ -38,7 +38,7 @@ async def test_a_model_that_only_claims_success_fails_the_check(name):
 
 def test_summary_metrics():
     def r(passed, outcome, prompts=0):
-        return Result("t", "file", passed, "", "COMPLETED", outcome, prompts, 0, 0, 1, 0.1)
+        return Result("t", "file", "easy", passed, "", "COMPLETED", outcome, prompts, 0, 0, 1, 0.1)
     summary = summarize([r(True, "outcome_verified", 1), r(False, "reported"), r(True, "reported"),
                          r(False, "outcome_verified"), r(True, None, 1)])
     assert summary["pass_rate"] == 0.6 and summary["prompts_per_task"] == 0.4

@@ -48,7 +48,13 @@ def recall(store: Store, task, *, local_only_ok: bool) -> list[dict]:
         (task["input_message_id"], task["id"])))
     found = [r for r in mem.recall(store, request, limit=RECALL_LIMIT)
              if local_only_ok or r["sensitivity"] != "local_only"]
-    ids = [r["id"] for r in found]
+    ids = [r["id"] for r in found]  # what the request brought up: for policy, the person's words (§17.5)
+    # Matching words alone find nothing for a question about the person in general (decision 0035: "Do you
+    # know what I like?" against "I love Android", "What do you know about me?" against everything). The
+    # places words leave are filled with what matters most anyway. Shown, not vouched for: only what the
+    # request matched counts as the person's words.
+    found += [r for r in mem.best_known(store, exclude=ids, limit=RECALL_LIMIT - len(found))
+              if local_only_ok or r["sensitivity"] != "local_only"]
     previous = json.loads(task["recalled"])
     if set(ids) - set(previous):
         with store.tx() as tx:

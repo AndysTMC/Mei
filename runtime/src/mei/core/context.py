@@ -82,12 +82,13 @@ def build(inputs: Inputs, task) -> ModelRequest:
     actions = {a["id"]: a for a in store.read("SELECT * FROM actions WHERE task_id = ?", (task["id"],))}
     spoken = any(r["id"] == task["input_message_id"] and json.loads(r["metadata"] or "{}").get("source") == "voice"
                  for r in rows)
+    tools = inputs.registry.specs(inputs.env, without=inputs.hidden_tools) if inputs.tools else ()
     turns = [ChatTurn("system", prompt.system_prompt(inputs.env, inputs.now, plan, memories=inputs.memories,
-                                                     episodes=inputs.episodes, spoken=spoken))]
+                                                     episodes=inputs.episodes, spoken=spoken,
+                                                     sees=any(t.name == "desktop_observe" for t in tools)))]
     turns += _earlier(store, [r for r in rows if r["ordinal"] < input_ordinal])
     turns += _current(inputs, task["id"], [r for r in rows if r["ordinal"] == input_ordinal or
                                (r["task_id"] == task["id"] and r["ordinal"] > input_ordinal)], actions)
-    tools = inputs.registry.specs(inputs.env, without=inputs.hidden_tools) if inputs.tools else ()
     return ModelRequest(turns, tools=tools)
 
 

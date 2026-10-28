@@ -159,8 +159,14 @@ def spoken(store: Store, task_id: str) -> bool:
 
 
 def repeated(store: Store, task_id: str, action_id: str, capability: str, params_hash: str) -> bool:
-    row = store.read_one("SELECT COUNT(*) AS n FROM actions WHERE task_id = ? AND id != ? AND capability = ? "
-                         "AND params_hash = ?", (task_id, action_id, capability, params_hash))
+    """The same call, the third time with nothing else done in between (decision 0035). Looking at a
+    window again after a click that worked is a new look, not a loop: something else succeeding since
+    starts the count again."""
+    row = store.read_one(
+        "SELECT COUNT(*) AS n FROM actions WHERE task_id = ? AND id != ? AND capability = ? AND params_hash = ? "
+        "AND created_at > COALESCE((SELECT MAX(created_at) FROM actions WHERE task_id = ? AND execution = 'SUCCEEDED' "
+        "AND NOT (capability = ? AND params_hash = ?)), 0)",
+        (task_id, action_id, capability, params_hash, task_id, capability, params_hash))
     return int(row["n"]) >= REPEAT_LIMIT
 
 

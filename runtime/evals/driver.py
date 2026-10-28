@@ -9,8 +9,8 @@ from mei.capabilities.base import Env
 from mei.capabilities.catalog import default_registry
 from mei.core.engine import Engine
 from mei.core.states import TERMINAL, TaskState
-from mei.protocol import (AnswerInputArgs, Approvals, Attachment, Config, Privacy, ProviderConfig, ProviderSettings,
-                          ResolveApprovalArgs, SubmitInputArgs, UpdateConfigArgs)
+from mei.protocol import (AnswerInputArgs, Approvals, Attachment, ComputerSettings, Config, Privacy, ProviderConfig,
+                          ProviderSettings, ResolveApprovalArgs, SubmitInputArgs, UpdateConfigArgs)
 from mei.providers.base import Provider
 from mei.store import agent, repo
 from mei.store.db import Store
@@ -39,7 +39,7 @@ class Recorder:
 
 class Driver:
     def __init__(self, data_dir: Path, env: Env, factory: ProviderFactory, provider: ProviderConfig, *,
-                 preset: str = "balanced", cloud_files: str = "pointed",
+                 preset: str = "balanced", cloud_files: str = "pointed", computer: bool = False,
                  boundary: Callable[[str], None] = lambda _n: None) -> None:
         self.env = env
         self.rec = Recorder()
@@ -49,7 +49,8 @@ class Driver:
         revision = self.engine.get_config()["revision"]
         self.engine.update_config(UpdateConfigArgs(revision, Config(
             active=provider.id, providers={provider.id: settings},
-            privacy=Privacy(cloud_files=cloud_files), approvals=Approvals(preset=preset))))
+            privacy=Privacy(cloud_files=cloud_files), approvals=Approvals(preset=preset),
+            computer=ComputerSettings(enabled=computer, see_without_asking=computer))))
         self._n = 0
 
     @property
@@ -60,9 +61,10 @@ class Driver:
         self._n += 1
         return f"cmd-{self._n}"
 
-    def submit(self, text: str, conversation_id: str | None = None, attachment: Attachment | None = None) -> dict:
-        return self.engine.submit_input(SubmitInputArgs(command_id=self._id(), text=text,
-                                                        conversation_id=conversation_id, attachment=attachment))
+    def submit(self, text: str, conversation_id: str | None = None, attachment: Attachment | None = None,
+               spoken: bool = False) -> dict:
+        return self.engine.submit_input(SubmitInputArgs(command_id=self._id(), text=text, conversation_id=conversation_id,
+                                                        attachment=attachment, source="voice" if spoken else "text"))
 
     async def until(self, task_id: str, states=SETTLED, timeout: float = 10.0) -> str:
         """Wait until the task is in one of `states` and its runner has finished."""

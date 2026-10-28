@@ -14,7 +14,7 @@ import msgspec
 
 from mei.capabilities.base import CheckResult, Env
 from mei.capabilities.checks import run_check
-from mei.capabilities.meta import AskParams, CheckSpec, FinishParams, PlanParams
+from mei.capabilities.meta import AskParams, CheckSpec, Criterion, FinishParams, PlanParams, Step
 from mei.core.states import Disposition, Execution, TaskState
 from mei.store import agent, repo
 from mei.store.db import Tx
@@ -29,9 +29,10 @@ NUDGE = ("You changed things in this task but didn't call task_finish. Call it n
 
 
 def save_plan(tx: Tx, task: dict, action, p: PlanParams) -> None:
-    plan = {"steps": [msgspec.to_builtins(s) for s in p.steps],
+    criteria = [Criterion(text=c) if isinstance(c, str) else c for c in p.criteria]
+    plan = {"steps": [msgspec.to_builtins(Step(text=s) if isinstance(s, str) else s) for s in p.steps],
             "criteria": [{"text": c.named(), "check": msgspec.to_builtins(c.check) if c.check and c.check.type is not None else None,
-                          "status": "pending"} for c in p.criteria if c.named()]}
+                          "status": "pending"} for c in criteria if c.named()]}
     agent.update_action(tx, action["id"], E.STARTED)
     agent.set_plan(tx, task["id"], plan)
     finish_action(tx, task, action, E.SUCCEEDED, "Plan saved.", is_error=False,

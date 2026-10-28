@@ -134,6 +134,18 @@ async def test_a_reply_the_model_cut_short_is_kept_and_marked(tmp_path):
     [reply] = [m for m in repo.history(h.store, r["conversation_id"]) if m["role"] == "assistant"]
     assert reply["content"] == "The first half of a long ans" and reply["metadata"]["cut"] == "length"
 
+
+async def test_plan_steps_may_come_as_plain_text(tmp_path):
+    """Decision 0035: models send steps as strings; that was refused twice in the owner's chats."""
+    h = Harness(tmp_path, script=[turn(call("plan_update", steps=["look in Downloads", "answer"],
+                                            criteria=["the answer names the files"])), {"text": "Done."}])
+    r = h.submit("plan, then answer")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    assert h.actions(r["task_id"])[0]["execution"] == E.SUCCEEDED
+    plan = h.task(r["task_id"])["plan"]
+    assert [s["text"] for s in plan["steps"]] == ["look in Downloads", "answer"]
+    assert [c["text"] for c in plan["criteria"]] == ["the answer names the files"]  # the same, for criteria
+
 # ── The batch scenario (§20): three calls, the middle one needs approval ─────
 
 BATCH = turn(call("fs_list", path="~/Downloads"), call("fs_trash", path="~/Music/old.txt"),

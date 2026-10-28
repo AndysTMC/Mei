@@ -54,6 +54,7 @@ class Worker:
         # talk over, no listening after.
         self._aside: pipeline.Speaker | None = None
         self._reading: str | None = None  # the message Read aloud is reading
+        self._said_no_barge = False  # said once per load why talking over Mei is off
         self._tts = None  # what speaks: warmed when listening starts
         self._gpu_note = ""
         self._config: wire.Load | None = None
@@ -194,6 +195,7 @@ class Worker:
         self._aside = pipeline.Speaker(tts, aside_sink, on_start=self._aside_started, on_done=self._aside_done,
                                        on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)))
         self._config, self._tts = cfg, tts
+        self._said_no_barge = False
         self._armed = cfg.wake and self._wake is not None
         self.emit(wire.Ready(stt=stt.name, tts=tts.name, device=device, note="; ".join(n for n in (note, echo_note) if n),
                              wake=self._wake is not None, echo_cancel=self._barge_source is not self._source,
@@ -309,8 +311,17 @@ class Worker:
 
         self._vad.reset()
         source = self._barge_source
-        if isinstance(source, EchoCancelledSource) and await output_into_ears(self._config.output):
+        ears = await output_into_ears(self._config.output)
+        if isinstance(source, EchoCancelledSource) and ears:
             source = self._source  # no echo to cancel, and the canceller would only slow barge-in down
+        if source is self._source and not ears and not self._config.sink_file:
+            # Speakers and the plain microphone: Mei would hear itself and stop at its own first words,
+            # then take them for the person's (decision 0035). It needs earphones or the canceller.
+            if not self._said_no_barge:
+                self._said_no_barge = True
+                self.emit(wire.Failed(part="talking over Mei", message="it needs earphones, or Cancel echo from "
+                                      "speakers turned on: through speakers Mei would hear itself"))
+            return
         try:
             heard = await self._watch(talking_over, source, BARGE_CHUNK)
         except VoiceError as e:

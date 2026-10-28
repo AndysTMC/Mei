@@ -31,11 +31,41 @@ class FakeShell:
     async def list_windows(self) -> list[Window]:
         return list(self.windows)
 
+    async def monitors(self) -> list[dict]:
+        return [{"x": 0, "y": 0, "width": 1920, "height": 1080, "scale": 1.0}]
+
     async def launch_app(self, app_id: str, uris: list[str]) -> None:
         self.launched.append((app_id, uris))
         name = next((a.name for a in APPS if a.id == app_id), app_id)
         title = Path(unquote(urlparse(uris[0]).path)).name if uris else name
         self.windows.append(Window(app_id=f"{app_id}.desktop", title=title))
+
+
+class FakeDesktop:
+    """A window on screen for computer-use tasks: its controls and text as the desktop worker would
+    report them (never a picture: a live model would be sent a fake image). Acts are recorded."""
+
+    def __init__(self, title: str, app: str, nodes: list[dict]) -> None:
+        self.title, self.app, self.nodes = title, app, nodes
+        self.acts: list[tuple] = []
+        self._n = 0
+
+    def person_active(self, idle_ms: int) -> bool:
+        return False
+
+    async def observe(self, window: dict, monitors: list, *, picture: bool, max_nodes: int = 250) -> dict:
+        self._n += 1
+        return {"token": f"s{self._n}", "app": self.app, "title": self.title, "nodes": self.nodes}
+
+    async def act(self, token: str, action: str, **kw) -> dict:
+        self.acts.append((action, kw.get("element"), kw.get("text")))
+        return {"how": "accessibility", "changes": [], "token": "", "nodes": []}
+
+    def seen(self, token: str):
+        from mei.computer.controller import Seen
+        if token != f"s{self._n}":
+            return None
+        return Seen(token, {"id": 1, "title": self.title}, self.app, {n["id"]: n for n in self.nodes})
 
 
 class FakeVolume:
@@ -94,6 +124,13 @@ class World:
         write_pdf(p, lines)
         _age(p, days_old)
         return p
+
+    def show_window(self, title: str, app_id: str, app: str, nodes: list[dict]) -> FakeDesktop:
+        """A window on screen, with computer use on: Mei can look at it and act in it."""
+        self.shell.windows.append(Window(app_id=app_id, title=title, focused=True, id=1, pid=1,
+                                         buffer={"x": 0, "y": 0, "width": 1280, "height": 800}))
+        self.env.desktop = FakeDesktop(title, app, nodes)
+        return self.env.desktop
 
     async def setting(self, schema: str, key: str) -> str:
         return await self.gsettings.get(schema, key) if self.gsettings else ""

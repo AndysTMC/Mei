@@ -10,6 +10,7 @@ checkbox or switch, focusing, scrolling, opening a menu or tab. Labels like send
 it stricter. Mei never types into a password field: it hands that field to the person.
 """
 
+import contextlib
 import re
 from typing import Annotated, Literal
 
@@ -20,6 +21,7 @@ from .base import (READ_ONLY, ActionContext, ActionResult, AVAILABLE, Availabili
 
 Action = Literal["press", "toggle", "set_text", "type", "key", "focus", "click", "scroll"]
 MAX_LINES = 400
+SPARSE = 2  # elements or fewer: the window's controls aren't visible to Mei, so it also takes a picture
 LOW_RISK = Effects(mutates="local", undo="none")
 UNKNOWN = Effects(mutates="unknown", undo="none")
 TOGGLES = frozenset({"check box", "switch", "toggle button", "radio button", "check menu item", "radio menu item"})
@@ -127,6 +129,12 @@ class DesktopObserve(Capability):
         windows, monitors = await _screen(ctx.env)
         window = pick_window(windows, p.window)
         data = await _desktop(desktop.observe(window_dict(window), monitors, picture=p.picture))
+        if not p.picture and len(data.get("nodes", [])) <= SPARSE:
+            # Nothing to act on but the window itself (decision 0035): web pages in Chrome show no controls
+            # to assistive tools, and the owner's tasks looped clicking by point on snapshots with no
+            # picture. A picture is what there is to see, so it comes along.
+            with contextlib.suppress(CapabilityError):  # no screen permission: the elements it has
+                data = await _desktop(desktop.observe(window_dict(window), monitors, picture=True))
         images = [data["picture"]["png"]] if isinstance(data.get("picture"), dict) else []
         return ActionResult(ok=True, observation=outline(data), summary=f"Looked at {window.title or 'a window'}",
                             data_class="screen", trust="untrusted", images=images)

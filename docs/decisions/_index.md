@@ -33,3 +33,4 @@
 | 0032 | A reply the model cut short says so | accepted | 2026-10-28 | — |
 | 0033 | Fixes from the October reviews: pipes, questions, drafts, cards, PDFs, downloads, keys, the pointer, purge; noise suppression primed | accepted | 2026-10-28 | — |
 | 0034 | The popup grows into a large page: what Mei is doing, and attachments, read-only; the runtime draws PDF pages | accepted | 2026-10-26 | — (builds on 0023) |
+| 0035 | Fixes from the owner's own chats; graded eval tasks; Hey Mei sees the screen without asking | accepted | 2026-10-28 | 0024 (in part: talking over Mei through speakers without the canceller) |

@@ -82,6 +82,11 @@ def _portable(node: dict, defs: dict) -> dict:
     node = _resolve(node, defs)
     if "anyOf" in node:
         options = [o for o in node["anyOf"] if o.get("type") != "null"]
+        # X | str where X is an object: the plain string is leniency for models that send one (a plan step
+        # as text), not something to advertise; and not every provider takes anyOf (decision 0035).
+        structured = [o for o in options if _resolve(o, defs).get("type") == "object"]
+        if len(options) == 2 and len(structured) == 1 and any(o.get("type") == "string" for o in options):
+            options = structured
         if len(options) == 1:  # Optional[X]: the field is simply not required (and has no null default)
             rest = {k: v for k, v in node.items() if k not in ("anyOf", *_DROP) and not (k == "default" and v is None)}
             return {**_portable(options[0], defs), **rest}

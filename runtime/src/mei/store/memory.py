@@ -132,6 +132,18 @@ def recall(store: Store, text: str, *, limit: int = 8, now: int | None = None) -
     return chosen[:max(limit, len(pinned))]
 
 
+def best_known(store: Store, *, exclude: list[str], limit: int) -> list:
+    """Active memories in order of how much they matter without a request to match: pinned, then the most
+    used, then the most recently used or changed. What fills recall's place where words don't match."""
+    if limit <= 0:
+        return []
+    marks = ",".join("?" for _ in exclude)
+    skip = f"AND id NOT IN ({marks})" if exclude else ""
+    return store.read(f"SELECT * FROM memories WHERE status = 'active' {skip} "
+                      "ORDER BY pinned DESC, use_count DESC, COALESCE(last_used_at, updated_at) DESC LIMIT ?",
+                      (*exclude, limit))
+
+
 def mark_used(tx: Tx, memory_ids: list[str]) -> None:
     for memory_id in memory_ids:
         tx.execute("UPDATE memories SET use_count = use_count + 1, last_used_at = ? WHERE id = ?",

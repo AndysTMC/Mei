@@ -479,6 +479,47 @@ async def test_turned_off_while_it_waited_the_act_does_not_run(tmp_path):
     assert desktop.acts == [] and act["execution"] == E.POLICY_DENIED and "turned off" in act["error"], act["error"]
 
 
+async def test_looking_again_after_acting_is_not_a_loop(tmp_path):
+    """Decision 0035: the owner's tasks of 2026-10-26 stopped with "kept repeating the same step" because a
+    third look at the same window was refused, though each click between had worked and changed it."""
+    looks = [turn(call("desktop_observe")), turn(call("desktop_act", snapshot="t1", action="set_text", element="e1",
+                                                         text="Ada"))]
+    h, desktop = computer_harness(tmp_path, looks + [
+        turn(call("desktop_observe")), turn(call("desktop_act", snapshot="t2", action="set_text", element="e1",
+                                                  text="Bea")),
+        turn(call("desktop_observe")), {"text": "Done."}])
+    r = h.submit("type Ada, then Bea, into Login")
+    assert await h.until(r["task_id"]) in (S.COMPLETED, S.WAITING_APPROVAL)
+    observes = [a for a in h.actions(r["task_id"]) if a["capability"] == "desktop.observe"]
+    assert len(observes) == 3 and all(a["execution"] == E.SUCCEEDED for a in observes), \
+        [(a["execution"], a["error"]) for a in observes]
+
+
+async def test_the_model_is_told_it_can_see_the_screen_only_when_it_can(tmp_path):
+    """Decision 0035: with no word about it, models said "I can't see your screen" with the tool in hand."""
+    h, _desktop = computer_harness(tmp_path, [{"text": "A login form."}])
+    r = h.submit("what's on my screen?")
+    await h.until(r["task_id"])
+    assert "desktop_observe" in h.requests()[-1]["turns"][0]["content"]
+    off = Harness(tmp_path / "off", script=[{"text": "Hi."}])
+    r = off.submit("hello")
+    await off.until(r["task_id"])
+    assert "desktop_observe" not in off.requests()[-1]["turns"][0]["content"]
+
+
+async def test_a_window_with_no_controls_to_see_is_looked_at_as_a_picture(tmp_path):
+    """Decision 0035: Chrome's web pages showed Mei one element, the window frame, and the owner's tasks
+    looped clicking by point on snapshots without a picture."""
+    h, desktop = computer_harness(tmp_path, [turn(call("desktop_observe")), {"text": "A web page."}])
+    desktop.nodes = [{"id": "e1", "role": "frame", "name": "Antigravity - Google Chrome", "states": []}]
+    r = h.submit("what's on my screen?")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    observed = h.actions(r["task_id"])[0]
+    assert observed["execution"] == E.SUCCEEDED and desktop.observed == 2  # the elements, then a picture of it
+    seen = h.store.read_one("SELECT content FROM messages WHERE action_id = ?", (observed["id"],))["content"]
+    assert "Picture: 4×3 pixels" in seen
+
+
 async def test_the_kill_switch_stops_the_tasks_that_used_the_computer(tmp_path):
     h, desktop = computer_harness(tmp_path, [
         turn(call("desktop_observe")), turn(call("desktop_act", snapshot="t1", action="press", element="e4")),

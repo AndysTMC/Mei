@@ -49,8 +49,9 @@ class Criterion(msgspec.Struct, kw_only=True, omit_defaults=True):
 
 
 class PlanParams(msgspec.Struct, kw_only=True):
-    steps: list[Step] = msgspec.field(default_factory=list)
-    criteria: Annotated[list[Criterion], msgspec.Meta(
+    # A step or criterion may come as plain text: models often send ["find the file", ...] (decision 0035).
+    steps: list[Step | str] = msgspec.field(default_factory=list)
+    criteria: Annotated[list[Criterion | str], msgspec.Meta(
         description="Acceptance criteria for the result. Give each a check when one fits; replaces earlier criteria")
     ] = msgspec.field(default_factory=list)
 

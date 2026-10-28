@@ -30,7 +30,7 @@ from mei.providers.fake import FakeProvider
 from mei.store import agent, repo
 
 from .driver import Driver
-from .tasks import ALL_TASKS, Task
+from .tasks import ALL_TASKS, LEVELS, Task
 from .world import World
 
 S = TaskState
@@ -60,6 +60,7 @@ def load_env() -> dict[str, str]:
 class Result:
     task: str
     kind: str
+    level: str
     passed: bool
     detail: str
     state: str
@@ -83,16 +84,17 @@ async def run_task(task: Task, root: Path, provider: ProviderConfig, make) -> Re
     world = World(root)
     await task.setup(world)
     if task.kind == "file" and world.env.extractor is None and "pdf" in task.prompt.lower():
-        return Result(task.name, task.kind, False, "pdftotext isn't installed", "SKIPPED", None, 0, 0, 0, 0, 0.0)
+        return Result(task.name, task.kind, task.level, False, "pdftotext isn't installed", "SKIPPED", None, 0, 0, 0, 0, 0.0)
     if task.kind == "shell" and not (world.env.runner and world.env.runner.available(sandboxed=True)):
-        return Result(task.name, task.kind, False, "bubblewrap isn't installed", "SKIPPED", None, 0, 0, 0, 0, 0.0)
-    driver = Driver(root / "mei", world.env, make, provider)
+        return Result(task.name, task.kind, task.level, False, "bubblewrap isn't installed", "SKIPPED", None, 0, 0, 0, 0,
+                      0.0)
+    driver = Driver(root / "mei", world.env, make, provider, computer=world.env.desktop is not None)
     world.store = driver.store
     started = time.monotonic()
     tally = Tally()
     for earlier in task.before:  # each in a conversation of its own, as on another day
         await _drive(driver, driver.submit(earlier)["task_id"], tally)
-    submitted = driver.submit(task.prompt, attachment=task.attachment)
+    submitted = driver.submit(task.prompt, attachment=task.attachment, spoken=task.spoken)
     task_id = submitted["task_id"]
     state = await _drive(driver, task_id, tally)
     prompts, denied, questions = tally.prompts, tally.denied, tally.questions
@@ -105,7 +107,7 @@ async def run_task(task: Task, root: Path, provider: ProviderConfig, make) -> Re
     calls = driver.store.read_one("SELECT model_calls FROM tasks WHERE id = ?", (task_id,))["model_calls"]
     error = redact(final["error"] or "") if final["state"] in (S.FAILED, S.INTERRUPTED, S.BLOCKED) else ""
     driver.store.close()
-    return Result(task.name, task.kind, passed, detail, str(state), outcome, prompts, denied, questions, calls,
+    return Result(task.name, task.kind, task.level, passed, detail, str(state), outcome, prompts, denied, questions, calls,
                   round(time.monotonic() - started, 1), error)
 
 
@@ -161,6 +163,8 @@ def summarize(results: list[Result]) -> dict:
         "verified_but_wrong": sum(1 for r in ran if r.outcome == "outcome_verified" and not r.passed),
         "outcomes": {k: sum(1 for r in ran if r.outcome == k) for k in
                      ("outcome_verified", "partially_verified", "reported", None)},
+        "by_level": {level: f"{sum(r.passed for r in ran if r.level == level)}/{sum(1 for r in ran if r.level == level)}"
+                     for level in LEVELS if any(r.level == level for r in ran)},
     }
 
 
@@ -187,6 +191,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--provider", default="fake", help="'fake' (scripted), or a provider id with a key in .env")
     p.add_argument("--model", default="", help="model id (default: the .env's <PROVIDER>_MODEL)")
     p.add_argument("--tasks", default="", help="comma-separated task names (default: all)")
+    p.add_argument("--level", default="", help=f"only tasks of these levels, comma-separated ({', '.join(LEVELS)})")
     p.add_argument("--repeat", type=int, default=1)
     p.add_argument("--out", default="", help="write the results as JSON here")
     p.add_argument("--pause", type=float, default=0.0, help="seconds between tasks (for rate-limited free tiers)")
@@ -195,7 +200,8 @@ def _parse(argv: list[str]) -> argparse.Namespace:
 
 async def main(argv: list[str]) -> int:
     args = _parse(argv)
-    tasks = [t for t in ALL_TASKS if not args.tasks or t.name in args.tasks.split(",")]
+    tasks = [t for t in ALL_TASKS if (not args.tasks or t.name in args.tasks.split(","))
+             and (not args.level or t.level in args.level.split(","))]
     if args.provider == "fake":
         results = await run_all(tasks, ProviderConfig(id="fake", options={"delay_ms": 0, "chunk_chars": 200}),
                                 _scripted, args.repeat)
@@ -222,11 +228,12 @@ def _report(results: list[Result], label: str, out: str) -> int:
     summary = summarize(results)
     for r in results:
         mark = "PASS" if r.passed else {"SKIPPED": "SKIP", "ERROR": "ERR "}.get(r.state, "FAIL")
-        print(f"{mark}  {r.task:22} {r.outcome or 'answer':19} prompts={r.prompts} calls={r.model_calls:<2} "
+        print(f"{mark}  {r.level:14} {r.task:28} {r.outcome or 'answer':19} prompts={r.prompts} calls={r.model_calls:<2} "
               f"{r.seconds:5.1f}s  {r.detail or r.error}"[:200])
     print(f"\n{label}: {summary['passed']}/{summary['tasks']} passed, {summary['prompts_per_task']} prompts per "
           f"task, wrong-reported rate {summary['wrong_reported_rate']}, verified-but-wrong "
           f"{summary['verified_but_wrong']}, provider errors {summary['provider_errors']}")
+    print("by level: " + ", ".join(f"{level} {passed}" for level, passed in summary["by_level"].items()))
     if out:
         Path(out).write_text(json.dumps({"provider": label, "summary": summary,
                                          "results": [asdict(r) for r in results]}, indent=1) + "\n")
