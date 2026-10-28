@@ -217,3 +217,19 @@ def test_a_folder_granted_to_commands_covers_it_and_what_is_inside():
     beside_it = Subject(kind="path", value=str(ENV.path("~/Projects/other")), access="write", role="folder")
     run = lambda *subs: Facts("shell.run", False, Effects(mutates="local", loses_data=True), subs, False)  # noqa: E731
     assert covers(grant, run(s)) and covers(grant, run(inside_it)) and not covers(grant, run(beside_it))
+
+
+def test_every_restriction_must_pass_and_sending_needs_a_grant_made_for_sending():
+    """Decision 0031: a grant made for a local change (a folder for commands) doesn't let the same
+    command later send data off this computer; only a grant from a card that said so does."""
+    networked = Effects(mutates="unknown", undo="none", loses_data=True, disclosure="off_machine")
+    f = facts(subject("~/Projects/app", role="cwd"), effects=networked, capability="shell.run")
+    local_grant = Grant("g", "shell.run", rules_for(f.subjects), task_id="t1")
+    assert decide(f, grants=[local_grant]).reason == "disclosure"
+    sending = Grant("s", "shell.run", rules_for(f.subjects), task_id="t1", discloses=True)
+    assert decide(f, grants=[local_grant, sending]).decision == "allow"
+    tainted = facts(subject("~/Projects/app", role="cwd", provenance="model"), effects=networked, capability="shell.run",
+                    tainted=True)
+    assert decide(tainted, grants=[sending]).reason == "untrusted_disclosure"  # no grant reaches past the floor
+    standing = Grant("p", "shell.run", rules_for(f.subjects), task_id=None, discloses=True)
+    assert decide(f, grants=[standing]).reason == "unknown_effect"  # sending is covered; the unknown still asks

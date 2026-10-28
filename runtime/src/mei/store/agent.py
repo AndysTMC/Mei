@@ -196,12 +196,14 @@ def set_plan(tx: Tx, task_id: str, plan: dict) -> None:
 
 
 def create_grant(tx: Tx, *, task_id: str | None, capability: str, rules: list[dict], description: str,
-                 approval_id: str | None) -> dict:
+                 approval_id: str | None, discloses: bool = False) -> dict:
+    """`discloses`: the card it came from said data would leave this computer; only such a grant covers that."""
     grant = {"id": new_id(), "task_id": task_id, "capability": capability, "rules": rules,
              "description": description, "created_at": now_ms()}
-    tx.execute("INSERT INTO grants (id, task_id, capability, resources, description, approval_id, created_at) "
-               "VALUES (?, ?, ?, ?, ?, ?, ?)",
-               (grant["id"], task_id, capability, json.dumps(rules), description, approval_id, grant["created_at"]))
+    tx.execute("INSERT INTO grants (id, task_id, capability, resources, description, approval_id, created_at, discloses) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+               (grant["id"], task_id, capability, json.dumps(rules), description, approval_id, grant["created_at"],
+                int(discloses)))
     tx.event("grant.created", {"grant": grant}, required=False)
     return grant
 

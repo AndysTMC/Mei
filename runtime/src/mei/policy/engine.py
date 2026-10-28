@@ -60,6 +60,7 @@ class Grant:
     capability: str
     rules: tuple[GrantRule, ...]
     task_id: str | None  # None: it holds until revoked
+    discloses: bool = False  # made on a card that said data would leave this computer (decision 0031)
 
 
 @dataclass(frozen=True)
@@ -108,17 +109,23 @@ def evaluate(facts: Facts, preset: Preset, grants: list[Grant], rules: PathRules
         return _ask("no_resources", preset, floor=True)  # nothing to judge it by: never on autopilot
     grant = next((g for g in grants if covers(g, facts)), None)
     task_grant = grant if grant is not None and grant.task_id is not None else None
+    untrusted = any(s.provenance == "untrusted" or (facts.tainted and s.provenance == "model") for s in facts.subjects)
+    # Every restriction must pass, not the first that a grant matches (decision 0031): sending data off
+    # this computer is judged before anything a grant made for something else could allow.
+    if e.disclosure == "off_machine":
+        if untrusted:
+            return _ask("untrusted_disclosure", preset, floor=True)
+        sending = next((g for g in grants if g.discloses and covers(g, facts)), None)
+        if sending is None:
+            return _ask("disclosure", preset, scopes=("once", "task"))
+        grant = sending
+        task_grant = sending if sending.task_id is not None else None
     if e.mutates == "unknown":
         return _granted(task_grant) or _ask("unknown_effect", preset, scopes=("once", "task"))
     if e.loses_data:  # never on autopilot or by a standing grant; the person can grant a folder for the task
         return _granted(task_grant) or _ask("loses_data", preset, scopes=("once", "task"))
-    untrusted = any(s.provenance == "untrusted" or (facts.tainted and s.provenance == "model") for s in facts.subjects)
     if e.visibility == "others":
         return _granted(task_grant) or _ask("visible_to_others", preset, scopes=("once", "task"))
-    if e.disclosure == "off_machine":
-        if untrusted:
-            return _ask("untrusted_disclosure", preset, floor=True)
-        return _granted(grant) or _ask("disclosure", preset, scopes=("once", "task"))
     writes = [Path(s.value) for s in facts.subjects if s.kind == "path" and s.access == "write"]
     if any(rules.protected(p) for p in writes):
         return _ask("protected_folder", preset, floor=True)

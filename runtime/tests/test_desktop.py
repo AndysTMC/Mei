@@ -195,6 +195,25 @@ def test_this_test_process_is_not_the_shell():
     assert not is_shell_executable(2 ** 22 + 12345)  # no such process
 
 
+async def test_only_the_owner_of_the_shells_bus_name_counts_as_the_shell():
+    """Decision 0031: a program merely called gnome-shell isn't the Shell; the Shell owns its bus name."""
+    from dbus_fast import NameFlag
+    from dbus_fast.aio import MessageBus
+    from mei.ipc.peers import shell_check
+    address = os.environ.get("DBUS_SESSION_BUS_ADDRESS", "")
+    if not address or address == f"unix:path=/run/user/{os.getuid()}/bus":
+        pytest.skip("needs a private session bus (dbus-run-session), never the real one")
+    shell, other, runtime = [await MessageBus().connect() for _ in range(3)]
+    try:
+        await shell.request_name("org.gnome.Shell", NameFlag.DO_NOT_QUEUE)
+        is_shell = shell_check(runtime, executable=lambda pid: True)  # as if every process ran gnome-shell
+        assert await is_shell(shell.unique_name)
+        assert not await is_shell(other.unique_name)
+    finally:
+        for bus in (shell, other, runtime):
+            bus.disconnect()
+
+
 async def test_settings_tools_are_hidden_without_gsettings(env):
     from mei.capabilities.catalog import default_registry
     names = {s.name for s in default_registry().specs(env)}

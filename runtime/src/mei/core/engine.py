@@ -236,7 +236,8 @@ class Engine:
                                        capability=action["capability"],
                                        rules=[msgspec.to_builtins(r) for r in rules_for(subjects)],
                                        description=card.get("scope_text", {}).get(args.scope, card.get("title", "")),
-                                       approval_id=approval["id"])
+                                       approval_id=approval["id"],
+                                       discloses=json.loads(action["effects"] or "{}").get("disclosure") == "off_machine")
             repo.set_task_state(tx, task["id"], S.RUNNING)
             return {"approval_id": approval["id"], "state": "denied" if args.decision == "deny" else "allowed"}, \
                 [task["id"]]

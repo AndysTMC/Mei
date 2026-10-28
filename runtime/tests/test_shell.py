@@ -205,6 +205,18 @@ async def test_shell_output_reads_a_runs_spill_from_an_offset(tmp_path):
     assert r.observation.startswith("0123456789") and "more after character 100" in r.observation
     with pytest.raises(CapabilityError):
         await ShellOutput().run(OutputParams(run="abcdef12"), ActionContext(env, "x", "another-conversation"))
+    # A run id is matched against this conversation's own spills, never used as a path or a pattern.
+    other = env.artifacts("other-conv") / "12345678-0000.out"
+    other.parent.mkdir(parents=True)
+    other.write_text("ANOTHER CONVERSATION'S OUTPUT")
+    for sneaky in ("../other-conv/12345678", "*", "abc?ef12", "[a]bcdef12", "abcdef12/../../other-conv/1234"):
+        with pytest.raises(CapabilityError):
+            await ShellOutput().run(OutputParams(run=sneaky), ctx)
+    # Where it came from goes along, as the run recorded it; with no record it has no sources (kept from clouds).
+    assert r.sources == []
+    spill.with_suffix(".sources").write_text('["/home/someone/project"]')
+    r = await ShellOutput().run(OutputParams(run="abcdef12", max_chars=100), ctx)
+    assert r.sources == ["/home/someone/project"]
 
 
 # ── Folders bound by descriptor (decision 0015) ─────────────────────────────

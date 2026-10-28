@@ -225,5 +225,8 @@ def _may_send(inputs: Inputs, action, result: dict) -> bool:
         return False
     if action["approval_id"] or (json.loads(action["effects"] or "{}")).get("disclosure") == "off_machine":
         return True  # the person allowed this read on a card (or by a grant) that said where its contents go
+    sources = result.get("sources", [])
+    if not sources:  # file content with nothing to say where it came from stays on this computer
+        return result.get("data_class") == "clipboard"
     anchored = {Path(r["value"]) for r in json.loads(action["resources"]) if r.get("provenance") == "user"}
-    return all(Path(s) in anchored or any(a in Path(s).parents for a in anchored) for s in result.get("sources", []))
+    return all(Path(s) in anchored or any(a in Path(s).parents for a in anchored) for s in sources)

@@ -2,6 +2,7 @@
 fixture. Real loop and store, scripted model, temporary home."""
 
 import asyncio
+import json
 
 import pytest
 
@@ -154,6 +155,21 @@ async def test_local_only_memories_stay_away_from_cloud_models(tmp_path):
     nxt = h.submit("where do my invoices go?")
     await h.until(nxt["task_id"])
     assert FACT not in system_prompt(h)
+
+
+async def test_a_local_only_memory_never_reaches_a_cloud_model_through_the_memory_tools(tmp_path):
+    h = Harness(tmp_path, cloud=True, scripts={
+        "Remember": [turn(call("memory_save", text=FACT)), {"text": "ok"}],
+        "invoices": [turn(call("memory_search", query="invoices")), {"text": "ok"}]})
+    r = h.submit("Remember that my invoices go in Documents/Invoices")
+    await h.until(r["task_id"])
+    memory_id = memories(h)[0]["id"]
+    h.engine.update_memory(UpdateMemoryArgs("u", memory_id, MemoryPatch(sensitivity="local_only")), from_shell=True)
+    first_request = len(h.requests())
+    nxt = h.submit("search what you remember about my invoices")
+    await h.until(nxt["task_id"])
+    sent = json.dumps(h.requests()[first_request:])
+    assert FACT not in sent and "marked local only" in sent  # (their own earlier message may be in the history)
 
 
 async def test_memory_off_means_no_recall_and_no_memory_tools(tmp_path):

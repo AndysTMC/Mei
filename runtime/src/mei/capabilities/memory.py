@@ -62,7 +62,12 @@ class MemorySearch(Capability):
 
     async def run(self, p: SearchParams, ctx: ActionContext) -> ActionResult:
         found = ctx.env.memory.search(p.query, p.limit)
-        lines = [f"- [{m['id'][:8]}] {m['text']} ({_SOURCES.get(m['provenance'], m['provenance'])})" for m in found]
+        # A local-only memory's text never goes in a tool result, which may reach a cloud model now or
+        # later in the conversation. On this computer it reaches the model through recall instead.
+        shared = [m for m in found if m.get("sensitivity") != "local_only"]
+        lines = [f"- [{m['id'][:8]}] {m['text']} ({_SOURCES.get(m['provenance'], m['provenance'])})" for m in shared]
+        if kept := len(found) - len(shared):
+            lines.append(f"({kept} more marked local only: not shown here)")
         return ActionResult(ok=True, observation="\n".join(lines) or "Nothing remembered about that.",
                             summary=f"Searched memories ({len(found)} found)", data_class="memory")
 
@@ -120,7 +125,8 @@ class MemoryForget(Capability):
 
     async def run(self, p: ForgetParams, ctx: ActionContext) -> ActionResult:
         memory = ctx.env.memory.archive(self._find(p, ctx.env)["id"])
-        return ActionResult(ok=True, observation=f"Forgot: {memory['text']}", summary=f"Forgot: {memory['text']}",
+        said = f"memory {memory['id'][:8]} (local only)" if memory.get("sensitivity") == "local_only" else memory["text"]
+        return ActionResult(ok=True, observation=f"Forgot: {said}", summary=f"Forgot: {memory['text']}",
                             undo={"kind": "memory", "memory_id": memory["id"]}, data_class="memory")
 
     @staticmethod

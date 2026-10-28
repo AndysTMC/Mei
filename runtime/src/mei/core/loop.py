@@ -293,17 +293,23 @@ class TaskLoop:
                            provider_label=label_of(cfg), cloud=context.is_cloud(cfg))
 
     async def _recheck(self, task, action) -> bool:
-        """Just before it runs, look again at what it would touch: a symlink swapped while the card was
-        up must not carry the approval somewhere else (invariant 10). False: it no longer runs now."""
+        """Just before it runs, judge it again as things are now (decision 0031). A symlink swapped while
+        the card was up must not carry the approval somewhere else (invariant 10); a tool or setting
+        turned off, or a grant revoked, since it was allowed stops it. It fails closed: what can't be
+        judged doesn't run. False: it doesn't run now."""
+        taskd = repo.task_dict(task)
         try:
             proposal = self._proposal(task, action)
-        except decide.Refused:
-            return True  # what it names is gone; the capability itself reports that
-        if [msgspec.to_builtins(s) for s in proposal.subjects] == json.loads(action["resources"]):
-            return True
+        except decide.Refused as e:  # turned off since, or what it names is gone
+            with self.d.store.tx() as tx:
+                ledger.finish_action(tx, taskd, action, E.POLICY_DENIED, str(e), is_error=True, error=str(e)[:500])
+            self.d.publish(tx.events)
+            return False
+        same = [msgspec.to_builtins(s) for s in proposal.subjects] == json.loads(action["resources"])
         _revision, config = repo.get_config(self.d.store)
         d = decide.judge(self.d.store, self.d.env, task, proposal, config.approvals.preset, config.computer)
-        taskd = repo.task_dict(task)
+        if same and (d.decision == "allow" or action["approval_id"] and d.decision == "ask"):
+            return True  # still allowed, or the person approved exactly this
         with self.d.store.tx() as tx:
             fields = {**_judged_fields(proposal), "decision": d.decision, "decision_reason": d.reason}
             if d.decision == "deny":
@@ -341,10 +347,11 @@ class TaskLoop:
                 return False
         elif action["decision"] != "allow":
             raise RuntimeError(f"action {action['id']} is authorized without a decision")
-        if not await self._recheck(task, action):
-            return S(repo.get_task(self.d.store, task["id"])["state"]) == S.RUNNING  # denied: go on; asked: wait
         if not await self._until_free(task, cap, params):
             return False
+        # Judged again after any wait for the person, right before it runs.
+        if not await self._recheck(task, action):
+            return S(repo.get_task(self.d.store, task["id"])["state"]) == S.RUNNING  # denied: go on; asked: wait
         await self._execute(task, agent.get_action(self.d.store, action["id"]), cap, params, flight)
         return True
 

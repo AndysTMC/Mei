@@ -437,6 +437,26 @@ async def test_a_pointer_act_waits_while_the_person_uses_the_computer(tmp_path, 
     assert [a[1] for a in desktop.acts] == ["click"]
 
 
+async def test_turned_off_while_it_waited_the_act_does_not_run(tmp_path):
+    """Decision 0031: judged again right before it runs, after any wait; turned off means it doesn't."""
+    h, desktop = computer_harness(tmp_path, [
+        turn(call("desktop_observe")), turn(call("desktop_act", snapshot="t1", action="click", element="e4")),
+        {"text": "Couldn't."}])
+    desktop.active = True
+    r = h.submit("click Continue in Login")
+    assert await h.until(r["task_id"]) == S.WAITING_APPROVAL
+    h.approve(r["task_id"])
+    await reaches(h, r["task_id"], S.WAITING_RESOURCE)
+    config = h.engine.get_config()
+    doc = config["config"] if isinstance(config.get("config"), dict) else msgspec.to_builtins(config["config"])
+    doc["computer"] = msgspec.to_builtins(ComputerSettings(enabled=False))
+    h.engine.update_config(msgspec.convert({"revision": config["revision"], "config": doc}, UpdateConfigArgs))
+    desktop.active = False
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    act = h.actions(r["task_id"])[1]
+    assert desktop.acts == [] and act["execution"] == E.POLICY_DENIED and "turned off" in act["error"], act["error"]
+
+
 async def test_the_kill_switch_stops_the_tasks_that_used_the_computer(tmp_path):
     h, desktop = computer_harness(tmp_path, [
         turn(call("desktop_observe")), turn(call("desktop_act", snapshot="t1", action="press", element="e4")),

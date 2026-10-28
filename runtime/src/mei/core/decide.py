@@ -142,7 +142,8 @@ _WORD = re.compile(r"\w+(?:[.-]\w+)*")  # "org.gnome.Nautilus" and "24-hour" are
 
 def judge(store: Store, env: Env, task, proposal: Proposal, preset_name: str,
           computer: ComputerSettings | None = None) -> Decision:
-    grants = [Grant(g["id"], g["capability"], tuple(GrantRule(**r) for r in json.loads(g["resources"])), g["task_id"])
+    grants = [Grant(g["id"], g["capability"], tuple(GrantRule(**r) for r in json.loads(g["resources"])), g["task_id"],
+                    discloses=bool(g["discloses"]))
               for g in agent.active_grants(store, task["id"])]
     facts = Facts(proposal.cap.name, proposal.cap.meta, proposal.effects, proposal.subjects, bool(task["tainted"]),
                   always_ask=proposal.cap.always_ask,

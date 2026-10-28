@@ -278,4 +278,9 @@ MIGRATIONS: list[str] = [
     UPDATE config SET document = json_set(document, '$.voice.end_pause_ms', 800)
         WHERE json_extract(document, '$.voice.end_pause_ms') = 8000
     """,
+    # 7: a grant remembers whether the card it came from said data would leave this computer
+    # (decision 0031). Grants from before can't vouch for that, so they don't cover sending.
+    """
+    ALTER TABLE grants ADD COLUMN discloses INTEGER NOT NULL DEFAULT 0
+    """,
 ]

@@ -7,7 +7,10 @@ session, unsandboxed, and asks every time, showing the exact command. Output kee
 tail; the rest is read with `shell.output`.
 """
 
+import contextlib
+import json
 import os
+import re
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Annotated
@@ -176,20 +179,45 @@ class ShellOutput(Capability):
         return f"Read the output of run {p.run}"
 
     async def run(self, p: OutputParams, ctx: ActionContext) -> ActionResult:
+        # The run id is matched as text against this conversation's own spills, never used as a path
+        # or a pattern: "../another-conversation/…" or "*" name nothing.
+        run = p.run.strip().lower()
+        if not RUN_ID.fullmatch(run):
+            raise CapabilityError("invalid", f"{p.run!r} isn't a run id (the hex shown with the output)")
         folder = ctx.env.artifacts(ctx.conversation_id)
-        matches = sorted(folder.glob(f"{p.run.strip()[:36]}*.out")) if p.run.strip() and folder.is_dir() else []
+        matches: list[str] = []
+        with contextlib.suppress(FileNotFoundError, NotADirectoryError), os.scandir(folder) as entries:
+            matches = [e.path for e in entries
+                       if e.name.startswith(run) and e.name.endswith(".out") and e.is_file(follow_symlinks=False)]
         if len(matches) != 1:
             raise CapabilityError("not_found", f"no output for run {p.run} in this conversation")
-        text = matches[0].read_bytes().decode("utf-8", "replace")
+        spill = Path(matches[0])
+        with open(spill, "rb") as f:  # at most what the offset and length can reach (UTF-8: ≤ 4 bytes a character)
+            raw = f.read((p.offset + p.max_chars) * 4 + 4)
+            whole = not f.read(1)
+        text = raw.decode("utf-8", "replace")
         part = text[p.offset:p.offset + p.max_chars]
-        more = len(text) > p.offset + len(part)
+        more = len(text) > p.offset + len(part) or not whole
         note = f"\n[… more after character {p.offset + len(part)}]" if more else ""
+        # Where the output came from, as the run reported it, so the cloud-files setting applies to it as
+        # it did to the run (no record: nothing to vouch for it, and it is kept from cloud models).
         return ActionResult(ok=True, observation=(part or "(nothing here)") + note, summary=f"Read run {p.run}'s output",
-                            data_class="file_content", trust="untrusted")
+                            data_class="file_content", trust="untrusted", sources=_spill_sources(spill))
 
 
 def _spill(ctx: ActionContext) -> Path:
     return ctx.env.artifacts(ctx.conversation_id) / f"{ctx.action_id}.out"
+
+
+RUN_ID = re.compile(r"[0-9a-f][0-9a-f-]{7,35}")  # an action id, or its first characters
+
+
+def _spill_sources(spill: Path) -> list[str]:
+    try:
+        sources = json.loads(spill.with_suffix(".sources").read_text())
+    except (OSError, ValueError):
+        return []
+    return [s for s in sources if isinstance(s, str)] if isinstance(sources, list) else []
 
 
 def report(command: str, r: RunResult, ctx: ActionContext, *, sources: list[str]) -> ActionResult:
@@ -208,6 +236,8 @@ def report(command: str, r: RunResult, ctx: ActionContext, *, sources: list[str]
         status = f"exit {r.exit_code} after {r.seconds:.1f} s"
     ok = not r.timed_out and r.exit_code == 0
     notes = "".join(f"\n({n})" for n in r.notes)
+    if r.spilled is not None and r.spilled.exists():  # shell_output reads the rest: it keeps where this came from
+        r.spilled.with_suffix(".sources").write_text(json.dumps(sources))
     return ActionResult(ok=ok, observation=f"$ {command}\n{status}\n{_body(r, ctx).rstrip()}{notes}",
                         summary=f"Ran `{command[:60]}`: {status.split(';')[0]}",
                         error_class="" if ok else ("timeout" if r.timed_out else "failed"),
