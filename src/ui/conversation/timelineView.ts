@@ -39,6 +39,7 @@ export function listedMessage(m: MessageView, details?: ReplyDetails): ListedMes
         model: (meta.model as string) || undefined,
         durationMs: typeof meta.duration_ms === 'number' ? meta.duration_ms : undefined,
         tokens: tokens ? { inputTokens: tokens.input ?? undefined, outputTokens: tokens.output ?? undefined } : undefined,
+        cut: meta.cut === 'length' || meta.cut === 'filtered' ? meta.cut : undefined,
     };
     const attachment = m.role === 'user' ? attachmentOf(meta) : null;
     return { id: m.id, role: m.role, content: m.content, thinking: m.thinking ?? undefined, metadata,

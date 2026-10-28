@@ -10,8 +10,8 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-from .base import (ChatTurn, Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, Replay,
-                   ReplayData, TextDelta, ThinkingDelta, ToolCall, ToolCalled, Usage, replay_for)
+from .base import (ChatTurn, Cut, Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, Replay,
+                   ReplayData, TextDelta, ThinkingDelta, ToolCall, ToolCalled, Usage, cut_of, replay_for)
 from .http_stream import MAX_RESPONSE_BYTES, error_message, first_int, loads, stream_post
 from .openai_normalize import StreamNormalizer
 
@@ -80,6 +80,7 @@ class OpenAIChatProvider:
         details: list[dict] = []
         reasoning = ""  # DeepSeek's `reasoning_content`, exactly as sent
         finished = False  # `[DONE]` or a finish_reason; without either the reply may be cut off
+        cut: Cut = ""
         async for data in stream_post(self._client, self._url, self.body(request), self._headers, label=self.label):
             if data.strip() == "[DONE]":
                 finished = True
@@ -94,6 +95,7 @@ class OpenAIChatProvider:
                     continue
                 if choice.get("finish_reason"):
                     finished = True
+                    cut = cut or cut_of(choice["finish_reason"], ("length",), ("content_filter",))
                 delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
                 calls.feed(delta.get("tool_calls"))
                 merge_reasoning_details(details, delta.get("reasoning_details"))
@@ -125,7 +127,7 @@ class OpenAIChatProvider:
             if self._echo_reasoning and reasoning:
                 replay["reasoning_content"] = reasoning
             yield ReplayData(Replay(WIRE, replay))
-        yield Done("tool_calls" if assembled else "stop")
+        yield Done("tool_calls" if assembled else "stop", cut)
 
 
 class CallAssembler:

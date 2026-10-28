@@ -124,6 +124,16 @@ async def test_a_plain_answer_has_no_outcome(tmp_path):
     assert h.task(r["task_id"])["outcome"] is None
 
 
+
+async def test_a_reply_the_model_cut_short_is_kept_and_marked(tmp_path):
+    """Decision 0032: the model's length limit or safety filter isn't a complete answer."""
+    from mei.store import repo
+    h = Harness(tmp_path, script=[{"text": "The first half of a long ans", "cut": "length"}])
+    r = h.submit("explain everything")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    [reply] = [m for m in repo.history(h.store, r["conversation_id"]) if m["role"] == "assistant"]
+    assert reply["content"] == "The first half of a long ans" and reply["metadata"]["cut"] == "length"
+
 # ── The batch scenario (§20): three calls, the middle one needs approval ─────
 
 BATCH = turn(call("fs_list", path="~/Downloads"), call("fs_trash", path="~/Music/old.txt"),

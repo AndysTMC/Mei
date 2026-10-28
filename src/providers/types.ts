@@ -18,6 +18,8 @@ export interface ChatMessageMetadata {
     endpoint?: string;
     durationMs?: number;
     tokens?: TokenUsage;
+    /** The model stopped early (decision 0032): its length limit, or its safety filter. */
+    cut?: 'length' | 'filtered';
 }
 
 export type ProviderId = 'ollama' | 'llamacpp' | 'lmstudio' | 'openai' | 'anthropic' | 'gemini' | 'groq' | 'mistral' | 'openrouter' | 'deepseek' | 'fireworks' | 'nvidia' | 'custom' | 'opencode' | 'githubcopilot';

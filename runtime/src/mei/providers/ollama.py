@@ -9,8 +9,8 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-from .base import (ChatTurn, Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, TextDelta,
-                   ThinkingDelta, ToolCall, ToolCalled, Usage, arguments_object)
+from .base import (ChatTurn, Cut, Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, TextDelta,
+                   ThinkingDelta, ToolCall, ToolCalled, Usage, arguments_object, cut_of)
 from .http_stream import first_int, loads, stream_post
 
 
@@ -35,6 +35,7 @@ class OllamaProvider:
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
         finished = False
+        cut: Cut = ""
         calls: list[ToolCall] = []
         async for line in stream_post(self._client, self._url, self.body(request), self._headers,
                                       label=self.label, framing="ndjson"):
@@ -56,13 +57,14 @@ class OllamaProvider:
                     calls.append(ToolCall(call.get("id") or f"call_{len(calls) + 1}", function["name"], text))
             if obj.get("done"):
                 finished = True
+                cut = cut_of(obj.get("done_reason"), ("length",), ())
                 yield Usage(first_int(obj, "prompt_eval_count"), first_int(obj, "eval_count"))
                 break
         if not finished:
             raise IncompleteResponse.of(self.label)
         for call in calls:
             yield ToolCalled(call)
-        yield Done("tool_calls" if calls else "stop")
+        yield Done("tool_calls" if calls else "stop", cut)
 
 
 def _message(turn: ChatTurn) -> dict:

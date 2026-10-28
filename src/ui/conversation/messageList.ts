@@ -214,6 +214,8 @@ export class MessageList {
                 x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START }));
         }
         container.add_child(this._messageActor(role, message.content).actor);
+        const cut = role === 'assistant' ? message.metadata?.cut : undefined;
+        if (cut) container.add_child(new St.Label({ text: CUT_NOTE[cut], style_class: 'mei-msg-note' }));
         const details = role === 'assistant' ? message.details : undefined;
         const panels: FooterPanel[] = [];
         if (details && (details.steps.length || details.notes.length))
@@ -428,6 +430,12 @@ function footerButton(iconName: string, label: string): St.Button {
     addClickScale(button);
     return button;
 }
+
+/** Under a reply the model stopped early: it isn't the whole answer. */
+const CUT_NOTE = {
+    length: 'Cut short: the model reached its length limit.',
+    filtered: 'Stopped by the model’s safety filter.',
+};
 
 const READ_ICON = 'audio-speakers-symbolic';
 const STOP_READING_ICON = 'media-playback-stop-symbolic';

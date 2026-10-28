@@ -133,6 +133,8 @@ class TaskLoop:
             metadata["tokens"] = {"input": reply.usage.input_tokens, "output": reply.usage.output_tokens}
         if reply.tools_dropped:
             metadata["tools_dropped"] = True
+        if reply.cut:
+            metadata["cut"] = reply.cut  # shown with the reply: it isn't the whole answer (decision 0032)
         calls = [{"id": c.id, "name": c.name, "arguments": c.arguments, "signature": c.signature} for c in reply.calls]
         replay = {"format": reply.replay.format, "data": reply.replay.data} if reply.replay else None
         taskd = repo.task_dict(task)

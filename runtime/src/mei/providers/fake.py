@@ -78,7 +78,7 @@ class FakeProvider:
             await asyncio.sleep(delay)
             yield ToolCalled(call)
         yield Usage(input_tokens=sum(len(t.content) for t in request.messages), output_tokens=len(reply))
-        yield Done("tool_calls" if calls else "stop")
+        yield Done("tool_calls" if calls else "stop", (turn or {}).get("cut", ""))
 
 
 def _scripted_turn(opts: dict, request: ModelRequest, last_user: str) -> dict | None:

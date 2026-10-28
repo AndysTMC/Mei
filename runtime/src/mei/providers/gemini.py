@@ -11,8 +11,8 @@ from urllib.parse import quote
 
 import httpx
 
-from .base import (ChatTurn, Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, TextDelta,
-                   ThinkingDelta, ToolCall, ToolCalled, Usage, arguments_object, tool_groups)
+from .base import (ChatTurn, Cut, Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, TextDelta,
+                   ThinkingDelta, ToolCall, ToolCalled, Usage, arguments_object, cut_of, tool_groups)
 from .http_stream import error_message, first_int, loads, stream_post
 
 _THOUGHT_SUMMARIES = re.compile(r"^gemini-(?:2\.5|3(?:\.|-))")
@@ -43,6 +43,7 @@ class GeminiProvider:
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
         finished = False  # Gemini marks the last chunk with a finishReason
+        cut: Cut = ""
         calls: list[ToolCall] = []
         async for data in stream_post(self._client, self._url, self.body(request), self._headers, label=self.label):
             obj = loads(data)
@@ -53,6 +54,8 @@ class GeminiProvider:
             for candidate in obj.get("candidates") or []:
                 if isinstance(candidate, dict) and candidate.get("finishReason"):
                     finished = True
+                    cut = cut or cut_of(candidate["finishReason"], ("max_tokens",), (
+                        "safety", "recitation", "blocklist", "prohibited_content", "spii", "image_safety"))
                 parts = ((candidate or {}).get("content") or {}).get("parts") or []
                 for part in parts:
                     if not isinstance(part, dict):
@@ -73,7 +76,7 @@ class GeminiProvider:
             raise IncompleteResponse.of(self.label)
         for call in calls:
             yield ToolCalled(call)
-        yield Done("tool_calls" if calls else "stop")
+        yield Done("tool_calls" if calls else "stop", cut)
 
 
 def _contents(turns: list[ChatTurn]) -> list[dict]:

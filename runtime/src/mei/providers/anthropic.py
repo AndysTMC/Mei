@@ -10,8 +10,8 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-from .base import (ChatTurn, Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, Replay,
-                   ReplayData, TextDelta, ThinkingDelta, ToolCall, ToolCalled, Usage, arguments_object,
+from .base import (ChatTurn, Cut, Done, IncompleteResponse, ModelEvent, ModelRequest, ProviderError, Replay,
+                   ReplayData, TextDelta, ThinkingDelta, ToolCall, ToolCalled, Usage, arguments_object, cut_of,
                    replay_for, tool_groups)
 from .http_stream import error_message, first_int, loads, stream_post
 
@@ -47,6 +47,7 @@ class AnthropicProvider:
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
         input_tokens = None
         finished = False
+        cut: Cut = ""
         blocks: dict[int, dict] = {}  # by content block index, in arrival order
         async for data in stream_post(self._client, self._url, self.body(request), self._headers, label=self.label):
             event = loads(data)
@@ -77,6 +78,7 @@ class AnthropicProvider:
                 elif block is not None and delta.get("type") == "input_json_delta":
                     block["partial_json"] += delta.get("partial_json") or ""
             elif kind == "message_delta":
+                cut = cut or cut_of((event.get("delta") or {}).get("stop_reason"), ("max_tokens",), ("refusal",))
                 usage = event.get("usage") or {}
                 yield Usage(input_tokens, first_int(usage, "output_tokens"))
             elif kind == "message_stop":
@@ -91,7 +93,7 @@ class AnthropicProvider:
         reasoning = [_reasoning_block(b) for b in blocks.values() if b.get("type") in ("thinking", "redacted_thinking")]
         if calls and reasoning:
             yield ReplayData(Replay(WIRE, {"blocks": reasoning}))
-        yield Done("tool_calls" if calls else "stop")
+        yield Done("tool_calls" if calls else "stop", cut)
 
 
 def _reasoning_block(block: dict) -> dict:

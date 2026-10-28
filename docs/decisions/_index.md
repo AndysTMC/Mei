@@ -30,3 +30,4 @@
 | 0029 | Voice seams (engine registry, turn detector, clean-up chain), noise suppression, a tone while Mei works, asking before looking at the screen in chat | accepted | 2026-10-26 | — |
 | 0030 | Read aloud stands on its own; the voice worker says its version; Stop reaches speech not yet playing | accepted | 2026-10-28 | 0029 (in part: how Read aloud plays) |
 | 0031 | Authority checks are conjunctive and fail closed; content with no source stays local; the Shell is its bus name | accepted | 2026-10-28 | — |
+| 0032 | A reply the model cut short says so | accepted | 2026-10-28 | — |

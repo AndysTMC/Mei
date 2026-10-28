@@ -371,3 +371,46 @@ async def test_a_rejected_generation_is_retryable_but_a_bad_request_is_not():
         with pytest.raises(ProviderError) as err:
             await collect(p)
         assert err.value.retryable is retryable, code
+
+
+# ── Stopped early (decision 0032) ───────────────────────────────────────────
+
+
+def _openai(c):
+    return OpenAIChatProvider(c, label="T", url="https://x.test/v1/chat/completions", model="m")
+
+
+def _anthropic(c):
+    return AnthropicProvider(c, label="T", url="https://a.test", model="m")
+
+
+def _gemini(c):
+    return GeminiProvider(c, label="T", base_url="https://g.test", model="m")
+
+
+def _ollama(c):
+    return OllamaProvider(c, label="T", url="http://o.test/api/chat", model="m")
+
+
+def _anthropic_body(stop: str) -> bytes:
+    return sse({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Half"}},
+               {"type": "message_delta", "delta": {"stop_reason": stop}, "usage": {"output_tokens": 1}},
+               {"type": "message_stop"})
+
+
+@pytest.mark.parametrize("make,body,cut", [
+    (_openai, sse({"choices": [{"delta": {"content": "Half"}, "finish_reason": "length"}]}), "length"),
+    (_openai, sse({"choices": [{"delta": {"content": "Half"}, "finish_reason": "content_filter"}]}), "filtered"),
+    (_openai, sse({"choices": [{"delta": {"content": "Whole"}, "finish_reason": "stop"}]}), ""),
+    (_anthropic, _anthropic_body("max_tokens"), "length"),
+    (_anthropic, _anthropic_body("refusal"), "filtered"),
+    (_anthropic, _anthropic_body("end_turn"), ""),
+    (_gemini, sse({"candidates": [{"content": {"parts": [{"text": "Half"}]}, "finishReason": "MAX_TOKENS"}]}), "length"),
+    (_gemini, sse({"candidates": [{"content": {"parts": [{"text": "Half"}]}, "finishReason": "SAFETY"}]}), "filtered"),
+    (_gemini, sse({"candidates": [{"content": {"parts": [{"text": "Whole"}]}, "finishReason": "STOP"}]}), ""),
+    (_ollama, b'{"message": {"content": "Half"}, "done": true, "done_reason": "length"}\n', "length"),
+    (_ollama, b'{"message": {"content": "Whole"}, "done": true, "done_reason": "stop"}\n', ""),
+])
+async def test_a_reply_the_model_stopped_early_says_why(make, body, cut):
+    events = await collect(make(mock(body)))
+    assert isinstance(events[-1], Done) and events[-1].cut == cut and text(events) in ("Half", "Whole")

@@ -69,6 +69,7 @@ class Reply:
     usage: Usage | None
     duration_ms: int
     tools_dropped: bool = False  # the model refused tools, so the call was repeated without them
+    cut: str = ""  # the model stopped early: "length" (its limit) or "filtered" (its safety filter)
 
 
 class Streamer:
@@ -86,6 +87,7 @@ class Streamer:
         replay: Replay | None = None
         usage: Usage | None = None
         dropped = False
+        cut = ""
         try:
             async with asyncio.timeout(CALL_TIMEOUT_S):
                 attempt = 0
@@ -107,6 +109,7 @@ class Streamer:
                                 elif isinstance(event, Usage):
                                     usage = event
                                 elif isinstance(event, Done):
+                                    cut = event.cut
                                     break
                         break
                     except ProviderError as e:
@@ -131,7 +134,7 @@ class Streamer:
             self.flush(stream)
             self.streams.pop(stream.message_id, None)
         return Reply(stream.text, stream.thinking, calls, replay, usage, int((time.monotonic() - started) * 1000),
-                     tools_dropped=dropped)
+                     tools_dropped=dropped, cut=cut)
 
     def _queue_flush(self, stream: Stream) -> None:
         if stream.flush_handle is None:

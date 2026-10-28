@@ -80,9 +80,21 @@ class Usage:
     output_tokens: int | None = None
 
 
+Cut = Literal["", "length", "filtered"]
+
+
 @dataclass(frozen=True)
 class Done:
     reason: str = "stop"  # "stop" or "tool_calls"
+    # Why the model stopped early, if it did (decision 0032): its length limit, or its safety filter.
+    # The reply so far is kept, and shown as cut short rather than as a complete answer.
+    cut: Cut = ""
+
+
+def cut_of(reason: object, length: tuple[str, ...], filtered: tuple[str, ...]) -> Cut:
+    """A provider's own stop reason, as Done.cut."""
+    text = str(reason or "").lower()
+    return "length" if text in length else "filtered" if text in filtered else ""
 
 
 ModelEvent = TextDelta | ThinkingDelta | ToolCalled | ReplayData | Usage | Done
