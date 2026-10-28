@@ -1,4 +1,5 @@
-"""PDF text through poppler's `pdftotext`, inside a bubblewrap jail when one is available.
+"""PDF text through poppler's `pdftotext`, inside a bubblewrap jail; without bubblewrap, no PDFs
+(decision 0033: the parser never runs in the person's session).
 
 PDFs come from anywhere and their parsers are a classic way in, so the parser sees only the one
 file (read-only), no network, no home folder, and dies with Mei (§5.4). It gets the file Mei
@@ -20,24 +21,24 @@ TIMEOUT_S = 30.0
 class PdfToText:
     def __init__(self, tool: str = PDFTOTEXT, bwrap: str = BWRAP) -> None:
         self._tool = tool
-        self._bwrap = bwrap if os.access(bwrap, os.X_OK) else None
-        if self._bwrap is None:
-            log.warning("bubblewrap isn't installed: PDFs will be read without a sandbox")
+        self._bwrap = bwrap
 
     @staticmethod
-    def available(tool: str = PDFTOTEXT) -> bool:
-        return os.access(tool, os.X_OK)
+    def available(tool: str = PDFTOTEXT, bwrap: str = BWRAP) -> bool:
+        if not os.access(tool, os.X_OK):
+            return False
+        if not os.access(bwrap, os.X_OK):
+            log.warning("bubblewrap isn't installed, so Mei doesn't read PDFs (their parser runs only in a sandbox)")
+            return False
+        return True
 
     async def pdf_text(self, file_fd: int, max_chars: int) -> str:
         args = ["-layout", "-enc", "UTF-8", "-l", str(MAX_PAGES)]
-        if self._bwrap is None:
-            argv = [self._tool, *args, f"/proc/self/fd/{file_fd}", "-"]  # the child's own copy of the fd
-        else:
-            argv = [self._bwrap, "--unshare-all", "--die-with-parent", "--new-session", "--clearenv",
-                    "--ro-bind", "/usr", "/usr", "--ro-bind-try", "/lib", "/lib", "--ro-bind-try", "/lib64", "/lib64",
-                    "--ro-bind-try", "/bin", "/bin", "--ro-bind-try", "/etc/fonts", "/etc/fonts",
-                    "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
-                    "--ro-bind-fd", str(file_fd), "/tmp/in.pdf", self._tool, *args, "/tmp/in.pdf", "-"]
+        argv = [self._bwrap, "--unshare-all", "--die-with-parent", "--new-session", "--clearenv",
+                "--ro-bind", "/usr", "/usr", "--ro-bind-try", "/lib", "/lib", "--ro-bind-try", "/lib64", "/lib64",
+                "--ro-bind-try", "/bin", "/bin", "--ro-bind-try", "/etc/fonts", "/etc/fonts",
+                "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
+                "--ro-bind-fd", str(file_fd), "/tmp/in.pdf", self._tool, *args, "/tmp/in.pdf", "-"]
         try:
             text = await checked(argv, timeout=TIMEOUT_S, max_output=max_chars * 4, pass_fds=(file_fd,))
         except TimeoutError:

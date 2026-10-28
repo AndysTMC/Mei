@@ -5,7 +5,9 @@ by absolute path because the ones on PATH may be Homebrew's, Nix's, or conda's (
 """
 
 import asyncio
+import fcntl
 import hashlib
+import os
 import shlex
 import shutil
 import subprocess
@@ -205,6 +207,17 @@ def install_service(host: Host, p: Paths, python: str, r: Result) -> bool:
     return True
 
 
+def _store_lock(data: Path) -> int | None:
+    """The store's lock (store/db.py), taken: no runtime is using the data. None: one is."""
+    fd = os.open(data / "mei.db.lock", os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return None
+    return fd
+
+
 def remove_service(host: Host, p: Paths, r: Result) -> None:
     host.systemctl("stop", UNIT_NAME)
     for path in (p.unit, p.dbus_service):
@@ -317,7 +330,17 @@ def uninstall(host: Host | None = None, *, purge: bool = False, p: Paths | None 
         r.say(f"kept your conversations and settings in {p.data} (delete them with --purge)")
         return r
     if p.data.exists():
-        shutil.rmtree(p.data)
+        # Only once no runtime holds the store (decision 0033): stopping the service can fail, and a
+        # runtime started some other way would go on writing to files being deleted under it.
+        lock = _store_lock(p.data)
+        if lock is None:
+            r.errors.append(f"Mei's runtime is still running, so its data in {p.data} was kept; stop it "
+                            f"(systemctl --user stop {UNIT_NAME}) and run uninstall --purge again")
+            return r
+        try:
+            shutil.rmtree(p.data)
+        finally:
+            os.close(lock)
         r.say(f"deleted Mei's data in {p.data}")
     try:
         host.dconf_reset_dir(DCONF_DIR)

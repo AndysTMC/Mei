@@ -1,6 +1,7 @@
 """Capabilities against a fake world (§9.1 definition of done): effects, resources, results,
 postconditions, recovery probes, and the schemas the model sees."""
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -76,6 +77,9 @@ async def test_read_text_in_parts_and_pdfs(env):
     (env.home / "Documents" / "bin.dat").write_bytes(b"\0\1\2")
     with pytest.raises(CapabilityError):
         await FsReadText().run(ReadParams(path="~/Documents/bin.dat"), ctx(env))
+    os.mkfifo(env.home / "Documents" / "pipe")  # nobody writes to it: opening it must not wait for someone
+    with pytest.raises(CapabilityError, match="not a regular file"):
+        await asyncio.wait_for(FsReadText().run(ReadParams(path="~/Documents/pipe"), ctx(env)), 5)
 
 
 # ── Changing ────────────────────────────────────────────────────────────────
@@ -269,3 +273,14 @@ def test_portable_schema_flattens_optional_fields():
     schema = portable_schema(P)
     assert schema["properties"]["b"] == {"type": "integer"} and schema["required"] == ["a"]
     json.dumps(schema)
+
+
+def test_a_question_card_is_bounded_so_it_cannot_swamp_the_shell():
+    """Each option becomes a widget in the compositor: a model asking with thousands is refused."""
+    from mei.capabilities.meta import AskParams
+    many = {"question": "Pick", "fields": [{"name": "x", "label": "X", "kind": "select",
+                                            "options": [str(i) for i in range(10_000)]}]}
+    for bad in (many, {"question": "Q" * 5000}, {"question": "Pick", "choices": ["x" * 500]}):
+        with pytest.raises(msgspec.ValidationError):
+            msgspec.convert(bad, AskParams)
+    assert msgspec.convert({"question": "Pick", "choices": ["Downloads", "Desktop"]}, AskParams).choices

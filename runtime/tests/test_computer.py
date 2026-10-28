@@ -359,6 +359,28 @@ async def test_the_controller_keeps_snapshots_renews_the_lease_and_keeps_the_new
     await d.stop()
 
 
+async def test_two_tasks_input_never_overlaps_and_no_window_means_no_input(fake_desktop):
+    """Decision 0033: one act holds the pointer and keys from making way to the end of its lease."""
+    d = fake_desktop
+    await d.observe({"id": 1}, [], picture=False)
+    await asyncio.gather(d.act("s1", "press", element="e1", needs_input=True),
+                         d.act("s1", "press", element="e1", needs_input=True))
+    await asyncio.sleep(0.1)
+    leases = [m for m in d.logged() if m["op"] == "lease"]
+    first_end = next(i for i, m in enumerate(leases) if m["valid_ms"] == 0)
+    assert all(m["generation"] == leases[0]["generation"] for m in leases[:first_end + 1])  # one, then the other
+
+    async def no_shell(_window_id: int) -> None:
+        raise RuntimeError("the Shell didn't answer")
+    d._make_way = no_shell
+    before = len(d.logged())
+    with pytest.raises(DesktopError, match="front"):
+        await d.act("s1", "press", element="e1", needs_input=True)
+    await asyncio.sleep(0.1)
+    assert not any(m["op"] in ("lease", "act") for m in d.logged()[before:])
+    await d.stop()
+
+
 async def test_a_dying_worker_fails_what_waits_and_starts_again(fake_desktop):
     d = fake_desktop
     await d.observe({"id": 1}, [], picture=False)

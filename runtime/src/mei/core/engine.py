@@ -252,7 +252,7 @@ class Engine:
             if request["state"] != "pending":
                 raise ProtocolError("Conflict", f"this question was already {request['state']}")
             spec = json.loads(request["spec"])
-            value = _valid_answer(spec, args.value)
+            value = _valid_answer(spec, args.value, strict_choices=request["kind"] == "handoff")
             task = repo.task_dict(repo.get_task(tx, request["task_id"]))
             agent.close_input_request(tx, request["id"], "answered", answer=value)
             if request["kind"] == "continue" and value == "Stop":
@@ -502,7 +502,9 @@ def _host(url: str) -> str:
         return url.strip()
 
 
-def _valid_answer(spec: dict, value):
+def _valid_answer(spec: dict, value, *, strict_choices: bool = False):
+    """A question with choices also takes any other answer, as the popup's "Something else…" offers;
+    a hand-off takes only its own (that the person did the step)."""
     choices, fields = spec.get("choices") or [], spec.get("fields") or []
     if fields:
         if not isinstance(value, dict):
@@ -518,7 +520,7 @@ def _valid_answer(spec: dict, value):
         return value
     if not isinstance(value, str) or not value.strip() or len(value) > MAX_INPUT_CHARS:
         raise ProtocolError("InvalidArgument", "the answer must be text")
-    if choices and value not in choices:
+    if strict_choices and choices and value not in choices:
         raise ProtocolError("InvalidArgument", f"the answer must be one of {choices}")
     return value.strip()
 

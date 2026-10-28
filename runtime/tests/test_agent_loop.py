@@ -300,11 +300,9 @@ async def test_ask_user_waits_for_the_answer(tmp_path):
                                   {"text": "Using Downloads."}])
     r = h.submit("clean up a folder")
     assert await h.until(r["task_id"]) == S.WAITING_INPUT
-    with pytest.raises(Exception):
-        h.answer(r["task_id"], "Pictures")  # not one of the choices
-    h.answer(r["task_id"], "Downloads")
+    h.answer(r["task_id"], "Pictures, actually")  # not one of the choices: the popup's "Something else…"
     assert await h.until(r["task_id"]) == S.COMPLETED
-    assert any(t["role"] == "tool" and "Downloads" in t["content"] for t in h.requests()[-1]["turns"])
+    assert any(t["role"] == "tool" and "Pictures, actually" in t["content"] for t in h.requests()[-1]["turns"])
 
 
 async def test_the_step_budget_asks_before_continuing(tmp_path):

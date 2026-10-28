@@ -90,6 +90,9 @@ class Desktop:
         self._session_open = False
         self._generation = 0
         self._leasing: asyncio.Task | None = None
+        # One act at a time drives the pointer and keys, from bringing its window forward to the end of
+        # its lease: two tasks' input never interleave, nor one end the other's lease (decision 0033).
+        self._hands = asyncio.Lock()
         self._overlay = overlay
         self._make_way = make_way
         # A period of use: from the first look or act until USE_IDLE_S after the last. The chip shows
@@ -113,21 +116,24 @@ class Desktop:
     async def act(self, token: str, action: str, *, element: str = "", point: list | None = None, text: str = "",
                   window: dict | None = None, monitors: list | None = None, needs_input: bool = True) -> dict:
         await self._in_use()
-        if needs_input:
-            await self.ensure_session()
-            if self._make_way is not None:
-                with contextlib.suppress(Exception):  # no Shell to ask: the input goes where it goes
-                    await self._make_way(int((window or {}).get("id") or 0))
-        before = self._seen.get(token)
-        try:
-            async with self._lease(needs_input):
-                data = await self._request(wire.Act(id=0, token=token, action=action, element=element,
-                                                    point=list(point or []), text=text, window=window or {},
-                                                    monitors=list(monitors or [])))
-        finally:
+        async with self._hands if needs_input else contextlib.nullcontext():
             if needs_input:
-                self._last_input = asyncio.get_running_loop().time()
-            self._use.touch()
+                await self.ensure_session()
+                if self._make_way is not None:
+                    try:
+                        await self._make_way(int((window or {}).get("id") or 0))
+                    except Exception as e:  # noqa: BLE001  the input would go wherever focus happens to be
+                        raise DesktopError("failed", f"couldn't bring the window to the front first ({e})") from None
+            before = self._seen.get(token)
+            try:
+                async with self._lease(needs_input):
+                    data = await self._request(wire.Act(id=0, token=token, action=action, element=element,
+                                                        point=list(point or []), text=text, window=window or {},
+                                                        monitors=list(monitors or [])))
+            finally:
+                if needs_input:
+                    self._last_input = asyncio.get_running_loop().time()
+                self._use.touch()
         self._remember(window or (before.window if before else {}), data)
         return data
 

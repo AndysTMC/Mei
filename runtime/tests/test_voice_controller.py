@@ -176,6 +176,24 @@ async def test_models_download_with_progress_then_voice_starts(tmp_path, monkeyp
         v.download(["not-a-model"])
 
 
+async def test_one_model_failing_doesnt_stop_the_rest_downloading(tmp_path, monkeypatch):
+    import hashlib
+    from dataclasses import replace
+    import httpx
+    from mei.voice.models import CATALOG, GTCRN, SILERO
+    body = b"model bytes"
+    monkeypatch.setitem(CATALOG, "silero", replace(SILERO, sha256="0" * 64, size=len(body)))  # its checksum fails
+    monkeypatch.setitem(CATALOG, "gtcrn", replace(GTCRN, sha256=hashlib.sha256(body).hexdigest(), size=len(body)))
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=body)))
+    v = VoiceController(Harness(tmp_path).engine, lambda *_: None, lambda *_: WORKER, tmp_path / "models",
+                        client=client, gpu_engine_for=lambda *_: None)
+    v.download(["silero", "gtcrn"])
+    await until(lambda: not v.models()["downloading"])
+    rows = {m["id"]: m for m in v.models()["models"]}
+    assert rows["silero"]["error"] and not rows["silero"]["have"]
+    assert rows["gtcrn"]["have"] and not rows["gtcrn"]["error"]
+
+
 async def test_the_microphone_check_reports_numbers_and_spots_an_overdriven_input(tmp_path, models, monkeypatch):
     from mei.voice import controller as voice_controller
     h = Harness(tmp_path)

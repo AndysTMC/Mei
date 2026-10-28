@@ -13,6 +13,7 @@ from .anthropic import AnthropicProvider
 from .base import ModelEvent, ModelRequest, Provider, ProviderError
 from .fake import FakeProvider
 from .gemini import GeminiProvider
+from .http_stream import check_key_transport
 from .ollama import OllamaProvider
 from .openai_chat import OpenAIChatProvider
 from .profiles import PROFILES, credential_headers, resolve
@@ -53,6 +54,8 @@ async def build(cfg: ProviderConfig, client: httpx.AsyncClient, key_for: KeyLook
     if profile.auth != "none" and not key:
         log.warning("no API key in the keyring for %s", cfg.id)
     label = profile.label
+    if key:
+        check_key_transport(r.url, label)
     headers = {**profile.headers, **credential_headers(profile, key)}
     if r.api_mode == "anthropic_messages":
         adapter: Provider = AnthropicProvider(client, label=label, url=r.url, model=r.model, headers=_without_version(headers))

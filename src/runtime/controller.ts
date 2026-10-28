@@ -180,10 +180,12 @@ export class RuntimeChatController {
         const unusable = this._providerProblem();
         if (unusable) {
             this._popup.showError(unusable);
+            this._popup.restoreDraft(text);
             return;
         }
         if (this._status === 'unavailable' || this._status === 'incompatible') {
             this._popup.showError(`Mei's runtime isn't reachable. ${this._statusDetail}`, { source: 'connection' });
+            this._popup.restoreDraft(text);
             return;
         }
         if (!this._popup.isExpanded) this._popup.close();
@@ -197,7 +199,10 @@ export class RuntimeChatController {
             this._current = reply.conversation_id;
             if (this._attachment === attachment) this._setAttachment(null);
             this._render();
-        }).catch((e: RuntimeError) => this._showFailure(e));
+        }).catch((e: RuntimeError) => {
+            this._popup.restoreDraft(text);  // not taken: what they wrote isn't lost
+            this._showFailure(e);
+        });
     }
 
     get voiceState(): VoiceStateName {

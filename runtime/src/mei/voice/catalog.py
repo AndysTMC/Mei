@@ -83,11 +83,9 @@ class ModelStore:
                     await gpu_engine.fetch(self._client, gpu_engine.engine_dir(), report)
                 else:
                     await download.fetch(self._client, CATALOG[key], self._root, report)
-            except VoiceError as e:
+            except VoiceError as e:  # this one failed: say so, and go on with the rest
                 progress["error"] = e.message
-                return
             except Exception as e:  # noqa: BLE001  a disk or network failure: say it, don't crash the runtime
                 log.exception("downloading %s failed", key)
                 progress["error"] = str(e)[:200]
-                return
-        await self._changed()
+        await self._changed()  # voice starts with what arrived, or says what's still missing

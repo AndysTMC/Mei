@@ -199,6 +199,24 @@ def test_uninstall_keeps_data_unless_purged(env):
     assert any("locked" in x for x in r.notes)
 
 
+def test_purge_keeps_the_data_while_a_runtime_still_uses_it(env):
+    """Decision 0033: stopping the service can fail; nothing is deleted under a runtime that runs."""
+    import fcntl
+    import os
+    _ext, p = env
+    p.data.mkdir(parents=True)
+    (p.data / "mei.db").write_text("x")
+    held = os.open(p.data / "mei.db.lock", os.O_RDWR | os.O_CREAT)  # as a running runtime holds it
+    fcntl.flock(held, fcntl.LOCK_EX)
+    try:
+        r = install.uninstall(FakeHost(), purge=True, p=p)
+        assert (p.data / "mei.db").exists() and any("still running" in e for e in r.errors)
+    finally:
+        os.close(held)
+    install.uninstall(FakeHost(), purge=True, p=p)
+    assert not p.data.exists()
+
+
 def test_uninstall_removes_only_the_link_of_a_development_install(env, tmp_path):
     _ext, p = env
     checkout = tmp_path / "checkout-dist"

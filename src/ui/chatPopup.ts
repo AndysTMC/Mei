@@ -287,6 +287,11 @@ export class ChatPopup {
         return this._composer.entry.get_text();
     }
 
+    /** A message that couldn't be sent goes back in the box, unless they've started another. */
+    restoreDraft(text: string): void {
+        this._composer.restoreDraft(text);
+    }
+
     /** Dictated words so far (`final`: an utterance done), into the message box. */
     dictate(text: string, final: boolean, raw = text): void {
         this._composer.dictate(text, final, raw);

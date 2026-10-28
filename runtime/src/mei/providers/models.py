@@ -13,7 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import httpx
 
 from .base import ProviderError
-from .http_stream import TIMEOUT, error_message, scrub
+from .http_stream import TIMEOUT, check_key_transport, error_message, scrub
 from .profiles import PROFILES, credential_headers
 
 MAX_PAGES = 10
@@ -147,6 +147,8 @@ async def list_models(client: httpx.AsyncClient, provider_id: str, *, url: str =
     fallback = list(profile.fallback_models)
     if ep.requires_key and not api_key:
         return ModelList(fallback, requires_key=True, from_fallback=True)
+    if api_key:
+        check_key_transport(ep.url, profile.label)
     models: list[str] = []
     page: str | None = ep.url
     for _ in range(MAX_PAGES):

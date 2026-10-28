@@ -67,16 +67,20 @@ class PlanUpdate(Capability):
         return "Update the plan"
 
 
+# Each becomes a widget in the Shell, built at once: bounded so a card can't swamp the compositor.
+Short = Annotated[str, msgspec.Meta(max_length=80)]
+
+
 class Field(msgspec.Struct, kw_only=True, omit_defaults=True):
-    name: str
-    label: str
+    name: Annotated[str, msgspec.Meta(max_length=40)]
+    label: Annotated[str, msgspec.Meta(max_length=200)]
     kind: Literal["text", "select", "checkbox", "date"] = "text"
-    options: list[str] = msgspec.field(default_factory=list)
+    options: Annotated[list[Short], msgspec.Meta(max_length=12)] = msgspec.field(default_factory=list)
 
 
 class AskParams(msgspec.Struct, kw_only=True):
-    question: str
-    choices: Annotated[list[str], msgspec.Meta(max_length=6, description="Buttons to answer with, if it's a choice")] = \
+    question: Annotated[str, msgspec.Meta(max_length=2000)]
+    choices: Annotated[list[Short], msgspec.Meta(max_length=6, description="Buttons to answer with, if it's a choice")] = \
         msgspec.field(default_factory=list)
     fields: Annotated[list[Field], msgspec.Meta(max_length=8, description="A small form, if you need details")] = \
         msgspec.field(default_factory=list)

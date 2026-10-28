@@ -52,7 +52,14 @@ class GtcrnDenoiser:
         return np.asarray(self._denoiser(chunk, SAMPLE_RATE).samples, dtype=np.float32)
 
     def reset(self) -> None:
+        # Primed with a little silence, discarded: its first output after a reset, with nothing before it to
+        # overlap, can leave Kroko writing nothing at all for the whole utterance (seen in 4 of 30 wake-word
+        # runs, "I pause the music" heard as ""). 0.032 s was enough; 0.1 s leaves a margin.
         self._denoiser.reset()
+        self._denoiser(np.zeros(PRIME, np.float32), SAMPLE_RATE)
+
+
+PRIME = SAMPLE_RATE // 10
 
 
 def have_gtcrn(root: Path) -> bool:

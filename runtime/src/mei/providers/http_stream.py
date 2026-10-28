@@ -1,8 +1,10 @@
 """Shared streaming POST for every adapter: one place for timeouts, size bounds, and error bodies."""
 
+import ipaddress
 import json
 from collections.abc import AsyncIterator
 from typing import Literal
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -145,3 +147,22 @@ def first_int(record: dict, *keys: str) -> int | None:
         if value is not None:
             return value
     return None
+
+
+def check_key_transport(url: str, label: str) -> None:
+    """A key goes over https, or over plain http only to this computer (decision 0033): on any other
+    network it would travel in the clear. Raises ProviderError saying so."""
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+    except ValueError:
+        return  # not a URL at all: the request itself will say so
+    if parts.scheme != "http" or host == "localhost":
+        return
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return
+    except ValueError:
+        pass
+    raise ProviderError(f"{label}: Mei won't send your key over plain http to {host}; use an https address, "
+                        "or remove the key")

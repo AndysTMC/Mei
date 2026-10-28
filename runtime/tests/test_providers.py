@@ -414,3 +414,25 @@ def _anthropic_body(stop: str) -> bytes:
 async def test_a_reply_the_model_stopped_early_says_why(make, body, cut):
     events = await collect(make(mock(body)))
     assert isinstance(events[-1], Done) and events[-1].cut == cut and text(events) in ("Half", "Whole")
+
+
+async def test_a_key_never_travels_over_plain_http_to_another_computer():
+    """Decision 0033: https anywhere, or plain http to this computer; never a key in the clear on a network."""
+    from mei.protocol import ProviderConfig
+    from mei.providers import factory
+    from mei.providers.http_stream import check_key_transport
+
+    async def key_for(_pid):
+        return "sk-test-0123456789abcdef"
+    for url in ("http://192.168.1.20:8080/v1/chat/completions", "http://models.example.com/v1/chat/completions"):
+        with pytest.raises(ProviderError, match="plain http"):
+            await factory.build(ProviderConfig(id="custom", model="m", url=url), mock(b""), key_for)
+    for url in ("http://127.0.0.1:8080/v1/chat/completions", "http://localhost:8080/v1/chat/completions",
+                "http://[::1]:8080/v1/chat/completions", "https://models.example.com/v1/chat/completions"):
+        check_key_transport(url, "T")  # fine
+        await factory.build(ProviderConfig(id="custom", model="m", url=url), mock(b""), key_for)
+
+    async def no_key(_pid):
+        return ""
+    await factory.build(ProviderConfig(id="custom", model="m", url="http://192.168.1.20:8080/v1/chat/completions"),
+                        mock(b""), no_key)  # no key, nothing to protect

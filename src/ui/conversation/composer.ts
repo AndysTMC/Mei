@@ -323,6 +323,13 @@ export class Composer {
         });
     }
 
+    restoreDraft(text: string): void {
+        if (this.entry.get_text().trim()) return;
+        this.entry.set_text(text);
+        this.entry.clutter_text.set_cursor_position(-1);
+        this.queueLayout('bottom');
+    }
+
     private _send(): void {
         const text = this.entry.get_text().trim();
         if (!text) return;

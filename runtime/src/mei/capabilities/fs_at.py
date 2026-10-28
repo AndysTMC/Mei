@@ -23,7 +23,9 @@ from pathlib import Path
 from .base import ActionContext, CapabilityError, Env
 
 _DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+# O_NONBLOCK: a named pipe with no writer would otherwise hold the open (and the runtime) until one
+# came; it opens at once and is then refused as not a regular file. Reads of regular files are unaffected.
+_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
 _NEW = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
 _RENAME_NOREPLACE = 1
 _CHUNK = 1 << 20
