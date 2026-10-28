@@ -49,8 +49,9 @@ class Endpointing:
     # (0.8 s by default, decision 0028). This default is the mechanism's.
     end_silence_s: float = 0.5
     # Silence fed after the end so the recognizer emits the last words: Kroko drops whole words with
-    # under ~1 s (and the owner's "ready"/"Monday" in spike 0c). Fed at once: ~40 ms of compute.
-    tail_s: float = 1.2
+    # under ~1 s (the owner's "ready"/"Monday" in spike 0c); the careful-edit benchmark lost 3 words in
+    # 357 with 1.2 s and none with 1.5 s. Fed at once: ~50 ms of compute.
+    tail_s: float = 1.5
     no_speech_s: float = 30.0  # waiting for someone to start talking; 0: as long as it takes
     max_s: float = 30.0
 

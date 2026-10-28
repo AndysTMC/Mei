@@ -136,17 +136,26 @@ async def test_the_listener_asks_the_detector_once_per_pause_and_honours_wait():
 
 def test_fillers_and_stutters_go_and_the_raw_words_stay():
     cleaned = Chain([Rules()])("um I I want to uh go to the the store")
-    assert cleaned.text == "I want to go to the store" and cleaned.raw == "um I I want to uh go to the the store"
+    assert cleaned.text == "I want to go to the store." and cleaned.raw == "um I I want to uh go to the the store"
     assert cleaned.changed
 
 
 def test_words_meant_twice_and_words_that_look_like_fillers_are_kept():
     rules = Rules()
-    assert rules.clean("very very good") == "Very very good"
-    assert rules.clean("no no stop") == "No no stop"
-    assert rules.clean("the hummus is good") == "The hummus is good"
-    assert rules.clean("umbrella please") == "Umbrella please"
-    assert rules.clean("i think i'm done, uh, thanks") == "I think I'm done, thanks"
+    assert rules.clean("very very good") == "Very very good."
+    assert rules.clean("no no stop") == "No no stop."
+    assert rules.clean("the hummus is good") == "The hummus is good."
+    assert rules.clean("umbrella please") == "Umbrella please."
+    assert rules.clean("i think i'm done, uh, thanks") == "I think I'm done, thanks."
+
+
+def test_like_as_a_filler_the_days_and_mei_and_a_mark_to_end():
+    """The careful-edit benchmark's rules+ (spikes/careful-edit/REPORT.md)."""
+    rules = Rules()
+    assert rules.clean("we could like move it to monday") == "We could move it to Monday."
+    assert rules.clean("hey mei, can you open files") == "Hey Mei, can you open files?"
+    assert rules.clean("i like apples") == "I like apples."  # "like" as a word stays
+    assert rules.clean("Is it done?") == "Is it done?"
 
 
 def test_a_step_that_fails_or_empties_the_text_leaves_it_as_it_was():
@@ -156,7 +165,7 @@ def test_a_step_that_fails_or_empties_the_text_leaves_it_as_it_was():
         def clean(self, text: str) -> str:
             raise RuntimeError("no")
 
-    assert Chain([Broken(), Rules()])("uh hello").text == "Hello"
+    assert Chain([Broken(), Rules()])("uh hello").text == "Hello."
     assert Chain([Rules()])("mmm").text == "mmm"
 
 
