@@ -1,0 +1,6761 @@
+{
+ "(raw words, untouched)": {
+  "exact": 0,
+  "words_ok": 26,
+  "cer": 0.132,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "asr-kroko": {
+  "p50_ms": 94.01,
+  "p95_ms": 182.19,
+  "max_ms": 192.63,
+  "disk_mb": 67.8,
+  "model_ram_mb": 146.8,
+  "peak_mb": 196.6,
+  "load_ms": 6654,
+  "exact": 3,
+  "words_ok": 24,
+  "cer": 0.134,
+  "meaning": 16,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "asr-moonshine-base": {
+  "p50_ms": 101.58,
+  "p95_ms": 199.21,
+  "max_ms": 219.12,
+  "disk_mb": 134.8,
+  "model_ram_mb": 338.0,
+  "peak_mb": 387.8,
+  "load_ms": 1148,
+  "exact": 14,
+  "words_ok": 19,
+  "cer": 0.088,
+  "meaning": 19,
+  "reworded": 6,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+mi"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+uh-huh"
+    ],
+    "reworded": []
+   },
+   "f04": {
+    "meaning": [
+     "+6",
+     "-six",
+     "lost 'six'",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+or"
+    ]
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "+on"
+    ]
+   },
+   "f06": {
+    "meaning": [
+     "+20",
+     "-twenty",
+     "lost 'twenty'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "r01": {
+    "meaning": [
+     "+new",
+     "-news"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "r04": {
+    "meaning": [
+     "+20",
+     "-twenty",
+     "lost 'twenty'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p05": {
+    "meaning": [
+     "+10",
+     "-ten",
+     "lost 'ten'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+zachital",
+     "-xochitl",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "n02": {
+    "meaning": [
+     "+dtmc",
+     "-andy",
+     "lost 'Andy'"
+    ],
+    "reworded": [
+     "+and"
+    ]
+   },
+   "n03": {
+    "meaning": [
+     "+boyginius",
+     "-boygenius",
+     "lost 'boygenius'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "-dollars"
+    ],
+    "reworded": []
+   },
+   "d04": {
+    "meaning": [
+     "+weight",
+     "-wait",
+     "lost 'wait'"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "+pm",
+     "-git",
+     "-npm",
+     "lost 'git rebase'",
+     "lost 'npm run build'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+cubectle",
+     "-kubectl",
+     "lost 'kubectl'"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+going",
+     "+when",
+     "-gonna",
+     "-wanna",
+     "lost 'gonna'",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+to",
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "asr-moonshine-tiny": {
+  "p50_ms": 61.36,
+  "p95_ms": 113.33,
+  "max_ms": 135.32,
+  "disk_mb": 42.2,
+  "model_ram_mb": 130.6,
+  "peak_mb": 180.3,
+  "load_ms": 635,
+  "exact": 14,
+  "words_ok": 19,
+  "cer": 0.102,
+  "meaning": 18,
+  "reworded": 5,
+  "flags": {
+   "f02": {
+    "meaning": [],
+    "reworded": [
+     "+am"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+o",
+     "+to-morrow",
+     "-tomorrow",
+     "lost 'tomorrow'"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f04": {
+    "meaning": [
+     "+6",
+     "+ell",
+     "-six",
+     "lost 'six'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "f06": {
+    "meaning": [
+     "+20",
+     "-twenty",
+     "lost 'twenty'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "r01": {
+    "meaning": [
+     "+new",
+     "-news"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "r04": {
+    "meaning": [
+     "+20",
+     "+shivan",
+     "-siobhan",
+     "-twenty",
+     "lost 'Siobhan'",
+     "lost 'twenty'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p05": {
+    "meaning": [
+     "+10",
+     "-ten",
+     "lost 'ten'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+newyen",
+     "+zocchital",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "n02": {
+    "meaning": [
+     "+anddmc",
+     "-andy",
+     "lost 'Andy'"
+    ],
+    "reworded": []
+   },
+   "n03": {
+    "meaning": [
+     "+boyginus",
+     "-boygenius",
+     "lost 'boygenius'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "-dollars"
+    ],
+    "reworded": []
+   },
+   "d04": {
+    "meaning": [
+     "+weight",
+     "-wait",
+     "lost 'wait'"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "+rebace",
+     "-git",
+     "-rebase",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'user_id'"
+    ],
+    "reworded": [
+     "+and",
+     "-in"
+    ]
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+800080",
+     "+colon",
+     "+cubectal",
+     "+localhost",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+going",
+     "+when",
+     "-gonna",
+     "-wanna",
+     "lost 'gonna'",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+to",
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "lfm2.5-1.2b": {
+  "p50_ms": 797.86,
+  "p95_ms": 1692.0,
+  "max_ms": 2683.71,
+  "disk_mb": 1188.5,
+  "model_ram_mb": 1463.0,
+  "peak_mb": 1500.4,
+  "load_ms": 3139,
+  "exact": 11,
+  "words_ok": 27,
+  "cer": 0.163,
+  "meaning": 10,
+  "reworded": 9,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+maybe",
+     "+shift",
+     "+yeah",
+     "-move",
+     "-thinking"
+    ],
+    "reworded": [
+     "-so",
+     "-i",
+     "-was"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+weather/whether",
+     "-tomorrow",
+     "-weather",
+     "-what's",
+     "lost 'tomorrow'"
+    ],
+    "reworded": [
+     "-the"
+    ]
+   },
+   "s04": {
+    "meaning": [
+     "-no",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "s05": {
+    "meaning": [
+     "+good",
+     "-fine",
+     "lost 'that that'"
+    ],
+    "reworded": [
+     "-that"
+    ]
+   },
+   "p02": {
+    "meaning": [
+     "-add"
+    ],
+    "reworded": [
+     "-and",
+     "-the"
+    ]
+   },
+   "p04": {
+    "meaning": [
+     "+hey",
+     "-dear"
+    ],
+    "reworded": [
+     "-on"
+    ]
+   },
+   "h02": {
+    "meaning": [
+     "+hello"
+    ],
+    "reworded": []
+   },
+   "h07": {
+    "meaning": [
+     "+sure",
+     "lost 'me'"
+    ],
+    "reworded": [
+     "+it",
+     "+is",
+     "-can",
+     "-you",
+     "-me"
+    ]
+   },
+   "h08": {
+    "meaning": [
+     "+clarify",
+     "+let",
+     "+sure",
+     "-down",
+     "-please",
+     "lost 'down'"
+    ],
+    "reworded": [
+     "+me",
+     "-this"
+    ]
+   },
+   "c01": {
+    "meaning": [],
+    "reworded": [
+     "-and",
+     "-on"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+renamed",
+     "-rename"
+    ],
+    "reworded": [
+     "+should",
+     "+be"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "lfm2.5-1.2b+guard": {
+  "p50_ms": 797.86,
+  "p95_ms": 1692.0,
+  "max_ms": 2683.71,
+  "disk_mb": 1188.5,
+  "model_ram_mb": 1463.0,
+  "peak_mb": 1500.4,
+  "load_ms": 3139,
+  "exact": 17,
+  "words_ok": 32,
+  "cer": 0.053,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "lfm2.5-1.2b@rules": {
+  "p50_ms": 1743.01,
+  "p95_ms": 4174.32,
+  "max_ms": 4596.27,
+  "disk_mb": 1188.5,
+  "model_ram_mb": 1455.8,
+  "peak_mb": 1493.1,
+  "load_ms": 4900,
+  "exact": 8,
+  "words_ok": 25,
+  "cer": 0.211,
+  "meaning": 12,
+  "reworded": 11,
+  "flags": {
+   "s03": {
+    "meaning": [
+     "+really"
+    ],
+    "reworded": []
+   },
+   "s04": {
+    "meaning": [
+     "-no",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "s05": {
+    "meaning": [
+     "lost 'that that'"
+    ],
+    "reworded": [
+     "-that"
+    ]
+   },
+   "p02": {
+    "meaning": [
+     "-add",
+     "-list",
+     "-shopping"
+    ],
+    "reworded": [
+     "-and",
+     "-to",
+     "-the"
+    ]
+   },
+   "p04": {
+    "meaning": [
+     "+hey",
+     "-dear"
+    ],
+    "reworded": [
+     "-on"
+    ]
+   },
+   "h02": {
+    "meaning": [
+     "+hey",
+     "-join",
+     "-welcome",
+     "lost 'join'"
+    ],
+    "reworded": [
+     "+there",
+     "-to",
+     "-us"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "-go",
+     "-want",
+     "lost 'want'"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "h07": {
+    "meaning": [
+     "+sure",
+     "lost 'me'"
+    ],
+    "reworded": [
+     "+it",
+     "+is",
+     "-can",
+     "-you",
+     "-me"
+    ]
+   },
+   "h08": {
+    "meaning": [
+     "+know",
+     "+let",
+     "+sure",
+     "-down",
+     "-please",
+     "lost 'down'"
+    ],
+    "reworded": [
+     "+me",
+     "-this"
+    ]
+   },
+   "n02": {
+    "meaning": [],
+    "reworded": [
+     "+at",
+     "-on"
+    ]
+   },
+   "c01": {
+    "meaning": [],
+    "reworded": [
+     "-and",
+     "-on"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+renamed",
+     "-rename"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "c03": {
+    "meaning": [
+     "+confused",
+     "+misheard",
+     "+recognizer",
+     "+speech",
+     "-hook",
+     "-mode",
+     "-runs",
+     "-strict",
+     "-twice",
+     "lost 'twice'",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+as",
+     "+and",
+     "+it",
+     "+with",
+     "+and",
+     "+you're",
+     "-in"
+    ]
+   },
+   "m01": {
+    "meaning": [
+     "+didn't",
+     "+say",
+     "-never",
+     "-said",
+     "lost 'never'",
+     "negation differs"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "lfm2.5-1.2b+guard@rules": {
+  "p50_ms": 1743.01,
+  "p95_ms": 4174.32,
+  "max_ms": 4596.27,
+  "disk_mb": 1188.5,
+  "model_ram_mb": 1455.8,
+  "peak_mb": 1493.1,
+  "load_ms": 4900,
+  "exact": 17,
+  "words_ok": 34,
+  "cer": 0.038,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "punct-ct+guard@rules": {
+  "p50_ms": 3.51,
+  "p95_ms": 5.25,
+  "max_ms": 6.57,
+  "disk_mb": 72.0,
+  "model_ram_mb": 162.1,
+  "peak_mb": 199.5,
+  "load_ms": 449,
+  "exact": 15,
+  "words_ok": 32,
+  "cer": 0.043,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "punct-ct": {
+  "p50_ms": 4.56,
+  "p95_ms": 6.25,
+  "max_ms": 7.31,
+  "disk_mb": 72.0,
+  "model_ram_mb": 161.4,
+  "peak_mb": 198.8,
+  "load_ms": 676,
+  "exact": 0,
+  "words_ok": 11,
+  "cer": 0.151,
+  "meaning": 18,
+  "reworded": 7,
+  "flags": {
+   "f03": {
+    "meaning": [
+     "+uh，hmm，what's",
+     "-what's"
+    ],
+    "reworded": []
+   },
+   "s03": {
+    "meaning": [
+     "+important，please",
+     "+very，very",
+     "-important",
+     "-please",
+     "-very",
+     "lost 'very very'"
+    ],
+    "reworded": []
+   },
+   "s04": {
+    "meaning": [
+     "+no，no，don't",
+     "-don't",
+     "-no"
+    ],
+    "reworded": []
+   },
+   "s05": {
+    "meaning": [
+     "+that，that",
+     "lost 'that that'"
+    ],
+    "reworded": [
+     "-that",
+     "-that"
+    ]
+   },
+   "r01": {
+    "meaning": [
+     "+site，then",
+     "-site"
+    ],
+    "reworded": [
+     "-then"
+    ]
+   },
+   "r02": {
+    "meaning": [
+     "+drive。let",
+     "+report。it's",
+     "-drive",
+     "-let",
+     "-report"
+    ],
+    "reworded": [
+     "-it's"
+    ]
+   },
+   "r03": {
+    "meaning": [
+     "+again，i",
+     "-again"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "r04": {
+    "meaning": [
+     "+late。the",
+     "-late"
+    ],
+    "reworded": [
+     "-the"
+    ]
+   },
+   "p02": {
+    "meaning": [
+     "+eggs，milk，bread",
+     "-bread",
+     "-eggs",
+     "-milk"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+hey，mei，is",
+     "-hey",
+     "-mei"
+    ],
+    "reworded": [
+     "-is"
+    ]
+   },
+   "p04": {
+    "meaning": [
+     "+tom，thanks",
+     "+update，see",
+     "-see",
+     "-thanks",
+     "-tom",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "h04": {
+    "meaning": [
+     "+weather。we"
+    ],
+    "reworded": [
+     "-we"
+    ]
+   },
+   "h05": {
+    "meaning": [
+     "+better，then",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+15th，not",
+     "+3",
+     "+45",
+     "-15th",
+     "-3:45",
+     "-not",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+1",
+     "+2",
+     "+200",
+     "+5",
+     "+liters，which",
+     "-1,200",
+     "-2.5",
+     "-liters",
+     "-which",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d04": {
+    "meaning": [
+     "+four。no",
+     "-four",
+     "-no"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+_",
+     "+account",
+     "+id",
+     "+main",
+     "+src",
+     "+ts",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+localhost",
+     "-localhost:8080",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "punct-en+guard>t5-small-gec+guard@rules": {
+  "p50_ms": 71.49,
+  "p95_ms": 164.53,
+  "max_ms": 295.22,
+  "disk_mb": 99.2,
+  "model_ram_mb": 217.3,
+  "peak_mb": 254.8,
+  "load_ms": 570,
+  "exact": 24,
+  "words_ok": 35,
+  "cer": 0.031,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "punct-en+guard>t5-tiny+guard@kroko+rules": {
+  "p50_ms": 35.76,
+  "p95_ms": 66.61,
+  "max_ms": 96.4,
+  "disk_mb": 40.5,
+  "model_ram_mb": 147.7,
+  "peak_mb": 185.1,
+  "load_ms": 340,
+  "exact": 17,
+  "words_ok": 26,
+  "cer": 0.11,
+  "meaning": 16,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "punct-en+guard>t5-tiny+guard@rules#t2": {
+  "p50_ms": 42.95,
+  "p95_ms": 88.06,
+  "max_ms": 118.75,
+  "disk_mb": 40.5,
+  "model_ram_mb": 147.7,
+  "peak_mb": 185.1,
+  "load_ms": 347,
+  "exact": 25,
+  "words_ok": 36,
+  "cer": 0.028,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "punct-en+guard>t5-tiny+guard@rules": {
+  "p50_ms": 39.55,
+  "p95_ms": 72.51,
+  "max_ms": 94.98,
+  "disk_mb": 40.5,
+  "model_ram_mb": 148.0,
+  "peak_mb": 185.4,
+  "load_ms": 355,
+  "exact": 25,
+  "words_ok": 36,
+  "cer": 0.028,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "punct-en+guard@kroko+rules": {
+  "p50_ms": 7.17,
+  "p95_ms": 7.87,
+  "max_ms": 8.92,
+  "disk_mb": 7.3,
+  "model_ram_mb": 40.3,
+  "peak_mb": 77.7,
+  "load_ms": 86,
+  "exact": 17,
+  "words_ok": 26,
+  "cer": 0.11,
+  "meaning": 16,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "punct-en+guard@rules#t2": {
+  "p50_ms": 8.99,
+  "p95_ms": 11.1,
+  "max_ms": 12.02,
+  "disk_mb": 7.3,
+  "model_ram_mb": 40.2,
+  "peak_mb": 77.6,
+  "load_ms": 150,
+  "exact": 22,
+  "words_ok": 32,
+  "cer": 0.036,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "punct-en+guard@rules": {
+  "p50_ms": 6.96,
+  "p95_ms": 7.66,
+  "max_ms": 8.35,
+  "disk_mb": 7.3,
+  "model_ram_mb": 40.2,
+  "peak_mb": 77.6,
+  "load_ms": 91,
+  "exact": 22,
+  "words_ok": 32,
+  "cer": 0.036,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "punct-en": {
+  "p50_ms": 9.89,
+  "p95_ms": 14.28,
+  "max_ms": 17.35,
+  "disk_mb": 7.3,
+  "model_ram_mb": 39.6,
+  "peak_mb": 77.0,
+  "load_ms": 117,
+  "exact": 2,
+  "words_ok": 26,
+  "cer": 0.104,
+  "meaning": 1,
+  "reworded": 0,
+  "flags": {
+   "d02": {
+    "meaning": [
+     "lost '15th'",
+     "lost '16th'"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "qwen2.5-0.5b": {
+  "p50_ms": 738.23,
+  "p95_ms": 6964.32,
+  "max_ms": 7117.33,
+  "disk_mb": 468.6,
+  "model_ram_mb": 960.0,
+  "peak_mb": 997.4,
+  "load_ms": 9385,
+  "exact": 22,
+  "words_ok": 31,
+  "cer": 0.05,
+  "meaning": 3,
+  "reworded": 2,
+  "flags": {
+   "f01": {
+    "meaning": [],
+    "reworded": [
+     "+could",
+     "-can"
+    ]
+   },
+   "s04": {
+    "meaning": [
+     "-no",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "s05": {
+    "meaning": [
+     "lost 'that that'"
+    ],
+    "reworded": [
+     "-that"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "-dollars"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "qwen2.5-0.5b+guard": {
+  "p50_ms": 738.23,
+  "p95_ms": 6964.32,
+  "max_ms": 7117.33,
+  "disk_mb": 468.6,
+  "model_ram_mb": 960.0,
+  "peak_mb": 997.4,
+  "load_ms": 9385,
+  "exact": 23,
+  "words_ok": 32,
+  "cer": 0.047,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "qwen2.5-0.5b@kroko+rules": {
+  "p50_ms": 734.93,
+  "p95_ms": 5887.02,
+  "max_ms": 7074.83,
+  "disk_mb": 468.6,
+  "model_ram_mb": 1020.2,
+  "peak_mb": 1057.6,
+  "load_ms": 5134,
+  "exact": 19,
+  "words_ok": 26,
+  "cer": 0.083,
+  "meaning": 16,
+  "reworded": 4,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": []
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "s05": {
+    "meaning": [
+     "lost 'that that'"
+    ],
+    "reworded": [
+     "+the",
+     "-that"
+    ]
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+forty-five",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": [
+     "-and"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+cubeal",
+     "+localhost:8000",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "qwen2.5-0.5b+guard@kroko+rules": {
+  "p50_ms": 734.93,
+  "p95_ms": 5887.02,
+  "max_ms": 7074.83,
+  "disk_mb": 468.6,
+  "model_ram_mb": 1020.2,
+  "peak_mb": 1057.6,
+  "load_ms": 5134,
+  "exact": 19,
+  "words_ok": 26,
+  "cer": 0.101,
+  "meaning": 16,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "qwen2.5-0.5b@rules#t2": {
+  "p50_ms": 532.39,
+  "p95_ms": 2161.18,
+  "max_ms": 3828.28,
+  "disk_mb": 468.6,
+  "model_ram_mb": 1020.7,
+  "peak_mb": 1058.1,
+  "load_ms": 2385,
+  "exact": 25,
+  "words_ok": 35,
+  "cer": 0.033,
+  "meaning": 3,
+  "reworded": 1,
+  "flags": {
+   "s04": {
+    "meaning": [
+     "-no",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "s05": {
+    "meaning": [
+     "lost 'that that'"
+    ],
+    "reworded": [
+     "+the",
+     "-that"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "-dollars"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "qwen2.5-0.5b+guard@rules#t2": {
+  "p50_ms": 532.39,
+  "p95_ms": 2161.18,
+  "max_ms": 3828.28,
+  "disk_mb": 468.6,
+  "model_ram_mb": 1020.7,
+  "peak_mb": 1058.1,
+  "load_ms": 2385,
+  "exact": 26,
+  "words_ok": 37,
+  "cer": 0.026,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "qwen2.5-0.5b@rules": {
+  "p50_ms": 672.18,
+  "p95_ms": 6264.32,
+  "max_ms": 6594.38,
+  "disk_mb": 468.6,
+  "model_ram_mb": 1020.3,
+  "peak_mb": 1057.7,
+  "load_ms": 2728,
+  "exact": 25,
+  "words_ok": 35,
+  "cer": 0.033,
+  "meaning": 3,
+  "reworded": 1,
+  "flags": {
+   "s04": {
+    "meaning": [
+     "-no",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "s05": {
+    "meaning": [
+     "lost 'that that'"
+    ],
+    "reworded": [
+     "+the",
+     "-that"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "-dollars"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "qwen2.5-0.5b+guard@rules": {
+  "p50_ms": 672.18,
+  "p95_ms": 6264.32,
+  "max_ms": 6594.38,
+  "disk_mb": 468.6,
+  "model_ram_mb": 1020.3,
+  "peak_mb": 1057.7,
+  "load_ms": 2728,
+  "exact": 26,
+  "words_ok": 37,
+  "cer": 0.026,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "qwen3-0.6b": {
+  "p50_ms": 623.3,
+  "p95_ms": 1766.66,
+  "max_ms": 5308.09,
+  "disk_mb": 378.3,
+  "model_ram_mb": 1272.5,
+  "peak_mb": 1309.9,
+  "load_ms": 6498,
+  "exact": 19,
+  "words_ok": 29,
+  "cer": 0.061,
+  "meaning": 3,
+  "reworded": 1,
+  "flags": {
+   "s03": {
+    "meaning": [
+     "-very",
+     "lost 'very very'"
+    ],
+    "reworded": []
+   },
+   "s05": {
+    "meaning": [
+     "lost 'that that'"
+    ],
+    "reworded": [
+     "-that"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "-400",
+     "-dollars",
+     "-not",
+     "lost '400'",
+     "lost 'not'",
+     "negation differs",
+     "numbers differ"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "qwen3-0.6b+guard": {
+  "p50_ms": 623.3,
+  "p95_ms": 1766.66,
+  "max_ms": 5308.09,
+  "disk_mb": 378.3,
+  "model_ram_mb": 1272.5,
+  "peak_mb": 1309.9,
+  "load_ms": 6498,
+  "exact": 21,
+  "words_ok": 31,
+  "cer": 0.049,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "qwen3-0.6b@rules": {
+  "p50_ms": 498.55,
+  "p95_ms": 3358.77,
+  "max_ms": 6970.29,
+  "disk_mb": 378.3,
+  "model_ram_mb": 1273.8,
+  "peak_mb": 1311.2,
+  "load_ms": 8259,
+  "exact": 24,
+  "words_ok": 34,
+  "cer": 0.047,
+  "meaning": 3,
+  "reworded": 1,
+  "flags": {
+   "s03": {
+    "meaning": [
+     "-very",
+     "lost 'very very'"
+    ],
+    "reworded": []
+   },
+   "s05": {
+    "meaning": [
+     "lost 'that that'"
+    ],
+    "reworded": [
+     "-that"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "-400",
+     "-dollars",
+     "-not",
+     "lost '400'",
+     "lost 'not'",
+     "negation differs",
+     "numbers differ"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "qwen3-0.6b+guard@rules": {
+  "p50_ms": 498.55,
+  "p95_ms": 3358.77,
+  "max_ms": 6970.29,
+  "disk_mb": 378.3,
+  "model_ram_mb": 1273.8,
+  "peak_mb": 1311.2,
+  "load_ms": 8259,
+  "exact": 24,
+  "words_ok": 36,
+  "cer": 0.029,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "rules+": {
+  "p50_ms": 0.03,
+  "p95_ms": 0.05,
+  "max_ms": 0.07,
+  "disk_mb": 0.0,
+  "model_ram_mb": -0.1,
+  "peak_mb": 37.3,
+  "load_ms": 13,
+  "exact": 13,
+  "words_ok": 33,
+  "cer": 0.041,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "rules+@kroko+rules": {
+  "p50_ms": 0.03,
+  "p95_ms": 0.05,
+  "max_ms": 0.07,
+  "disk_mb": 0.0,
+  "model_ram_mb": -0.2,
+  "peak_mb": 37.2,
+  "load_ms": 3,
+  "exact": 18,
+  "words_ok": 26,
+  "cer": 0.102,
+  "meaning": 16,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "rules+@kroko": {
+  "p50_ms": 0.03,
+  "p95_ms": 0.06,
+  "max_ms": 0.06,
+  "disk_mb": 0.0,
+  "model_ram_mb": -0.2,
+  "peak_mb": 37.2,
+  "load_ms": 10,
+  "exact": 18,
+  "words_ok": 26,
+  "cer": 0.102,
+  "meaning": 16,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "rules-seam": {
+  "p50_ms": 0.02,
+  "p95_ms": 0.03,
+  "max_ms": 0.04,
+  "disk_mb": 0.0,
+  "model_ram_mb": -0.5,
+  "peak_mb": 36.9,
+  "load_ms": 10,
+  "exact": 0,
+  "words_ok": 32,
+  "cer": 0.073,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "rules-seam@kroko": {
+  "p50_ms": 0.02,
+  "p95_ms": 0.03,
+  "max_ms": 0.04,
+  "disk_mb": 0.0,
+  "model_ram_mb": -0.1,
+  "peak_mb": 37.3,
+  "load_ms": 9,
+  "exact": 6,
+  "words_ok": 26,
+  "cer": 0.123,
+  "meaning": 16,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-base": {
+  "p50_ms": 529.7,
+  "p95_ms": 923.35,
+  "max_ms": 1185.31,
+  "disk_mb": 359.5,
+  "model_ram_mb": 825.2,
+  "peak_mb": 862.6,
+  "load_ms": 3048,
+  "exact": 15,
+  "words_ok": 25,
+  "cer": 0.126,
+  "meaning": 8,
+  "reworded": 5,
+  "flags": {
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "+than"
+    ]
+   },
+   "s03": {
+    "meaning": [
+     "-very",
+     "lost 'very very'"
+    ],
+    "reworded": []
+   },
+   "s04": {
+    "meaning": [
+     "-no",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+make"
+    ],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "h04": {
+    "meaning": [
+     "+not",
+     "+park",
+     "negation differs"
+    ],
+    "reworded": [
+     "+to",
+     "+the",
+     "+or"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "+college"
+    ],
+    "reworded": [
+     "+a"
+    ]
+   },
+   "h08": {
+    "meaning": [
+     "+correct"
+    ],
+    "reworded": []
+   },
+   "n02": {
+    "meaning": [
+     "+tomc"
+    ],
+    "reworded": []
+   },
+   "n03": {
+    "meaning": [
+     "+available",
+     "+now",
+     "-play"
+    ],
+    "reworded": [
+     "+is"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-base+guard": {
+  "p50_ms": 529.7,
+  "p95_ms": 923.35,
+  "max_ms": 1185.31,
+  "disk_mb": 359.5,
+  "model_ram_mb": 825.2,
+  "peak_mb": 862.6,
+  "load_ms": 3048,
+  "exact": 19,
+  "words_ok": 31,
+  "cer": 0.058,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-base@kroko+rules": {
+  "p50_ms": 301.7,
+  "p95_ms": 515.16,
+  "max_ms": 644.15,
+  "disk_mb": 359.5,
+  "model_ram_mb": 915.4,
+  "peak_mb": 952.8,
+  "load_ms": 1374,
+  "exact": 19,
+  "words_ok": 25,
+  "cer": 0.121,
+  "meaning": 18,
+  "reworded": 5,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+he"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "s04": {
+    "meaning": [
+     "-no",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+make"
+    ],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "h06": {
+    "meaning": [
+     "+school"
+    ],
+    "reworded": [
+     "+a"
+    ]
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-base+guard@kroko+rules": {
+  "p50_ms": 301.7,
+  "p95_ms": 515.16,
+  "max_ms": 644.15,
+  "disk_mb": 359.5,
+  "model_ram_mb": 915.4,
+  "peak_mb": 952.8,
+  "load_ms": 1374,
+  "exact": 19,
+  "words_ok": 26,
+  "cer": 0.102,
+  "meaning": 16,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-base@rules": {
+  "p50_ms": 290.07,
+  "p95_ms": 513.91,
+  "max_ms": 614.67,
+  "disk_mb": 359.5,
+  "model_ram_mb": 917.1,
+  "peak_mb": 954.5,
+  "load_ms": 1524,
+  "exact": 19,
+  "words_ok": 30,
+  "cer": 0.076,
+  "meaning": 7,
+  "reworded": 4,
+  "flags": {
+   "s03": {
+    "meaning": [
+     "-very",
+     "lost 'very very'"
+    ],
+    "reworded": []
+   },
+   "s04": {
+    "meaning": [
+     "-no",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+make"
+    ],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "h04": {
+    "meaning": [
+     "+park"
+    ],
+    "reworded": [
+     "+if",
+     "+to",
+     "+the"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "+school"
+    ],
+    "reworded": [
+     "+a"
+    ]
+   },
+   "h08": {
+    "meaning": [
+     "+correct"
+    ],
+    "reworded": []
+   },
+   "n02": {
+    "meaning": [
+     "+make"
+    ],
+    "reworded": [
+     "+to",
+     "+a"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-base+guard@rules": {
+  "p50_ms": 290.07,
+  "p95_ms": 513.91,
+  "max_ms": 614.67,
+  "disk_mb": 359.5,
+  "model_ram_mb": 917.1,
+  "peak_mb": 954.5,
+  "load_ms": 1524,
+  "exact": 21,
+  "words_ok": 34,
+  "cer": 0.034,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-mini": {
+  "p50_ms": 55.94,
+  "p95_ms": 143.02,
+  "max_ms": 239.58,
+  "disk_mb": 56.1,
+  "model_ram_mb": 133.9,
+  "peak_mb": 171.3,
+  "load_ms": 603,
+  "exact": 12,
+  "words_ok": 23,
+  "cer": 0.105,
+  "meaning": 12,
+  "reworded": 9,
+  "flags": {
+   "f01": {
+    "meaning": [],
+    "reworded": [
+     "+and",
+     "+just"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+oh",
+     "+what",
+     "-what's"
+    ],
+    "reworded": [
+     "+is"
+    ]
+   },
+   "f04": {
+    "meaning": [
+     "+here",
+     "+reminds",
+     "-remind"
+    ],
+    "reworded": []
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "+and"
+    ]
+   },
+   "s01": {
+    "meaning": [
+     "+think"
+    ],
+    "reworded": []
+   },
+   "s04": {
+    "meaning": [
+     "-don't",
+     "lost 'don't'",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+change",
+     "-changes"
+    ],
+    "reworded": [
+     "+on",
+     "-it's",
+     "-in",
+     "+to"
+    ]
+   },
+   "p04": {
+    "meaning": [],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "+bed"
+    ],
+    "reworded": []
+   },
+   "n02": {
+    "meaning": [
+     "+anybody",
+     "-andy",
+     "lost 'Andy'"
+    ],
+    "reworded": []
+   },
+   "n03": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "+same",
+     "-sam",
+     "lost 'Sam'"
+    ],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "d03": {
+    "meaning": [],
+    "reworded": [
+     "+are",
+     "-is"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+_",
+     "+account",
+     "+id",
+     "+srclmaints",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+localhost",
+     "+object",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+going",
+     "-gonna",
+     "-i'm",
+     "lost 'gonna'"
+    ],
+    "reworded": [
+     "+i",
+     "+am",
+     "+to",
+     "+and"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-mini+guard": {
+  "p50_ms": 55.94,
+  "p95_ms": 143.02,
+  "max_ms": 239.58,
+  "disk_mb": 56.1,
+  "model_ram_mb": 133.9,
+  "peak_mb": 171.3,
+  "load_ms": 603,
+  "exact": 18,
+  "words_ok": 31,
+  "cer": 0.061,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-mini@rules#t2": {
+  "p50_ms": 48.36,
+  "p95_ms": 112.88,
+  "max_ms": 225.67,
+  "disk_mb": 56.1,
+  "model_ram_mb": 133.4,
+  "peak_mb": 170.8,
+  "load_ms": 310,
+  "exact": 15,
+  "words_ok": 21,
+  "cer": 0.09,
+  "meaning": 13,
+  "reworded": 15,
+  "flags": {
+   "f03": {
+    "meaning": [
+     "+what",
+     "-what's"
+    ],
+    "reworded": [
+     "+is"
+    ]
+   },
+   "f04": {
+    "meaning": [
+     "+myself"
+    ],
+    "reworded": [
+     "+i",
+     "-me"
+    ]
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "+than"
+    ]
+   },
+   "s02": {
+    "meaning": [],
+    "reworded": [
+     "-you"
+    ]
+   },
+   "s04": {
+    "meaning": [
+     "-don't",
+     "lost 'don't'",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+change",
+     "-changes"
+    ],
+    "reworded": [
+     "+on",
+     "-it's",
+     "-in",
+     "+to"
+    ]
+   },
+   "r04": {
+    "meaning": [
+     "-i'll"
+    ],
+    "reworded": [
+     "+i",
+     "+am",
+     "-be"
+    ]
+   },
+   "p04": {
+    "meaning": [],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "h01": {
+    "meaning": [],
+    "reworded": [
+     "+they",
+     "+are"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "+bed"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+doctor",
+     "-xochitl",
+     "lost 'Xochitl'"
+    ],
+    "reworded": [
+     "+a"
+    ]
+   },
+   "n02": {
+    "meaning": [
+     "+anybody",
+     "-andy",
+     "lost 'Andy'"
+    ],
+    "reworded": [
+     "+to",
+     "+me"
+    ]
+   },
+   "n03": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "+same",
+     "-sam",
+     "lost 'Sam'"
+    ],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "d03": {
+    "meaning": [],
+    "reworded": [
+     "+are",
+     "-is"
+    ]
+   },
+   "c01": {
+    "meaning": [],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+_",
+     "+account",
+     "+id",
+     "+srclmaints",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+localhost",
+     "+object",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+going",
+     "-gonna",
+     "-i'm",
+     "lost 'gonna'"
+    ],
+    "reworded": [
+     "+i",
+     "+am",
+     "+to",
+     "+and"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-mini+guard@rules#t2": {
+  "p50_ms": 48.36,
+  "p95_ms": 112.88,
+  "max_ms": 225.67,
+  "disk_mb": 56.1,
+  "model_ram_mb": 133.4,
+  "peak_mb": 170.8,
+  "load_ms": 310,
+  "exact": 20,
+  "words_ok": 37,
+  "cer": 0.034,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-mini@rules": {
+  "p50_ms": 34.48,
+  "p95_ms": 71.47,
+  "max_ms": 141.16,
+  "disk_mb": 56.1,
+  "model_ram_mb": 132.8,
+  "peak_mb": 170.2,
+  "load_ms": 326,
+  "exact": 15,
+  "words_ok": 21,
+  "cer": 0.09,
+  "meaning": 13,
+  "reworded": 15,
+  "flags": {
+   "f03": {
+    "meaning": [
+     "+what",
+     "-what's"
+    ],
+    "reworded": [
+     "+is"
+    ]
+   },
+   "f04": {
+    "meaning": [
+     "+myself"
+    ],
+    "reworded": [
+     "+i",
+     "-me"
+    ]
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "+than"
+    ]
+   },
+   "s02": {
+    "meaning": [],
+    "reworded": [
+     "-you"
+    ]
+   },
+   "s04": {
+    "meaning": [
+     "-don't",
+     "lost 'don't'",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+change",
+     "-changes"
+    ],
+    "reworded": [
+     "+on",
+     "-it's",
+     "-in",
+     "+to"
+    ]
+   },
+   "r04": {
+    "meaning": [
+     "-i'll"
+    ],
+    "reworded": [
+     "+i",
+     "+am",
+     "-be"
+    ]
+   },
+   "p04": {
+    "meaning": [],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "h01": {
+    "meaning": [],
+    "reworded": [
+     "+they",
+     "+are"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "+bed"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+doctor",
+     "-xochitl",
+     "lost 'Xochitl'"
+    ],
+    "reworded": [
+     "+a"
+    ]
+   },
+   "n02": {
+    "meaning": [
+     "+anybody",
+     "-andy",
+     "lost 'Andy'"
+    ],
+    "reworded": [
+     "+to",
+     "+me"
+    ]
+   },
+   "n03": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "+same",
+     "-sam",
+     "lost 'Sam'"
+    ],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "d03": {
+    "meaning": [],
+    "reworded": [
+     "+are",
+     "-is"
+    ]
+   },
+   "c01": {
+    "meaning": [],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+_",
+     "+account",
+     "+id",
+     "+srclmaints",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+localhost",
+     "+object",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+going",
+     "-gonna",
+     "-i'm",
+     "lost 'gonna'"
+    ],
+    "reworded": [
+     "+i",
+     "+am",
+     "+to",
+     "+and"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-mini+guard@rules": {
+  "p50_ms": 34.48,
+  "p95_ms": 71.47,
+  "max_ms": 141.16,
+  "disk_mb": 56.1,
+  "model_ram_mb": 132.8,
+  "peak_mb": 170.2,
+  "load_ms": 326,
+  "exact": 20,
+  "words_ok": 37,
+  "cer": 0.034,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-small-gec": {
+  "p50_ms": 94.72,
+  "p95_ms": 249.97,
+  "max_ms": 445.34,
+  "disk_mb": 91.9,
+  "model_ram_mb": 177.1,
+  "peak_mb": 214.5,
+  "load_ms": 880,
+  "exact": 10,
+  "words_ok": 26,
+  "cer": 0.101,
+  "meaning": 5,
+  "reworded": 5,
+  "flags": {
+   "f04": {
+    "meaning": [
+     "+reminds",
+     "-remind"
+    ],
+    "reworded": []
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "+than"
+    ]
+   },
+   "p03": {
+    "meaning": [],
+    "reworded": [
+     "-it"
+    ]
+   },
+   "h01": {
+    "meaning": [],
+    "reworded": [
+     "+they",
+     "+are"
+    ]
+   },
+   "h07": {
+    "meaning": [
+     "+come"
+    ],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "d04": {
+    "meaning": [
+     "+clock",
+     "+o'",
+     "-o'clock"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+_",
+     "+account",
+     "+id",
+     "+main",
+     "+src",
+     "+ts",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+localhost",
+     "-localhost:8080",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-small-gec+guard": {
+  "p50_ms": 94.72,
+  "p95_ms": 249.97,
+  "max_ms": 445.34,
+  "disk_mb": 91.9,
+  "model_ram_mb": 177.1,
+  "peak_mb": 214.5,
+  "load_ms": 880,
+  "exact": 17,
+  "words_ok": 31,
+  "cer": 0.058,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-small-gec@kroko+rules": {
+  "p50_ms": 52.35,
+  "p95_ms": 122.2,
+  "max_ms": 154.82,
+  "disk_mb": 91.9,
+  "model_ram_mb": 177.6,
+  "peak_mb": 215.1,
+  "load_ms": 543,
+  "exact": 14,
+  "words_ok": 24,
+  "cer": 0.12,
+  "meaning": 17,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah",
+     "+like"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d04": {
+    "meaning": [
+     "+clock",
+     "+o'",
+     "-o'clock"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+main",
+     "+src",
+     "+ts",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-small-gec+guard@kroko+rules": {
+  "p50_ms": 52.35,
+  "p95_ms": 122.2,
+  "max_ms": 154.82,
+  "disk_mb": 91.9,
+  "model_ram_mb": 177.6,
+  "peak_mb": 215.1,
+  "load_ms": 543,
+  "exact": 19,
+  "words_ok": 26,
+  "cer": 0.104,
+  "meaning": 16,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-small-gec@rules#t2": {
+  "p50_ms": 73.14,
+  "p95_ms": 209.76,
+  "max_ms": 369.89,
+  "disk_mb": 91.9,
+  "model_ram_mb": 177.7,
+  "peak_mb": 215.2,
+  "load_ms": 532,
+  "exact": 11,
+  "words_ok": 30,
+  "cer": 0.057,
+  "meaning": 5,
+  "reworded": 3,
+  "flags": {
+   "f03": {
+    "meaning": [
+     "+like"
+    ],
+    "reworded": []
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "+than"
+    ]
+   },
+   "p03": {
+    "meaning": [
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": [
+     "+me",
+     "-it"
+    ]
+   },
+   "h01": {
+    "meaning": [],
+    "reworded": [
+     "+they",
+     "+are"
+    ]
+   },
+   "d04": {
+    "meaning": [
+     "+clock",
+     "+o'",
+     "-o'clock"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+_",
+     "+account",
+     "+id",
+     "+main",
+     "+src",
+     "+ts",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+localhost",
+     "-localhost:8080",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "t5-small-gec+guard@rules#t2": {
+  "p50_ms": 73.14,
+  "p95_ms": 209.76,
+  "max_ms": 369.89,
+  "disk_mb": 91.9,
+  "model_ram_mb": 177.7,
+  "peak_mb": 215.2,
+  "load_ms": 532,
+  "exact": 21,
+  "words_ok": 36,
+  "cer": 0.033,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-small-gec@rules": {
+  "p50_ms": 52.73,
+  "p95_ms": 135.42,
+  "max_ms": 240.24,
+  "disk_mb": 91.9,
+  "model_ram_mb": 178.2,
+  "peak_mb": 215.6,
+  "load_ms": 573,
+  "exact": 11,
+  "words_ok": 30,
+  "cer": 0.057,
+  "meaning": 5,
+  "reworded": 3,
+  "flags": {
+   "f03": {
+    "meaning": [
+     "+like"
+    ],
+    "reworded": []
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "+than"
+    ]
+   },
+   "p03": {
+    "meaning": [
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": [
+     "+me",
+     "-it"
+    ]
+   },
+   "h01": {
+    "meaning": [],
+    "reworded": [
+     "+they",
+     "+are"
+    ]
+   },
+   "d04": {
+    "meaning": [
+     "+clock",
+     "+o'",
+     "-o'clock"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+_",
+     "+account",
+     "+id",
+     "+main",
+     "+src",
+     "+ts",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+localhost",
+     "-localhost:8080",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "t5-small-gec+guard@rules": {
+  "p50_ms": 52.73,
+  "p95_ms": 135.42,
+  "max_ms": 240.24,
+  "disk_mb": 91.9,
+  "model_ram_mb": 178.2,
+  "peak_mb": 215.6,
+  "load_ms": 573,
+  "exact": 21,
+  "words_ok": 36,
+  "cer": 0.033,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-small-synth": {
+  "p50_ms": 94.37,
+  "p95_ms": 189.43,
+  "max_ms": 248.33,
+  "disk_mb": 145.8,
+  "model_ram_mb": 267.2,
+  "peak_mb": 304.5,
+  "load_ms": 1518,
+  "exact": 1,
+  "words_ok": 5,
+  "cer": 0.48,
+  "meaning": 34,
+  "reworded": 30,
+  "flags": {
+   "f01": {
+    "meaning": [
+     "+media",
+     "+select",
+     "+windows",
+     "-downloads",
+     "lost 'downloads'"
+    ],
+    "reworded": [
+     "-you",
+     "+and"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+oh",
+     "+what",
+     "+wow",
+     "-what's"
+    ],
+    "reworded": [
+     "+is"
+    ]
+   },
+   "f04": {
+    "meaning": [
+     "+erroneously",
+     "+jones",
+     "-mom",
+     "-remind",
+     "-six",
+     "lost 'six'",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+i",
+     "+can",
+     "-me",
+     "-to",
+     "+her"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+third",
+     "-blue",
+     "lost 'blue'"
+    ],
+    "reworded": [
+     "+than"
+    ]
+   },
+   "f06": {
+    "meaning": [
+     "+since",
+     "-late"
+    ],
+    "reworded": [
+     "+then"
+    ]
+   },
+   "s01": {
+    "meaning": [
+     "+help",
+     "+homework",
+     "+parents",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": [
+     "+my",
+     "+with"
+    ]
+   },
+   "s03": {
+    "meaning": [
+     "-please",
+     "-very",
+     "lost 'very very'"
+    ],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "s04": {
+    "meaning": [
+     "-delete",
+     "-don't",
+     "-file",
+     "lost 'delete'",
+     "lost 'don't'",
+     "negation differs"
+    ],
+    "reworded": [
+     "-that"
+    ]
+   },
+   "r01": {
+    "meaning": [],
+    "reworded": [
+     "-me"
+    ]
+   },
+   "r02": {
+    "meaning": [
+     "+share",
+     "-shared",
+     "lost 'shared drive'"
+    ],
+    "reworded": [
+     "-it's"
+    ]
+   },
+   "r03": {
+    "meaning": [
+     "+builder",
+     "+mention",
+     "-again",
+     "-build",
+     "-don't",
+     "-know",
+     "-why",
+     "lost 'don't'",
+     "negation differs"
+    ],
+    "reworded": [
+     "+to",
+     "+that",
+     "-i"
+    ]
+   },
+   "r04": {
+    "meaning": [
+     "+say",
+     "-siobhan",
+     "-tell",
+     "lost 'Siobhan'"
+    ],
+    "reworded": []
+   },
+   "p01": {
+    "meaning": [],
+    "reworded": [
+     "-it"
+    ]
+   },
+   "p02": {
+    "meaning": [
+     "-bread",
+     "lost 'bread'"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": [
+     "+i",
+     "+am",
+     "-is",
+     "-it"
+    ]
+   },
+   "p04": {
+    "meaning": [
+     "-dear",
+     "-see",
+     "-tom",
+     "lost 'Tom'"
+    ],
+    "reworded": [
+     "-you"
+    ]
+   },
+   "p05": {
+    "meaning": [
+     "+time",
+     "-timer"
+    ],
+    "reworded": []
+   },
+   "h01": {
+    "meaning": [
+     "-here"
+    ],
+    "reworded": [
+     "+they",
+     "+are",
+     "+there"
+    ]
+   },
+   "h03": {
+    "meaning": [
+     "+game",
+     "+watching",
+     "-tail",
+     "-wagged",
+     "lost 'tail'"
+    ],
+    "reworded": [
+     "+was"
+    ]
+   },
+   "h04": {
+    "meaning": [
+     "+what",
+     "-go",
+     "lost 'go'"
+    ],
+    "reworded": [
+     "+do"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "+beach"
+    ],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "h07": {
+    "meaning": [
+     "+please",
+     "+tell"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+ticket",
+     "-invoice",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'",
+     "lost 'invoice'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "n02": {
+    "meaning": [
+     "-andy",
+     "lost 'Andy'"
+    ],
+    "reworded": [
+     "+i",
+     "+him"
+    ]
+   },
+   "n03": {
+    "meaning": [
+     "+concert",
+     "+tickets",
+     "-album",
+     "-boygenius",
+     "-new",
+     "-play",
+     "-spotify",
+     "lost 'Spotify'",
+     "lost 'boygenius'"
+    ],
+    "reworded": [
+     "+to",
+     "-by",
+     "-on"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "+deal",
+     "+debt",
+     "-400",
+     "-not",
+     "-sam",
+     "-transfer",
+     "lost '400'",
+     "lost 'Sam'",
+     "lost 'not'",
+     "negation differs",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+with",
+     "+in",
+     "-to"
+    ]
+   },
+   "d02": {
+    "meaning": [
+     "+respectively",
+     "-not",
+     "lost 'not'",
+     "negation differs"
+    ],
+    "reworded": [
+     "+and",
+     "-the"
+    ]
+   },
+   "d03": {
+    "meaning": [
+     "+1.5",
+     "+430",
+     "+lion",
+     "+liter",
+     "-1,200",
+     "-2.5",
+     "-calories",
+     "-liters",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+a",
+     "+of"
+    ]
+   },
+   "d04": {
+    "meaning": [
+     "+couple",
+     "+lawyers",
+     "+met",
+     "+small",
+     "+town",
+     "-five",
+     "-four",
+     "-meet",
+     "-no",
+     "-o'clock",
+     "-wait",
+     "lost 'five'",
+     "lost 'four'",
+     "lost 'wait'",
+     "negation differs",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+i",
+     "+a",
+     "+of",
+     "-me",
+     "+a"
+    ]
+   },
+   "c01": {
+    "meaning": [
+     "+clone",
+     "+new",
+     "-git",
+     "-rebase",
+     "-run",
+     "lost 'git rebase'",
+     "lost 'npm run build'"
+    ],
+    "reworded": [
+     "+a",
+     "-and",
+     "-then"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+s/maints_",
+     "+user_to_to_success_in",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": [
+     "-to",
+     "-in"
+    ]
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+harsh",
+     "+looping",
+     "+normal",
+     "-hook",
+     "-runs",
+     "-strict",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": [
+     "+of",
+     "+is",
+     "+as",
+     "+as",
+     "+a"
+    ]
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+huts",
+     "+kbec",
+     "+local",
+     "-kubectl",
+     "-localhost:8080",
+     "-logs",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   },
+   "m01": {
+    "meaning": [
+     "+lottery",
+     "+won",
+     "-money",
+     "-stole",
+     "lost 'stole'"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+going",
+     "+tonight",
+     "-come",
+     "-gonna",
+     "-wanna",
+     "lost 'gonna'",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "m04": {
+    "meaning": [
+     "+great",
+     "-eat",
+     "-grandma",
+     "lost 'eat'",
+     "lost 'grandma'"
+    ],
+    "reworded": [
+     "+those",
+     "+are"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-small-synth+guard": {
+  "p50_ms": 94.37,
+  "p95_ms": 189.43,
+  "max_ms": 248.33,
+  "disk_mb": 145.8,
+  "model_ram_mb": 267.2,
+  "peak_mb": 304.5,
+  "load_ms": 1518,
+  "exact": 11,
+  "words_ok": 27,
+  "cer": 0.072,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-small-synth@rules": {
+  "p50_ms": 41.29,
+  "p95_ms": 74.46,
+  "max_ms": 112.13,
+  "disk_mb": 145.8,
+  "model_ram_mb": 266.5,
+  "peak_mb": 303.9,
+  "load_ms": 840,
+  "exact": 8,
+  "words_ok": 9,
+  "cer": 0.416,
+  "meaning": 31,
+  "reworded": 24,
+  "flags": {
+   "f01": {
+    "meaning": [
+     "+file",
+     "+slidesbook",
+     "-downloads",
+     "-folder",
+     "lost 'downloads'"
+    ],
+    "reworded": []
+   },
+   "f04": {
+    "meaning": [
+     "+9:30",
+     "+calls",
+     "+redhead",
+     "-call",
+     "-mom",
+     "-remind",
+     "-six",
+     "lost 'call'",
+     "lost 'six'",
+     "numbers differ"
+    ],
+    "reworded": [
+     "-to",
+     "+am"
+    ]
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "+than"
+    ]
+   },
+   "s01": {
+    "meaning": [
+     "+interested",
+     "+person",
+     "+politics",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": [
+     "+in"
+    ]
+   },
+   "s03": {
+    "meaning": [
+     "-please",
+     "-very",
+     "lost 'very very'"
+    ],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "s04": {
+    "meaning": [
+     "-delete",
+     "-don't",
+     "-file",
+     "lost 'delete'",
+     "lost 'don't'",
+     "negation differs"
+    ],
+    "reworded": [
+     "-that"
+    ]
+   },
+   "r01": {
+    "meaning": [
+     "+page",
+     "-site"
+    ],
+    "reworded": [
+     "-me"
+    ]
+   },
+   "r02": {
+    "meaning": [
+     "+google",
+     "-shared",
+     "lost 'shared drive'"
+    ],
+    "reworded": [
+     "-it's"
+    ]
+   },
+   "r03": {
+    "meaning": [
+     "+ago",
+     "+builder",
+     "+days",
+     "+died",
+     "+few",
+     "-again",
+     "-build",
+     "-don't",
+     "-failed",
+     "-know",
+     "-why",
+     "-worked",
+     "-yesterday",
+     "lost 'don't'",
+     "lost 'yesterday'",
+     "negation differs"
+    ],
+    "reworded": [
+     "+a",
+     "-i",
+     "-it"
+    ]
+   },
+   "r04": {
+    "meaning": [
+     "+station",
+     "-i'll",
+     "-late",
+     "-siobhan",
+     "lost 'Siobhan'"
+    ],
+    "reworded": [
+     "+me",
+     "+about",
+     "-be",
+     "+that"
+    ]
+   },
+   "p02": {
+    "meaning": [
+     "-bread",
+     "lost 'bread'"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+guys",
+     "+soon",
+     "-mei",
+     "-today",
+     "lost 'Mei'"
+    ],
+    "reworded": [
+     "-it"
+    ]
+   },
+   "p04": {
+    "meaning": [
+     "+thank",
+     "-dear",
+     "-see",
+     "-thanks",
+     "-tom",
+     "lost 'Tom'"
+    ],
+    "reworded": [
+     "-you"
+    ]
+   },
+   "p05": {
+    "meaning": [
+     "+time",
+     "-timer"
+    ],
+    "reworded": []
+   },
+   "h01": {
+    "meaning": [
+     "+5:00",
+     "+pm",
+     "-going",
+     "-here",
+     "-noon",
+     "lost 'noon'",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+they",
+     "+will",
+     "-to",
+     "+there"
+    ]
+   },
+   "h03": {
+    "meaning": [
+     "+game",
+     "+watching",
+     "-tail",
+     "-wagged",
+     "lost 'tail'"
+    ],
+    "reworded": [
+     "+was"
+    ]
+   },
+   "h04": {
+    "meaning": [
+     "+why"
+    ],
+    "reworded": []
+   },
+   "h06": {
+    "meaning": [
+     "+hawaii"
+    ],
+    "reworded": []
+   },
+   "h07": {
+    "meaning": [
+     "+please",
+     "+tell"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+nagging",
+     "+tell",
+     "-ask",
+     "-email",
+     "-invoice",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'",
+     "lost 'invoice'"
+    ],
+    "reworded": [
+     "+me",
+     "-and",
+     "+you"
+    ]
+   },
+   "n02": {
+    "meaning": [
+     "+date",
+     "+tell",
+     "-andy",
+     "-call",
+     "lost 'Andy'",
+     "lost 'work number'"
+    ],
+    "reworded": [
+     "+me",
+     "+your",
+     "-on",
+     "-his"
+    ]
+   },
+   "n03": {
+    "meaning": [
+     "+name",
+     "+paul",
+     "+tell",
+     "-boygenius",
+     "-play",
+     "-spotify",
+     "lost 'Spotify'",
+     "lost 'boygenius'"
+    ],
+    "reworded": [
+     "+me",
+     "+of",
+     "-on"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "+airport",
+     "+buses",
+     "-40",
+     "-400",
+     "-dollars",
+     "-not",
+     "-sam",
+     "-transfer",
+     "lost '40'",
+     "lost '400'",
+     "lost 'Sam'",
+     "lost 'not'",
+     "negation differs",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+and",
+     "+from",
+     "+the"
+    ]
+   },
+   "d02": {
+    "meaning": [
+     "+3",
+     "+p.m",
+     "-3:45",
+     "-not",
+     "lost '3:45'",
+     "lost 'not'",
+     "negation differs",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+and",
+     "-the"
+    ]
+   },
+   "d03": {
+    "meaning": [
+     "+1.5",
+     "+320",
+     "-1,200",
+     "-2.5",
+     "-calories",
+     "-worth",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d04": {
+    "meaning": [
+     "+camp",
+     "+four-week",
+     "-five",
+     "-four",
+     "-no",
+     "-o'clock",
+     "-wait",
+     "lost 'five'",
+     "lost 'wait'",
+     "negation differs",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+a"
+    ]
+   },
+   "c01": {
+    "meaning": [
+     "+create",
+     "+machine",
+     "+new",
+     "+open",
+     "+tree",
+     "-build",
+     "-git",
+     "-main",
+     "-npm",
+     "-rebase",
+     "-run",
+     "lost 'git rebase'",
+     "lost 'main'",
+     "lost 'npm run build'"
+    ],
+    "reworded": [
+     "+a",
+     "+a",
+     "-on"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+account_in",
+     "+src/maints",
+     "+variable_to",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "-variable",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": [
+     "-to",
+     "-in"
+    ]
+   },
+   "c03": {
+    "meaning": [
+     "+continuous",
+     "+effect",
+     "+loop",
+     "+through",
+     "+tree",
+     "-hook",
+     "-mode",
+     "-strict",
+     "-twice",
+     "-useeffect",
+     "lost 'twice'",
+     "lost 'useEffect'",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+of",
+     "+a",
+     "+is",
+     "+a",
+     "+that",
+     "-in"
+    ]
+   },
+   "c04": {
+    "meaning": [
+     "+9:30",
+     "+digits",
+     "+local",
+     "+time",
+     "-kubectl",
+     "-localhost:8080",
+     "-logs",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+am",
+     "-and"
+    ]
+   },
+   "m03": {
+    "meaning": [
+     "+going",
+     "+tonight",
+     "-come",
+     "-gonna",
+     "-wanna",
+     "lost 'gonna'",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "m04": {
+    "meaning": [
+     "+burgers",
+     "-grandma",
+     "lost 'grandma'"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "t5-small-synth+guard@rules": {
+  "p50_ms": 41.29,
+  "p95_ms": 74.46,
+  "max_ms": 112.13,
+  "disk_mb": 145.8,
+  "model_ram_mb": 266.5,
+  "peak_mb": 303.9,
+  "load_ms": 840,
+  "exact": 14,
+  "words_ok": 33,
+  "cer": 0.043,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-tiny+guard>punct-en+guard@rules": {
+  "p50_ms": 38.33,
+  "p95_ms": 70.16,
+  "max_ms": 85.32,
+  "disk_mb": 40.5,
+  "model_ram_mb": 145.6,
+  "peak_mb": 183.0,
+  "load_ms": 425,
+  "exact": 20,
+  "words_ok": 37,
+  "cer": 0.036,
+  "meaning": 1,
+  "reworded": 0,
+  "flags": {
+   "c02": {
+    "meaning": [
+     "lost 'src/main.ts'"
+    ],
+    "reworded": []
+   }
+  },
+  "n": 43
+ },
+ "t5-tiny": {
+  "p50_ms": 43.86,
+  "p95_ms": 90.28,
+  "max_ms": 130.2,
+  "disk_mb": 33.3,
+  "model_ram_mb": 107.5,
+  "peak_mb": 144.9,
+  "load_ms": 478,
+  "exact": 11,
+  "words_ok": 20,
+  "cer": 0.123,
+  "meaning": 13,
+  "reworded": 10,
+  "flags": {
+   "f01": {
+    "meaning": [],
+    "reworded": [
+     "+just"
+    ]
+   },
+   "f02": {
+    "meaning": [],
+    "reworded": [
+     "+on",
+     "-to"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+oh",
+     "+what",
+     "-what's"
+    ],
+    "reworded": []
+   },
+   "f04": {
+    "meaning": [
+     "+here",
+     "+reminds",
+     "-remind"
+    ],
+    "reworded": []
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "+and"
+    ]
+   },
+   "s01": {
+    "meaning": [
+     "+party",
+     "+think",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "s04": {
+    "meaning": [
+     "-don't",
+     "lost 'don't'",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [],
+    "reworded": [
+     "+it",
+     "+was",
+     "+on",
+     "-it's",
+     "-in"
+    ]
+   },
+   "r04": {
+    "meaning": [
+     "-i'll"
+    ],
+    "reworded": [
+     "+i",
+     "+will"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "+school"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+account",
+     "-xochitl",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+same",
+     "-sam",
+     "lost 'Sam'"
+    ],
+    "reworded": [
+     "+the",
+     "+as"
+    ]
+   },
+   "d02": {
+    "meaning": [
+     "-not",
+     "lost 'not'",
+     "negation differs"
+    ],
+    "reworded": [
+     "+of"
+    ]
+   },
+   "c01": {
+    "meaning": [],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+_",
+     "+account",
+     "+id",
+     "+scripts",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+perfect",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+localhost",
+     "+robot",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   },
+   "m02": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "m03": {
+    "meaning": [
+     "+going",
+     "+want",
+     "-gonna",
+     "-i'm",
+     "-wanna",
+     "lost 'gonna'",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i",
+     "+am",
+     "+to",
+     "+and",
+     "+to"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-tiny+guard": {
+  "p50_ms": 43.86,
+  "p95_ms": 90.28,
+  "max_ms": 130.2,
+  "disk_mb": 33.3,
+  "model_ram_mb": 107.5,
+  "peak_mb": 144.9,
+  "load_ms": 478,
+  "exact": 19,
+  "words_ok": 31,
+  "cer": 0.062,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-tiny@kroko+rules": {
+  "p50_ms": 27.09,
+  "p95_ms": 66.06,
+  "max_ms": 100.25,
+  "disk_mb": 33.3,
+  "model_ram_mb": 107.3,
+  "peak_mb": 144.8,
+  "load_ms": 489,
+  "exact": 14,
+  "words_ok": 20,
+  "cer": 0.138,
+  "meaning": 18,
+  "reworded": 11,
+  "flags": {
+   "f02": {
+    "meaning": [],
+    "reworded": [
+     "+on",
+     "-to"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah",
+     "+what",
+     "-what's"
+    ],
+    "reworded": [
+     "+is"
+    ]
+   },
+   "f04": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "s04": {
+    "meaning": [
+     "+deletes",
+     "+one",
+     "-delete",
+     "-don't",
+     "lost 'delete'",
+     "lost 'don't'",
+     "negation differs",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": [
+     "+it",
+     "+is",
+     "-it's"
+    ]
+   },
+   "r04": {
+    "meaning": [
+     "-i'll"
+    ],
+    "reworded": [
+     "+i",
+     "+will"
+    ]
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "h01": {
+    "meaning": [],
+    "reworded": [
+     "+they",
+     "+are"
+    ]
+   },
+   "h02": {
+    "meaning": [],
+    "reworded": [
+     "+you"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "+school"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+points",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": [
+     "+of"
+    ]
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-build",
+     "-git",
+     "lost 'git rebase'",
+     "lost 'npm run build'"
+    ],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+srcmainments",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m02": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "m03": {
+    "meaning": [
+     "+going",
+     "+when",
+     "-gonna",
+     "-i'm",
+     "-wanna",
+     "lost 'gonna'",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i",
+     "+am",
+     "+to",
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-tiny+guard@kroko+rules": {
+  "p50_ms": 27.09,
+  "p95_ms": 66.06,
+  "max_ms": 100.25,
+  "disk_mb": 33.3,
+  "model_ram_mb": 107.3,
+  "peak_mb": 144.8,
+  "load_ms": 489,
+  "exact": 18,
+  "words_ok": 26,
+  "cer": 0.103,
+  "meaning": 16,
+  "reworded": 3,
+  "flags": {
+   "f02": {
+    "meaning": [
+     "+amai"
+    ],
+    "reworded": [
+     "-i"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+ah"
+    ],
+    "reworded": [
+     "+him"
+    ]
+   },
+   "f05": {
+    "meaning": [
+     "+bedroom",
+     "-better"
+    ],
+    "reworded": []
+   },
+   "s01": {
+    "meaning": [
+     "+depriya",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [
+     "+finish",
+     "-finished"
+    ],
+    "reworded": []
+   },
+   "p03": {
+    "meaning": [
+     "+may",
+     "-mei",
+     "lost 'Mei'"
+    ],
+    "reworded": []
+   },
+   "p04": {
+    "meaning": [
+     "+updates",
+     "-update"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+new",
+     "+yen",
+     "+zachado",
+     "-nguyen",
+     "-xochitl",
+     "lost 'Nguyen'",
+     "lost 'Xochitl'"
+    ],
+    "reworded": []
+   },
+   "d01": {
+    "meaning": [
+     "+forty",
+     "+four",
+     "+hundred",
+     "-40",
+     "-400",
+     "lost '40'",
+     "lost '400'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d02": {
+    "meaning": [
+     "+fifteenth",
+     "+five",
+     "+forty",
+     "+sixteenth",
+     "+three",
+     "-15th",
+     "-16th",
+     "-3:45",
+     "lost '15th'",
+     "lost '16th'",
+     "lost '3:45'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "d03": {
+    "meaning": [
+     "+five",
+     "+hundred",
+     "+one",
+     "+point",
+     "+thousand",
+     "+two",
+     "-1,200",
+     "-2.5",
+     "lost '1,200'",
+     "lost '2.5'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "c01": {
+    "meaning": [
+     "+get",
+     "-git",
+     "lost 'git rebase'"
+    ],
+    "reworded": []
+   },
+   "c02": {
+    "meaning": [
+     "+account",
+     "+id",
+     "+user",
+     "-account_id",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+effect",
+     "+use",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+colon",
+     "+cubeal",
+     "+eight",
+     "+eighty",
+     "+localhost",
+     "+thousand",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'",
+     "numbers differ"
+    ],
+    "reworded": []
+   },
+   "m03": {
+    "meaning": [
+     "+when",
+     "-wanna",
+     "lost 'wanna'"
+    ],
+    "reworded": [
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-tiny@rules#t2": {
+  "p50_ms": 29.67,
+  "p95_ms": 68.74,
+  "max_ms": 105.44,
+  "disk_mb": 33.3,
+  "model_ram_mb": 107.2,
+  "peak_mb": 144.7,
+  "load_ms": 299,
+  "exact": 15,
+  "words_ok": 21,
+  "cer": 0.102,
+  "meaning": 12,
+  "reworded": 14,
+  "flags": {
+   "f02": {
+    "meaning": [],
+    "reworded": [
+     "+on",
+     "-to"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+what",
+     "-what's"
+    ],
+    "reworded": []
+   },
+   "f04": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "-the"
+    ]
+   },
+   "s01": {
+    "meaning": [
+     "+party",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "s04": {
+    "meaning": [
+     "-don't",
+     "lost 'don't'",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [],
+    "reworded": [
+     "+it",
+     "+was",
+     "+on",
+     "-it's",
+     "-in"
+    ]
+   },
+   "r04": {
+    "meaning": [
+     "+i'm",
+     "-i'll",
+     "-siobhan",
+     "lost 'Siobhan'"
+    ],
+    "reworded": [
+     "+me",
+     "+if",
+     "-be"
+    ]
+   },
+   "h01": {
+    "meaning": [],
+    "reworded": [
+     "+they",
+     "+are"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "+school"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+account",
+     "-xochitl",
+     "lost 'Xochitl'"
+    ],
+    "reworded": [
+     "+a"
+    ]
+   },
+   "n02": {
+    "meaning": [],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "+same",
+     "-sam",
+     "lost 'Sam'"
+    ],
+    "reworded": [
+     "+the",
+     "+as"
+    ]
+   },
+   "d02": {
+    "meaning": [
+     "-not",
+     "lost 'not'",
+     "negation differs"
+    ],
+    "reworded": [
+     "+of"
+    ]
+   },
+   "c01": {
+    "meaning": [],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+_id",
+     "+account",
+     "+scripts",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+perfect",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+localhost",
+     "+robot",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   },
+   "m02": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "m03": {
+    "meaning": [
+     "-gonna",
+     "-i'm",
+     "lost 'gonna'"
+    ],
+    "reworded": [
+     "+i",
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-tiny+guard@rules#t2": {
+  "p50_ms": 29.67,
+  "p95_ms": 68.74,
+  "max_ms": 105.44,
+  "disk_mb": 33.3,
+  "model_ram_mb": 107.2,
+  "peak_mb": 144.7,
+  "load_ms": 299,
+  "exact": 22,
+  "words_ok": 37,
+  "cer": 0.031,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ },
+ "t5-tiny@rules": {
+  "p50_ms": 28.81,
+  "p95_ms": 62.44,
+  "max_ms": 108.87,
+  "disk_mb": 33.3,
+  "model_ram_mb": 107.6,
+  "peak_mb": 144.9,
+  "load_ms": 315,
+  "exact": 15,
+  "words_ok": 21,
+  "cer": 0.102,
+  "meaning": 12,
+  "reworded": 14,
+  "flags": {
+   "f02": {
+    "meaning": [],
+    "reworded": [
+     "+on",
+     "-to"
+    ]
+   },
+   "f03": {
+    "meaning": [
+     "+what",
+     "-what's"
+    ],
+    "reworded": []
+   },
+   "f04": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "f05": {
+    "meaning": [],
+    "reworded": [
+     "-the"
+    ]
+   },
+   "s01": {
+    "meaning": [
+     "+party",
+     "-priya",
+     "lost 'Priya'"
+    ],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "s04": {
+    "meaning": [
+     "-don't",
+     "lost 'don't'",
+     "negation differs"
+    ],
+    "reworded": []
+   },
+   "r02": {
+    "meaning": [],
+    "reworded": [
+     "+it",
+     "+was",
+     "+on",
+     "-it's",
+     "-in"
+    ]
+   },
+   "r04": {
+    "meaning": [
+     "+i'm",
+     "-i'll",
+     "-siobhan",
+     "lost 'Siobhan'"
+    ],
+    "reworded": [
+     "+me",
+     "+if",
+     "-be"
+    ]
+   },
+   "h01": {
+    "meaning": [],
+    "reworded": [
+     "+they",
+     "+are"
+    ]
+   },
+   "h06": {
+    "meaning": [
+     "+school"
+    ],
+    "reworded": []
+   },
+   "n01": {
+    "meaning": [
+     "+account",
+     "-xochitl",
+     "lost 'Xochitl'"
+    ],
+    "reworded": [
+     "+a"
+    ]
+   },
+   "n02": {
+    "meaning": [],
+    "reworded": [
+     "+to"
+    ]
+   },
+   "d01": {
+    "meaning": [
+     "+same",
+     "-sam",
+     "lost 'Sam'"
+    ],
+    "reworded": [
+     "+the",
+     "+as"
+    ]
+   },
+   "d02": {
+    "meaning": [
+     "-not",
+     "lost 'not'",
+     "negation differs"
+    ],
+    "reworded": [
+     "+of"
+    ]
+   },
+   "c01": {
+    "meaning": [],
+    "reworded": [
+     "+the"
+    ]
+   },
+   "c02": {
+    "meaning": [
+     "+_id",
+     "+account",
+     "+scripts",
+     "+user",
+     "-account_id",
+     "-src/main.ts",
+     "-user_id",
+     "lost 'account_id'",
+     "lost 'src/main.ts'",
+     "lost 'user_id'"
+    ],
+    "reworded": []
+   },
+   "c03": {
+    "meaning": [
+     "+perfect",
+     "-useeffect",
+     "lost 'useEffect'"
+    ],
+    "reworded": []
+   },
+   "c04": {
+    "meaning": [
+     "+8080",
+     "+localhost",
+     "+robot",
+     "-kubectl",
+     "-localhost:8080",
+     "lost 'kubectl'",
+     "lost 'localhost:8080'"
+    ],
+    "reworded": []
+   },
+   "m02": {
+    "meaning": [],
+    "reworded": [
+     "+i"
+    ]
+   },
+   "m03": {
+    "meaning": [
+     "-gonna",
+     "-i'm",
+     "lost 'gonna'"
+    ],
+    "reworded": [
+     "+i",
+     "+i"
+    ]
+   }
+  },
+  "n": 43
+ },
+ "t5-tiny+guard@rules": {
+  "p50_ms": 28.81,
+  "p95_ms": 62.44,
+  "max_ms": 108.87,
+  "disk_mb": 33.3,
+  "model_ram_mb": 107.6,
+  "peak_mb": 144.9,
+  "load_ms": 315,
+  "exact": 22,
+  "words_ok": 37,
+  "cer": 0.031,
+  "meaning": 0,
+  "reworded": 0,
+  "flags": {},
+  "n": 43
+ }
+}
