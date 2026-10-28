@@ -1,0 +1,96 @@
+[
+  {
+    "engine": "Piper",
+    "voice": "amy (low)",
+    "size_mb": 81.1,
+    "load_s": 2.84,
+    "synth_s": 1.352,
+    "audio_s": 17.26,
+    "rtf": 0.078,
+    "sample_rate": 16000,
+    "file": "piper-amy.wav"
+  },
+  {
+    "engine": "Piper",
+    "voice": "lessac (medium)",
+    "size_mb": 81.1,
+    "load_s": 1.5,
+    "synth_s": 1.154,
+    "audio_s": 13.74,
+    "rtf": 0.084,
+    "sample_rate": 22050,
+    "file": "piper-lessac.wav"
+  },
+  {
+    "engine": "Kokoro v0.19",
+    "voice": "af: Default (American, woman)",
+    "size_mb": 369.3,
+    "load_s": 1.47,
+    "device": "cpu",
+    "synth_s": 11.399,
+    "audio_s": 15.07,
+    "rtf": 0.757,
+    "sample_rate": 24000,
+    "file": "kokoro-af.wav"
+  },
+  {
+    "engine": "Kokoro v0.19",
+    "voice": "af_bella: Bella (American, woman)",
+    "size_mb": 369.3,
+    "load_s": 2.05,
+    "device": "cpu",
+    "synth_s": 12.449,
+    "audio_s": 14.78,
+    "rtf": 0.842,
+    "sample_rate": 24000,
+    "file": "kokoro-af_bella.wav"
+  },
+  {
+    "engine": "Kokoro v0.19",
+    "voice": "af_sarah: Sarah (American, woman)",
+    "size_mb": 369.3,
+    "load_s": 1.96,
+    "device": "cpu",
+    "synth_s": 15.707,
+    "audio_s": 15.37,
+    "rtf": 1.022,
+    "sample_rate": 24000,
+    "file": "kokoro-af_sarah.wav"
+  },
+  {
+    "engine": "Kokoro v0.19",
+    "voice": "am_michael: Michael (American, man)",
+    "size_mb": 369.3,
+    "load_s": 1.47,
+    "device": "cpu",
+    "synth_s": 17.669,
+    "audio_s": 16.42,
+    "rtf": 1.076,
+    "sample_rate": 24000,
+    "file": "kokoro-am_michael.wav"
+  },
+  {
+    "engine": "Kokoro v0.19",
+    "voice": "bf_emma: Emma (British, woman)",
+    "size_mb": 369.3,
+    "load_s": 1.93,
+    "device": "cpu",
+    "synth_s": 16.01,
+    "audio_s": 15.07,
+    "rtf": 1.062,
+    "sample_rate": 24000,
+    "file": "kokoro-bf_emma.wav"
+  },
+  {
+    "engine": "Kokoro v0.19",
+    "voice": "bm_george: George (British, man)",
+    "size_mb": 369.3,
+    "load_s": 2.41,
+    "device": "cpu",
+    "synth_s": 16.879,
+    "audio_s": 16.47,
+    "rtf": 1.025,
+    "sample_rate": 24000,
+    "file": "kokoro-bm_george.wav"
+  }
+]

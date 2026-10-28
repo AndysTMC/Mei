@@ -11,3 +11,6 @@ PLAN.md
 __pycache__/
 *.pyc
 .venv/
+
+# Voice samples to listen to (spikes/voice-samples/synth.py makes them): kept out of history
+spikes/voice-samples/*.wav
