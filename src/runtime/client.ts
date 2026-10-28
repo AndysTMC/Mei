@@ -118,6 +118,9 @@ export class RuntimeClient {
                 BUS_NAME, OBJECT_PATH, INTERFACE, method, new GLib.Variant('(s)', [JSON.stringify(args)]),
                 new GLib.VariantType('(s)'), opts.flags ?? Gio.DBusCallFlags.NONE, opts.timeoutMs ?? CALL_TIMEOUT_MS, null,
                 (conn, res) => {
+                    // Turned off meanwhile (the extension disabled): the answer is dropped, so nothing
+                    // waiting on it touches a popup that is gone.
+                    if (this._destroyed) return;
                     try {
                         const reply = conn!.call_finish(res).deepUnpack() as [string];
                         resolve(JSON.parse(reply[0]) as T);
@@ -174,10 +177,12 @@ export class RuntimeClient {
             Logger.warn(Tag.Extension, `Ignoring malformed runtime event: ${e}`);
             return;
         }
-        if (!KNOWN_EVENTS.has(event.type)) {
-            if (event.required) this.onStatus?.('incompatible', `Unknown required event ${event.type}; update Mei.`);
+        if (!KNOWN_EVENTS.has(event.type) && event.required) {
+            this.onStatus?.('incompatible', `Unknown required event ${event.type}; update Mei.`);
             return;
         }
+        // Any other event a newer runtime sends goes on: the projection skips it but counts its seq, so
+        // the next one isn't taken for a gap (which used to cost a re-attach each time).
         if (this._attaching) {
             this._buffer.push(event);
             return;

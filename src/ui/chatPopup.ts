@@ -266,7 +266,9 @@ export class ChatPopup {
             const shown = this._interaction.show(interaction);
             this._composer.actor.visible = !shown;
         });
-        if (interaction && !wasShowing && this.isOpen) this._interaction.focus();
+        // A new card while the popup is open gets the keyboard; one that arrived while it was closed gets
+        // it when the popup opens (below), rather than the hidden message box.
+        if (interaction && this._interaction.changed && this.isOpen) this._interaction.focus();
     }
 
     /** The answer didn't reach Mei: the interaction can be answered again. */
@@ -683,7 +685,9 @@ export class ChatPopup {
             this._focusId = this._sources.timeout(FOCUS_AFTER_OPEN_MS, () => {
                 this._focusId = 0;
                 if (this._showingPage) this._page.focus();
-                else if (!this._showingHistory) this._composer.focus();
+                else if (this._showingHistory) return GLib.SOURCE_REMOVE;
+                else if (this._interaction.actor.visible) this._interaction.focus();
+                else this._composer.focus();
                 return GLib.SOURCE_REMOVE;
             });
         } else {

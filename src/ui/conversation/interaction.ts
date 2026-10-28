@@ -43,6 +43,7 @@ export class InteractionPanel {
             : interaction.kind === 'question' ? `q:${interaction.request.id}` : `p:${interaction.taskId}:${interaction.note}`;
         if (key === this._shown) return interaction !== null;
         this._shown = key;
+        this.changed = true;
         this.actor.destroy_all_children();
         this._entry = null;
         this._controls = [];
@@ -53,13 +54,18 @@ export class InteractionPanel {
         return interaction !== null;
     }
 
+    /** Set when a different interaction was shown, until focused: a new card gets the keyboard. */
+    changed = false;
+
+    /** Keyboard focus on the card: its answer line, or its first control (a form's field, Resume). */
     focus(): void {
-        this._entry?.grab_key_focus();
+        this.changed = false;
+        (this._entry ?? this._controls.find(c => c.reactive && c.can_focus))?.grab_key_focus();
     }
 
     /** The answer didn't reach Mei: let the person try again. */
     retry(): void {
-        for (const control of this._controls) control.reactive = true;
+        for (const control of this._controls) control.reactive = control.can_focus = true;
     }
 
     private _approval(approval: ApprovalView): void {
@@ -203,7 +209,7 @@ export class InteractionPanel {
 
     /** Answered: nothing more can be pressed until the runtime moves on (it then hides this). */
     private _settle(answer: () => void): void {
-        for (const control of this._controls) control.reactive = false;
+        for (const control of this._controls) control.reactive = control.can_focus = false;  // not in the Tab order either
         answer();
     }
 }
