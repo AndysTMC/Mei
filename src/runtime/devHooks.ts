@@ -291,7 +291,8 @@ export class DevHooks {
 
 function findButton(actor: Clutter.Actor, label: string): St.Button | null {
     if (!actor.visible) return null;
-    if (actor instanceof St.Button && actor.get_label() === label && actor.reactive) return actor;
+    if (actor instanceof St.Button && (actor.get_label() === label || actor.accessible_name === label) && actor.reactive)
+        return actor;
     for (const child of actor.get_children()) {
         const found = findButton(child, label);
         if (found) return found;

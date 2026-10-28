@@ -1,9 +1,12 @@
 """Setup steps: what each reports, and that re-running setup without changes writes nothing."""
 
+import re
+from pathlib import Path
+
 import pytest
 
 from mei.protocol import Config, Privacy, ProtocolError, ProviderSettings
-from mei.setup import SETUP_VERSION, Probes, Setup
+from mei.setup import SETUP_VERSION, STEPS, Probes, Setup
 from mei.store import repo
 from mei.store.db import Store
 
@@ -50,7 +53,7 @@ async def test_a_fresh_runtime_reports_setup_not_done(store, tmp_path):
     status = await Setup(store, FakeKeyring().probes(), tmp_path, "9.9").status()
     assert status["version"] == SETUP_VERSION and not status["completed"] and not status["offered"]
     s = steps(status)
-    assert list(s) == ["service", "models", "approvals", "memory", "voice", "privacy"]
+    assert list(s) == ["service", "models", "approvals", "memory", "voice", "computer", "privacy"]
     assert s["service"]["state"] == "done" and s["service"]["runtime_version"] == "9.9"
     assert s["service"]["data_dir"] == str(tmp_path) and s["service"]["data_bytes"] > 0
     assert s["models"]["state"] == "todo" and s["models"]["provider"] == ""
@@ -103,6 +106,15 @@ async def test_rerunning_setup_without_changes_changes_nothing(store, tmp_path):
 
     assert await setup.apply("finish", {"skipped": []}) == {"changed": True}
     assert (await setup.status())["skipped"] == []
+    # Every step the assistant lets a person skip can be skipped (skipping "Using the computer" used to fail).
+    every = [step for step in STEPS if step != "service"]
+    assert await setup.apply("finish", {"skipped": every}) == {"changed": True}
+    assert (await setup.status())["skipped"] == sorted(every)
+
+
+def test_the_runtime_and_the_assistant_have_the_same_steps():
+    text = (Path(__file__).parents[2] / "src" / "prefs" / "setupText.ts").read_text()
+    assert tuple(re.findall(r"\{ id: '(\w+)', title: '[^']*', skippable: (?:true|false) \}", text)) == STEPS
 
 
 async def test_setup_rejects_unknown_steps_and_unskippable_ones(store, tmp_path):

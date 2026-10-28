@@ -341,6 +341,16 @@ async def main() -> int:
         h.check("compact_shows_the_last_reply", not st["popup"]["expanded"] and any(t.strip() == REPLY for t in st["shown"]))
         await h.hook("Screenshot", os.path.join(OUT, "popup-compact.png"))
 
+        # 4b. Expanded, Ask adds to the task in progress; Stop is a button of its own and cancels it.
+        await h.hook("Popup", "expand")
+        await h.hook("Send", "a question to stop")
+        await h.until(lambda s: stream_len(s) > 20, 20, "the reply to stop to start")
+        stopped = await h.press("Stop response")
+        st = await h.until(lambda s: not s["controller"]["streaming"], 20, "the reply to stop")
+        last = st["controller"]["messages"][-1]
+        h.check("expanded_has_stop", stopped and not (last["role"] == "assistant" and last["content"] == REPLY),
+                last["content"][:80])
+
         # 5. Stage 3: an agent task needs an approval; it takes over the input area, the person allows it
         #    in the small popup, and it goes away; the approval is accepted because it comes from the
         #    Shell process itself. One request, one reply.

@@ -55,6 +55,8 @@ export class Composer {
     readonly micButton: St.Button;
     readonly voiceButton: St.Button;
     readonly restoreButton: St.Button;
+    /** Expanded, Ask adds to the task in progress, so Stop has a button of its own. */
+    readonly stopButton: St.Button;
     private readonly _scroll: St.ScrollView;
     private readonly _voiceLine = new St.BoxLayout({ vertical: true, x_expand: true, visible: false, style_class: 'mei-voice-line' });
     private readonly _voiceStatus = new St.Label({ style_class: 'mei-voice-status' });
@@ -132,8 +134,12 @@ export class Composer {
             this.entry.clutter_text.set_cursor_position(-1);
             this.focus();
         });
+        this.stopButton = voiceControl(new St.Icon({ icon_name: 'media-playback-stop-symbolic', icon_size: 14 }),
+            'Stop response');
+        this.stopButton.connect('clicked', () => this._actions.onStop());
         const buttons = new St.BoxLayout({ x_expand: true, style_class: 'mei-composer-buttons' });
         buttons.add_child(this.askButton);
+        buttons.add_child(this.stopButton);
         buttons.add_child(this.restoreButton);
         buttons.add_child(this.micButton);
         buttons.add_child(this.voiceButton);
@@ -172,6 +178,7 @@ export class Composer {
     setState(loading: boolean, expanded: boolean): void {
         this._loading = loading;
         this._expanded = expanded;
+        this._syncStop();
         const button = this.askButton;
         if (loading && !expanded) {
             button.set_label('Stop');
@@ -212,6 +219,7 @@ export class Composer {
         if (dictating) this.entry.add_style_class_name('dictating');
         else this.entry.remove_style_class_name('dictating');
         this.askButton.visible = !dictating && !talking;
+        this._syncStop();
         this.micButton.visible = v.available && !talking;
         this.voiceButton.visible = v.available && !dictating;
         setActive(this.micButton, dictating, dictating ? 'Done dictating' : 'Dictate');
@@ -242,6 +250,10 @@ export class Composer {
         this.entry.set_text(shown);
         this.entry.clutter_text.set_cursor_position(-1);
         this.queueLayout('bottom');  // the latest words in view
+    }
+
+    private _syncStop(): void {
+        this.stopButton.visible = this._loading && this._expanded && this._voiceMode === 'idle';
     }
 
     /** Dictation ended: offer the words as heard, if the tidy-up changed them. */

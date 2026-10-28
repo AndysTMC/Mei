@@ -29,6 +29,9 @@ test('inlineMarkup escapes Pango text while preserving supported inline markup',
         'bad'
     );
     assert.equal(inlineMarkup('~~gone~~ *italic* _also_ \\*literal*'), '<s>gone</s> <i>italic</i> <i>also</i> *literal*');
+    // Underscores inside words stay underscores.
+    assert.equal(inlineMarkup('set XDG_DATA_HOME and user_id_map, _a_ and _two words_'),
+        'set XDG_DATA_HOME and user_id_map, <i>a</i> and <i>two words</i>');
     assert.equal(inlineMarkup('<https://example.test> <mailto:a@example.test>'), '<span underline="single">https://example.test</span> <span underline="single">mailto:a@example.test</span>');
 });
 

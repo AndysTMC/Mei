@@ -21,8 +21,9 @@ from mei.store import repo
 from mei.store.db import Store
 
 # Bump when a new step should be shown to everyone who finished an older setup.
-SETUP_VERSION = 2  # 2: Approvals, and the cloud-files choice under Privacy (Stage 3)
-STEPS = ("service", "models", "approvals", "memory", "voice", "privacy", "shortcuts")
+SETUP_VERSION = 3  # 3: Using the computer (Stage 6); 2: Approvals, and the cloud-files choice under Privacy
+# The same steps, in the same order, as the setup assistant's (src/prefs/setupText.ts; a test checks).
+STEPS = ("service", "models", "approvals", "memory", "voice", "computer", "privacy", "shortcuts")
 
 
 class SetupState(msgspec.Struct, kw_only=True):
@@ -100,9 +101,11 @@ class Setup:
                   "auto_save": config.memory.auto_save}
         # Voice is optional and off by default; the step offers it, with its models and checks.
         voice = {"id": "voice", "state": "done", "enabled": config.voice.enabled}
+        # Computer use is optional and off by default; the step offers it, with its permissions.
+        computer = {"id": "computer", "state": "done", "enabled": config.computer.enabled}
         return {"version": SETUP_VERSION, "completed": state.completed_version >= SETUP_VERSION,
                 "offered": state.offered, "skipped": state.skipped,
-                "steps": [service, models, approvals, memory, voice, privacy]}
+                "steps": [service, models, approvals, memory, voice, computer, privacy]}
 
     async def apply(self, step: str, choices: dict) -> dict:
         state = load_state(self.store)

@@ -31,7 +31,8 @@ export function inlineMarkup(text: string, sanitize: (url: string) => string | n
     result = result.replace(/\*\*([^\n]+?)\*\*/g, '<b>$1</b>');
     result = result.replace(/~~([^\n]+?)~~/g, '<s>$1</s>');
     result = result.replace(/\*([^*\n]+)\*/g, '<i>$1</i>');
-    result = result.replace(/_([^_\n]+)_/g, '<i>$1</i>');
+    // Underscores inside a word aren't emphasis (CommonMark): snake_case, XDG_DATA_HOME, a_b in a URL.
+    result = result.replace(/(?<![\p{L}\p{N}_])_(?=[^\s_])([^_\n]*?[^\s_])_(?![\p{L}\p{N}_])/gu, '<i>$1</i>');
 
     result = result.replace(MARKDOWN_LINK_RE, (_match, label: string, url: string) => {
         const sanitized = sanitize(url);
