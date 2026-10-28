@@ -11,10 +11,12 @@ import json
 import os
 import re
 import signal
+import struct
 import subprocess
 import sys
 import threading
 import time
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from dbus_fast import BusType, Message, MessageType
@@ -197,6 +199,44 @@ class Harness:
         self.results[name] = {"ok": bool(ok), **({"detail": detail} if detail else {})}
 
 
+def png(width: int, height: int) -> bytes:
+    """A real PNG: a grey frame with a darker band, enough to see it fitted."""
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    rows = b"".join(b"\0" + (b"\x40" if height // 3 < y < height // 2 else b"\xb0") * width for y in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def pdf(pages: int) -> bytes:
+    """A small valid PDF, each page a filled box."""
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [%s] /Count %d >>" % (" ".join(f"{3 + 2 * i} 0 R" for i in range(pages)), pages)]
+    for i in range(pages):
+        objs.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents {4 + 2 * i} 0 R >>")
+        stream = f"0 0 0 rg 60 600 {200 + 60 * i} 120 re f"
+        objs.append(f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream")
+    out = b"%PDF-1.4\n"
+    offsets = []
+    for n, body in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{n} 0 obj\n{body}\nendobj\n".encode()
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode()
+    out += "".join(f"{o:010d} 00000 n \n" for o in offsets).encode()
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return out
+
+
+def page_fits(st: dict, expected: tuple[int, int] = (832, 520)) -> bool:
+    """The large page at about 65% of the 1280×800 screen at 16:10, centred and inside it, and the popup around it."""
+    page = st["page"]
+    box, popup = page["page"], page["popup"]
+    return (abs(box["width"] - expected[0]) <= 2 and abs(box["height"] - expected[1]) <= 2
+            and abs(popup["width"] - box["width"]) <= 2 and abs(popup["height"] - box["height"]) <= 4
+            and abs(box["x"] + box["width"] / 2 - 640) <= 2 and box["y"] + box["height"] <= 800)
+
+
 def shows_reply_prefix(state: dict, min_len: int) -> int:
     best = 0
     for text in state["shown"]:
@@ -209,6 +249,161 @@ def shows_reply_prefix(state: dict, min_len: int) -> int:
 def stream_len(state: dict) -> int:
     s = state["controller"]["stream"]
     return len(s["text"]) if s else 0
+
+
+async def large_page(h: Harness) -> None:
+    """9c. The large page (decision 0034): each viewer opens at about 65% of the screen at 16:10
+    (832×520 on the nested 1280×800), centred under the top bar; Escape and Back return to the chat."""
+    docs = os.path.join(OUT, "home", "Documents")
+    os.makedirs(docs, exist_ok=True)
+    files = {
+        "text": ("notes.txt", "Buy eggs.\nCall the plumber at noon.\n"),
+        "markdown": ("plan.md", "# Weekend plan\n\n- **Saturday**: hike\n- *Sunday*: rest\n"),
+        "csv": ("sales.csv", "month,total\njan,120\nfeb,135\n"),
+        "log": ("big.log", "".join(f"line {i:06d} something happened\n" for i in range(12000))),  # ~370 KB
+        "image": ("photo.png", png(1600, 1000)),
+        "pdf": ("report.pdf", pdf(3)),
+        "other": ("archive.bin", bytes(range(256)) * 64),
+    }
+    paths = {}
+    for kind, (name, body) in files.items():
+        paths[kind] = os.path.join(docs, name)
+        with open(paths[kind], "wb" if isinstance(body, bytes) else "w") as f:
+            f.write(body)
+    await h.hook("Popup", "new")
+    await h.hook("Popup", "open")
+    await h.hook("Popup", "expand")
+    await asyncio.sleep(0.5)
+    expect = {"text": "text", "markdown": "markdown", "csv": "text", "log": "text", "image": "fitted",
+              "pdf": "pdf ", "other": "other"}
+    viewers = {}
+    for kind, path in paths.items():
+        await h.hook("OpenFile", path)
+        want = expect[kind]
+        st = await h.until(lambda s: s["page"]["open"] and (s["page"]["mode"] or "").startswith(want)
+                           and (want != "pdf " or not s["page"]["mode"].startswith("pdf 0/")), 15, f"the {kind} viewer")
+        await asyncio.sleep(0.8)  # the transition, and the picture or pages drawn
+        st = await h.state()
+        st["shown"] = [t.replace("\u00a0", " ") for t in st["shown"]]  # GLib's sizes use a no-break space
+        await h.hook("Screenshot", os.path.join(OUT, f"page-{kind}.png"))
+        viewers[kind] = {"fits": page_fits(st), "title": st["page"]["title"], "mode": st["page"]["mode"],
+                         "size": st["page"]["page"], "popup": st["page"]["popup"],
+                         "actions": [a for a in ("Open in its app", "Show in Files") if a in st["shown"]]}
+        if kind == "log":
+            viewers[kind]["capped"] = any(t.startswith("Showing the first 262.1 kB of") for t in st["shown"])
+        if kind == "other":
+            viewers[kind]["size_shown"] = any("16.4 kB" in t for t in st["shown"])
+    h.check("each_viewer_opens_at_its_size", all(v["fits"] and v["actions"] for v in viewers.values())
+            and viewers["log"]["capped"] and viewers["other"]["size_shown"]
+            and viewers["pdf"]["title"] == "report.pdf · 3 pages", viewers)
+    await h.hook("OpenFile", paths["markdown"])
+    await asyncio.sleep(0.5)
+    toggled = await h.press("Plain text")
+    st = await h.until(lambda s: s["page"]["mode"] == "text", 5, "Markdown as plain text")
+    await h.hook("OpenFile", paths["image"])
+    await asyncio.sleep(0.8)
+    await h._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "ClickNamed", "s", ["Zoom the image"])
+    zoomed = await h.until(lambda s: s["page"]["mode"] == "zoomed", 5, "the image zoomed")
+    await h.hook("Screenshot", os.path.join(OUT, "page-image-zoomed.png"))
+    await h.hook("PressEscape")
+    st = await h.until(lambda s: not s["page"]["open"], 5, "Escape back to the chat")
+    await asyncio.sleep(0.6)
+    st = await h.state()
+    h.check("markdown_toggle_image_zoom_and_escape", toggled and zoomed["page"]["open"] and st["popup"]["open"]
+            and abs(st["page"]["popup"]["width"] - 650) <= 2, st["page"])
+
+    # The chip and a sent message open what they carry; Back returns.
+    await h.use_fake([{"text": "It's a weekend plan."}])
+    await h.hook("AttachFile", paths["markdown"])
+    await h.until(lambda s: s["controller"]["attachment"] is not None, 5, "the file attached")
+    await asyncio.sleep(0.5)
+    named = ("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "ClickNamed", "s")
+    await h._call(*named, ["Open the attachment"])
+    from_chip = await h.until(lambda s: s["page"]["open"] and s["page"]["title"] == "plan.md", 5, "the chip to open it")
+    await h._call(*named, ["Back to chat"])
+    await h.until(lambda s: not s["page"]["open"], 5, "Back to the chat")
+    await asyncio.sleep(0.5)
+    await h.hook("Send", "what is this?")
+    await h.until(lambda s: s["controller"]["current"] and not s["controller"]["streaming"]
+                  and len(s["controller"]["messages"]) >= 2, 20, "the reply about the file")
+    await asyncio.sleep(0.5)
+    await h._call(*named, ["Open Attached: plan.md"])
+    from_message = await h.until(lambda s: s["page"]["open"] and s["page"]["title"] == "plan.md", 5,
+                                 "the sent message's attachment to open")
+    await h.hook("PressEscape")
+    await h.until(lambda s: not s["page"]["open"], 5, "Escape back to the chat")
+    h.check("chip_and_sent_message_open_the_file", page_fits(from_chip) and page_fits(from_message))
+
+    # What Mei is doing: the latest picture of the screen over the task's steps; clicking it opens
+    # the work page. The nested Shell has no screen session, so a test picture stands for the latest.
+    shot = os.path.join(OUT, "screen-picture.png")
+    with open(shot, "wb") as f:
+        f.write(png(1280, 800))
+    await h.hook("SetDebugPicture", json.dumps({"path": shot, "width": 1280, "height": 800}))
+    # The task waits at a card, so each step happens at a known point: Pause while it waits, Allow
+    # once, and the act it allowed holds ("Paused by you") until Go on.
+    os.makedirs(os.path.join(OUT, "home", "Music"), exist_ok=True)
+    for name in ("old2.txt", "old3.txt"):
+        with open(os.path.join(OUT, "home", "Music", name), "w") as f:
+            f.write("an old file\n")
+
+    def looking(name: str) -> list[dict]:
+        return [{"tool_calls": [{"name": "fs_list", "arguments": {"path": "~/Documents"}}]},
+                {"tool_calls": [{"name": "fs_trash", "arguments": {"path": f"~/Music/{name}"}}]},
+                {"tool_calls": [{"name": "task_finish", "arguments": {"summary": f"Moved {name} to the trash."}}]}]
+
+    async def open_work(request: str, name: str) -> dict:
+        await h.use_fake(looking(name))
+        await h.hook("Popup", "new")
+        await h.hook("Popup", "open")
+        await h.hook("Popup", "expand")
+        await h.hook("Send", request)
+        await h.until(lambda s: "progress" in s["controller"]["timeline"] and "approval" in s["controller"]["timeline"],
+                      20, "the task's steps and its card")
+        await asyncio.sleep(0.6)
+        await h.hook("Screenshot", os.path.join(OUT, "work-thumbnail.png"))
+        await h._call(*named, ["See what Mei is doing"])
+        return await h.until(lambda s: s["page"]["open"] and (s["page"]["work"] or {}).get("picture") == "debug-picture",
+                             10, "the work page with the picture")
+
+    st = await open_work("clean up a little", "old2.txt")  # naming no folder: the trash asks
+    await asyncio.sleep(0.6)
+    await h.hook("Screenshot", os.path.join(OUT, "work-page.png"))
+    work = st["page"]["work"]
+    opened = (page_fits(st) and st["page"]["title"] == "What Mei is doing" and work["steps"] >= 1
+              and (work["waiting"] or "").startswith("Your answer: "))
+    paused = await h.press("Pause")
+    pausing = (await h.state())["page"]["work"]["pause"] == "Pausing…"
+    await h.hook("PressEscape")
+    await h.until(lambda s: not s["page"]["open"], 5, "Escape back to the chat")
+    allowed = await h.press("Allow once")
+    await h.until(lambda s: "paused" in s["controller"]["timeline"], 20, "the allowed act to hold")
+    await asyncio.sleep(0.5)
+    await h._call(*named, ["See what Mei is doing"])
+    st = await h.until(lambda s: (s["page"]["work"] or {}).get("phase") == "paused", 10, "the work page, paused")
+    held = st["page"]["work"]["pause"] == "Go on" and st["page"]["work"]["waiting"] == "Paused by you"
+    await asyncio.sleep(1.0)  # the page has faded in
+    await h.hook("Screenshot", os.path.join(OUT, "work-paused.png"))
+    went_on = await h.press("Go on")
+    st = await h.until(lambda s: (s["page"]["work"] or {}).get("phase") == "ended", 30, "the task to finish")
+    task = (await h.runtime("GetConversation", {"conversation_id": st["controller"]["current"]}))["tasks"][-1]
+    trashed = not os.path.exists(os.path.join(OUT, "home", "Music", "old2.txt"))
+    h.check("work_page_opens_from_the_thumbnail_and_pauses", opened and paused and pausing and allowed and held
+            and went_on and task["state"] == "COMPLETED" and trashed,
+            {"page": st["page"], "state": task["state"], "pausing": pausing, "held": held})
+    await h.hook("PressEscape")
+    await h.until(lambda s: not s["page"]["open"], 5, "Escape back to the chat")
+
+    await open_work("clean up a little more", "old3.txt")
+    stopped = await h.press("Stop")
+    st = await h.until(lambda s: (s["page"]["work"] or {}).get("phase") == "ended", 20, "Stop to end the task")
+    task = (await h.runtime("GetConversation", {"conversation_id": st["controller"]["current"]}))["tasks"][-1]
+    h.check("work_page_stop_ends_the_task", stopped and task["state"] == "CANCELLED"
+            and os.path.exists(os.path.join(OUT, "home", "Music", "old3.txt")), task["state"])
+    await h.hook("SetDebugPicture", "")
+    await h.hook("PressEscape")
+    await h.until(lambda s: not s["page"]["open"], 5, "Escape back to the chat")
+    await h.hook("Popup", "new")
 
 
 async def main() -> int:
@@ -524,6 +719,8 @@ async def main() -> int:
                 and "About: “Some words from a web page”" in st["shown"], attached)
         await h.hook("Popup", "new")
         await h.hook("Popup", "close")
+
+        await large_page(h)
 
         # 10. Memory: "remember that…" is saved as the person's own fact and shown in the conversation;
         #     Undo there forgets it.

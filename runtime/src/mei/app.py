@@ -22,7 +22,7 @@ from mei.core.engine import Engine
 from mei.desktop import apps as desktop_apps
 from mei.desktop.gsettings import GSETTINGS, GSettingsCli
 from mei.desktop.notify import BusNotifier
-from mei.desktop.pdf import PdfToText
+from mei.desktop.pdf import PdfPages, PdfToText
 from mei.desktop.media import Mpris
 from mei.desktop.sandbox import Sandbox
 from mei.desktop.screen import watch_lock
@@ -169,6 +169,14 @@ def desktop_env(bus: MessageBus, bridge: Callable) -> Env:
                media=Mpris(bus), status=SystemStatus(home))
 
 
+def pdf_pages() -> PdfPages | None:
+    """The popup's PDF viewer (decision 0034): pages drawn into the runtime dir, gone at logout."""
+    if not PdfPages.available():
+        log.info("PDFs can't be shown in the popup: pdftoppm or pdfinfo isn't installed")
+        return None
+    return PdfPages(Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "mei" / "pages")
+
+
 def computer_stopped(engine: Engine, reason: str, by_person: bool) -> None:
     """The worker stopped input. From the Shell (the kill switch, the chip, the Shell or Mei's extension going),
     the tasks using the computer end now, whatever the runtime was doing meanwhile (it may have been frozen)."""
@@ -301,7 +309,7 @@ async def serve() -> int:
         voice = voice_controller(engine, lambda: holder[0] if holder else None, client, key_for)
         service = RuntimeService(bus, engine, list_models=model_lister(store, client, key_for), setup=setup,
                                  test_provider=provider_tester(store, make_provider), notifier=env.notifier, voice=voice,
-                                 desktop=desktop)
+                                 desktop=desktop, pdf=pdf_pages())
         # The service needs the engine and the engine publishes through it (and through voice).
         engine.publisher = Fanout(service, voice) if voice is not None else service
         holder.append(service)

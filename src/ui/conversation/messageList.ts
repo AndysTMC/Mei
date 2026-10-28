@@ -15,6 +15,7 @@ import St from 'gi://St';
 import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
 
 import type { ChatMessageMetadata } from '../../providers/types.js';
+import type { Attachment } from '../../runtime/protocol.js';
 import { addClickScale, copyToClipboard, wrapLabel } from '../effects.js';
 import { createMessageInfoPanel, styleMessageInfoPanel } from '../messageInfoPanel.js';
 import { createMessageActor, formatThinkingPreview, type MessageRole, type RenderedMessageActor } from '../messageRenderer.js';
@@ -33,6 +34,8 @@ export interface ListedMessage {
     metadata?: ChatMessageMetadata;
     /** Plain text above the bubble, e.g. what "Ask about this" attached (never rendered as markdown). */
     note?: string;
+    /** What the note names, when it can be opened on the large page. */
+    attachment?: Attachment;
     /** A reply's steps and checks, behind its footer's icons. */
     details?: ReplyDetails;
     /** An interrupted reply, which Regenerate continues (the only reply it works for yet). */
@@ -48,6 +51,8 @@ export interface MessageListHost {
     canReadAloud(): boolean;
     /** Read a reply out, or stop reading it. */
     onReadAloud(messageId: string, text: string): void;
+    /** The person clicked what a sent message carried. */
+    onOpenAttachment(attachment: Attachment): void;
 }
 
 const STREAM_RENDER_MS = 50;
@@ -209,10 +214,7 @@ export class MessageList {
         const container = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'mei-msg-container' });
         if (role === 'assistant' && this._expanded && message.thinking)
             container.add_child(thinkingBlock(message.thinking));
-        if (message.note) {
-            container.add_child(new St.Label({ text: message.note, style_class: 'mei-msg-note',
-                x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START }));
-        }
+        if (message.note) container.add_child(this._note(message.note, message.attachment, role));
         container.add_child(this._messageActor(role, message.content).actor);
         const cut = role === 'assistant' ? message.metadata?.cut : undefined;
         if (cut) container.add_child(new St.Label({ text: CUT_NOTE[cut], style_class: 'mei-msg-note' }));
@@ -230,6 +232,16 @@ export class MessageList {
             container.add_child(panel);
         }
         return container;
+    }
+
+    /** What a message carried, above it; a button to the large page when it can be opened. */
+    private _note(text: string, attachment: Attachment | undefined, role: MessageRole): St.Widget {
+        const x_align = role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START;
+        if (!attachment) return new St.Label({ text, style_class: 'mei-msg-note', x_align });
+        const button = new St.Button({ label: text, style_class: 'mei-msg-note mei-msg-note-link', x_align, can_focus: true,
+            reactive: true, track_hover: true, accessible_name: `Open ${text}`, accessible_role: Atk.Role.LINK });
+        button.connect('clicked', () => this._host.onOpenAttachment(attachment));
+        return button;
     }
 
     /** Under a message: Copy; under a reply Steps, Checks and Info, each opening its panel below (one

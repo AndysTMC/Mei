@@ -802,3 +802,109 @@
     background-color: rgba(128, 128, 128, 0.3);
     box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.6);
 }
+
+/* ── The large page (decision 0034) ─────────────── */
+.mei-page-bar {
+    spacing: 8px;
+    margin-bottom: 0;
+}
+
+.mei-page-title {
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.mei-page-actions {
+    spacing: 6px;
+}
+
+.mei-page-body {
+    padding: 12px;
+}
+
+.mei-card-btn.insensitive {
+    opacity: 110;
+}
+
+.mei-viewer-mono {
+    font-family: monospace;
+    font-size: 12px;
+}
+
+.mei-viewer-note {
+    padding-bottom: 6px;
+}
+
+.mei-viewer-pages {
+    spacing: 12px;
+    padding: 4px 0;
+}
+
+/* A page waiting to be drawn: a quiet sheet, not a white flash. */
+.mei-viewer-page {
+    background-color: rgba(128, 128, 128, 0.15);
+}
+
+.mei-viewer-info {
+    spacing: 8px;
+}
+
+.mei-viewer-info-name {
+    font-size: 15px;
+    font-weight: bold;
+}
+
+/* What Mei is doing: the picture, the steps beside it, the buttons under both. */
+.mei-work-main {
+    spacing: 16px;
+}
+
+.mei-work-picture {
+    border-radius: 8px;
+    background-color: rgba(128, 128, 128, 0.10);
+}
+
+.mei-work-caption {
+    padding-top: 6px;
+    font-size: 11px;
+}
+
+.mei-work-column {
+    spacing: 6px;
+}
+
+.mei-work-heading {
+    font-size: 11px;
+    font-weight: bold;
+    opacity: 180;
+}
+
+.mei-work-waiting {
+    spacing: 4px;
+    padding-top: 8px;
+}
+
+.mei-work-buttons {
+    padding-top: 12px;
+}
+
+/* The latest picture at the top of a task's steps; a click opens the work page. */
+.mei-work-thumbnail {
+    border-radius: 6px;
+    margin-bottom: 4px;
+    background-color: rgba(128, 128, 128, 0.12);
+}
+
+.mei-work-thumbnail:hover,
+.mei-work-thumbnail:focus {
+    background-color: rgba(128, 128, 128, 0.24);
+}
+
+.mei-attachment-open {
+    border-radius: 6px;
+}
+
+.mei-msg-note-link:hover,
+.mei-msg-note-link:focus {
+    text-decoration: underline;
+}

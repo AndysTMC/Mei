@@ -35,7 +35,8 @@ export interface ReplyDetails {
 
 export type TimelineItem =
     | { kind: 'message'; message: MessageView; draft?: boolean; details?: ReplyDetails }
-    | { kind: 'progress'; taskId: string; rows: ActivityRow[] }
+    /** `picture`: the latest action that kept a picture of the screen, shown as a thumbnail. */
+    | { kind: 'progress'; taskId: string; rows: ActivityRow[]; picture: string | null }
     | { kind: 'memory'; memory: MemoryView };
 
 /** What a task waits on the person for: it replaces the input area until answered. */
@@ -77,7 +78,9 @@ function taskItems(conv: LoadedConversation, task: TaskView, remembered: MemoryV
     }
     // While it runs: the steps so far, but not one waiting on the person (the input area asks).
     const progress = steps.filter(r => r.state !== 'waiting');
-    if (!TERMINAL_STATES.has(task.state) && progress.length) items.push({ kind: 'progress', taskId: task.id, rows: progress });
+    const picture = latestPicture(task);
+    if (!TERMINAL_STATES.has(task.state) && (progress.length || picture))
+        items.push({ kind: 'progress', taskId: task.id, rows: progress, picture });
     for (const memory of remembered) if (memory.source_task_id === task.id) items.push({ kind: 'memory', memory });
     return items;
 }
@@ -99,6 +102,47 @@ export function pendingInteraction(conv: LoadedConversation): Interaction | null
     if (waiting.approval) return { kind: 'approval', taskId: waiting.id, approval: waiting.approval };
     if (waiting.input_request) return { kind: 'question', taskId: waiting.id, request: waiting.input_request };
     return { kind: 'paused', taskId: waiting.id, note: waiting.error || 'Paused' };
+}
+
+/** What the work page shows of a task (decision 0034): its steps, what it waits for, and its state. */
+export interface WorkView {
+    taskId: string;
+    steps: ActivityRow[];
+    /** What Mei waits for from the person, in a line; null when nothing. */
+    waiting: string | null;
+    /** running: acting or thinking; paused: held (by the person, or while they use the computer); ended. */
+    phase: 'running' | 'paused' | 'ended';
+    /** The latest action that kept a picture, if any. */
+    picture: string | null;
+}
+
+export function workView(conv: LoadedConversation, taskId: string): WorkView | null {
+    const task = conv.tasks.get(taskId);
+    if (!task) return null;
+    // A step waiting on the person is said once, as what Mei waits for.
+    const steps = (task.actions ?? []).filter(a => !isMeta(a))
+        .sort((a, b) => a.created_at - b.created_at || a.position - b.position).map(activityRow)
+        .filter(r => r.state !== 'waiting');
+    const phase = TERMINAL_STATES.has(task.state) ? 'ended' : task.state === 'WAITING_RESOURCE' ? 'paused' : 'running';
+    let waiting: string | null = null;
+    if (phase !== 'ended') {
+        if (task.approval) waiting = `Your answer: ${task.approval.card.title}`;
+        else if (task.input_request) waiting = `Your answer: ${task.input_request.spec.question}`;
+        else if (phase === 'paused') waiting = task.error || 'Paused';
+    }
+    return { taskId, steps, waiting, phase, picture: latestPicture(task) };
+}
+
+/** The task this conversation is working on now, the one the work page opens on. */
+export function workingTask(conv: LoadedConversation): string | null {
+    return [...conv.tasks.values()].filter(t => !TERMINAL_STATES.has(t.state))
+        .sort((a, b) => a.created_at - b.created_at).at(-1)?.id ?? null;
+}
+
+function latestPicture(task: TaskView): string | null {
+    const pictured = (task.actions ?? []).filter(a => (a.pictures ?? 0) > 0)
+        .sort((a, b) => (a.finished_at ?? a.created_at) - (b.finished_at ?? b.created_at));
+    return pictured.at(-1)?.id ?? null;
 }
 
 export function activityRow(action: ActionView): ActivityRow {

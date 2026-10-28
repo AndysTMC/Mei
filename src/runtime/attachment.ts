@@ -60,6 +60,17 @@ function filesLabel(paths: string[]): string {
     return `${names[0]} and ${names.length - 1} more`;
 }
 
+/** Whether there is something to open on the large page: files, or text (not a bare window title). */
+export function canOpen(attachment: Attachment): boolean {
+    return attachment.kind === 'files' ? (attachment.paths ?? []).length > 0 : attachment.text.trim() !== '';
+}
+
+/** The large page's title for attached text: where it came from. */
+export function attachmentTitle(attachment: Attachment): string {
+    if (attachment.kind === 'text') return 'Dropped text';
+    return attachment.window_title || attachment.app_id.replace(/\.desktop$/, '') || 'Selected text';
+}
+
 /** The attachment stored with a sent message, if it has one. */
 export function attachmentOf(metadata: Record<string, unknown>): Attachment | null {
     const a = metadata.attachment as Attachment | undefined;

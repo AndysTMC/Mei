@@ -189,6 +189,8 @@ export interface ActionView {
     summary: string;
     resources: ActionResource[];
     undo_recorded: boolean;
+    /** How many pictures of the screen it kept (computer use's look); fetched with LatestPicture. */
+    pictures?: number;
     created_at: number;
     finished_at: number | null;
 }
@@ -277,6 +279,31 @@ export interface TaskView {
     actions?: ActionView[];
     approval?: ApprovalView | null;
     input_request?: InputRequestView | null;
+}
+
+/** LatestPicture: the newest picture computer use kept, a PNG in the conversation's artifacts. */
+export interface Picture {
+    action_id: string;
+    task_id: string;
+    path: string;
+    width: number;
+    height: number;
+    taken_at: number | null;
+}
+
+export interface LatestPictureReply {
+    picture: Picture | null;
+}
+
+export interface PdfInfoReply {
+    pages: number;
+}
+
+/** PdfPage: one page drawn as a PNG in the runtime dir, and its size in pixels. */
+export interface PdfPageReply {
+    path: string;
+    width: number;
+    height: number;
 }
 
 export interface StreamView {

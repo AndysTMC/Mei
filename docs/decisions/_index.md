@@ -32,3 +32,4 @@
 | 0031 | Authority checks are conjunctive and fail closed; content with no source stays local; the Shell is its bus name | accepted | 2026-10-28 | — |
 | 0032 | A reply the model cut short says so | accepted | 2026-10-28 | — |
 | 0033 | Fixes from the October reviews: pipes, questions, drafts, cards, PDFs, downloads, keys, the pointer, purge; noise suppression primed | accepted | 2026-10-28 | — |
+| 0034 | The popup grows into a large page: what Mei is doing, and attachments, read-only; the runtime draws PDF pages | accepted | 2026-10-26 | — (builds on 0023) |

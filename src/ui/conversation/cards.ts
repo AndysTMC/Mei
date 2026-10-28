@@ -47,8 +47,10 @@ const CRITERION_STATUS: Record<string, string> = {
     passed: 'checked', failed: 'didn’t work', unverifiable: 'couldn’t be checked', reported: 'not checked',
 };
 
-export function activityBlock(rows: ActivityRow[]): St.BoxLayout {
+/** A task's steps; `top`: what goes above them (the latest picture of the screen, decision 0034). */
+export function activityBlock(rows: ActivityRow[], top?: St.Widget): St.BoxLayout {
     const box = new St.BoxLayout({ vertical: true, x_expand: true, style_class: 'mei-activity' });
+    if (top) box.add_child(top);
     for (const row of rows) {
         const line = new St.BoxLayout({ x_expand: true, style_class: `mei-activity-row ${row.state}` });
         line.add_child(mark(ACTIVITY_MARK[row.state]));

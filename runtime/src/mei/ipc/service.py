@@ -24,11 +24,13 @@ from mei.computer import jail as computer_jail
 from mei.computer.controller import DesktopError
 from mei.core.engine import Engine
 from mei.obs import RECENT
-from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, ForgetMemoryArgs,
-                          GetLogsArgs, HelloArgs, KillSwitchArgs, ListModelsArgs, MemoriesArgs, ProtocolError,
-                          ResolveApprovalArgs, RevokeGrantArgs, SetupApplyArgs, SubmitInputArgs, TaskCommandArgs,
-                          TestProviderArgs, UpdateConfigArgs, UpdateMemoryArgs, VoiceAttachArgs, VoiceDownloadArgs,
-                          VoiceListenArgs, VoiceReadAloudArgs, decode_args, encode)
+from mei.desktop.png import png_size
+from mei.desktop.run import ToolFailed
+from mei.protocol import (AnswerInputArgs, AttachArgs, ConversationCommandArgs, Envelope, FileArgs, ForgetMemoryArgs,
+                          GetLogsArgs, HelloArgs, KillSwitchArgs, LatestPictureArgs, ListModelsArgs, MemoriesArgs,
+                          PdfPageArgs, ProtocolError, ResolveApprovalArgs, RevokeGrantArgs, SetupApplyArgs,
+                          SubmitInputArgs, TaskCommandArgs, TestProviderArgs, UpdateConfigArgs, UpdateMemoryArgs,
+                          VoiceAttachArgs, VoiceDownloadArgs, VoiceListenArgs, VoiceReadAloudArgs, decode_args, encode)
 from mei.providers.profiles import PROFILES
 from mei.setup import Setup
 from mei.store import repo
@@ -59,7 +61,7 @@ class RuntimeService:
                  setup: Setup | None = None,
                  test_provider: Callable[[str], Awaitable[dict]] | None = None,
                  is_shell: Callable[[str], Awaitable[bool]] | None = None,
-                 notifier: Notifier | None = None, voice=None, desktop=None) -> None:
+                 notifier: Notifier | None = None, voice=None, desktop=None, pdf=None) -> None:
         self._bus = bus
         self._engine = engine
         self._is_shell = is_shell or shell_check(bus)
@@ -70,13 +72,15 @@ class RuntimeService:
         self._test_provider = test_provider
         self._voice = voice  # VoiceController, or None where voice can't run
         self._desktop = desktop  # computer use's Desktop, or None where it can't run
+        self._pdf = pdf  # PdfPages for the popup's viewer, or None without poppler's tools
         self._store = engine.store
         self.clients: dict[str, Client] = {}
         self._kinds: dict[str, str] = {}
         self._methods = {
             "Hello": self._hello, "Attach": self._attach, "Detach": self._detach,
             "GetConversation": self._get_conversation, "SubmitInput": self._submit_input,
-            "Cancel": self._cancel, "Resume": self._resume, "DeleteConversation": self._delete_conversation,
+            "Cancel": self._cancel, "Resume": self._resume, "Pause": self._pause,
+            "DeleteConversation": self._delete_conversation,
             "GetConfig": self._get_config, "UpdateConfig": self._update_config, "Ping": self._ping,
             "ListProviders": self._list_providers, "ListModels": self._models, "GetLogs": self._get_logs,
             "ClearLogs": self._clear_logs, "SetupStatus": self._setup_status, "SetupApply": self._setup_apply,
@@ -87,8 +91,10 @@ class RuntimeService:
             "VoiceModels": self._voice_models, "VoiceDownload": self._voice_download, "VoiceCheckMic": self._voice_check_mic,
             "VoiceFixMic": self._voice_fix_mic, "VoiceTestSpeaker": self._voice_test_speaker,
             "VoiceDevices": self._voice_devices, "VoiceRemove": self._voice_remove,
-            "KillSwitch": self._kill_switch, "VoiceAttach": self._voice_attach, "VoiceReadAloud": self._voice_read_aloud, "VoiceStopReading": self._voice_stop_reading, "ComputerStatus": self._computer_status,
-            "ComputerAllowScreen": self._computer_allow_screen,
+            "KillSwitch": self._kill_switch, "VoiceAttach": self._voice_attach, "VoiceReadAloud": self._voice_read_aloud,
+            "VoiceStopReading": self._voice_stop_reading, "ComputerStatus": self._computer_status,
+            "ComputerAllowScreen": self._computer_allow_screen, "LatestPicture": self._latest_picture,
+            "PdfInfo": self._pdf_info, "PdfPage": self._pdf_page,
         }
 
     async def start(self) -> None:
@@ -222,6 +228,10 @@ class RuntimeService:
         args = decode_args(data, TaskCommandArgs)
         await self._input_allowed(sender)
         return self._engine.resume(args)
+
+    def _pause(self, _sender: str, data: str) -> dict:
+        """Like Cancel, anyone may hold a task back; going on (Resume) acts with the person's authority."""
+        return self._engine.pause(decode_args(data, TaskCommandArgs))
 
     async def _input_allowed(self, sender: str) -> None:
         """New requests (and resuming one) act with the person's authority: Shell only, unless the
@@ -404,6 +414,45 @@ class RuntimeService:
             return {"ok": False, "error": e.message}
         return {"ok": True, "error": ""}
 
+    # ── The popup's large page (decision 0034) ──────────────────────────────
+
+    async def _latest_picture(self, sender: str, data: str) -> dict:
+        """Where the newest picture of the screen is, for the work page: the screen is the person's,
+        so only the Shell is told."""
+        args = decode_args(data, LatestPictureArgs)
+        await self._shell_only(sender, "see what Mei saw on the screen")
+        return {"picture": self._engine.latest_picture(args.conversation_id, args.task_id)}
+
+    async def _pdf_info(self, sender: str, data: str) -> dict:
+        args = decode_args(data, FileArgs)
+        await self._shell_only(sender, "show files")
+        pdf = self._pdf_required()
+        return {"pages": await self._file_tool(lambda: pdf.pages(_absolute(args.path)))}
+
+    async def _pdf_page(self, sender: str, data: str) -> dict:
+        """One page drawn as a PNG in the runtime dir (gone at logout), as the viewer scrolls to it, and
+        its size in pixels (the viewer gives each page exactly its room)."""
+        args = decode_args(data, PdfPageArgs)
+        await self._shell_only(sender, "show files")
+        pdf = self._pdf_required()
+        path = await self._file_tool(lambda: pdf.page(_absolute(args.path), args.page, args.width))
+        width, height = png_size(path) or (0, 0)
+        return {"path": str(path), "width": width, "height": height}
+
+    def _pdf_required(self):
+        if self._pdf is None:
+            raise ProtocolError("Unsupported", "showing PDFs needs pdftoppm and pdfinfo (poppler-utils)")
+        return self._pdf
+
+    @staticmethod
+    async def _file_tool(run):
+        try:
+            return await run()
+        except FileNotFoundError as e:
+            raise ProtocolError("NotFound", str(e)) from None
+        except ToolFailed as e:
+            raise ProtocolError("InvalidArgument", f"Mei couldn't read this PDF: {e}") from None
+
     async def _shell_only(self, sender: str, what: str) -> None:
         if not await self._is_shell(sender):
             raise ProtocolError("AccessDenied", f"only Mei in the top bar can {what}")
@@ -436,3 +485,10 @@ class RuntimeService:
 
     def _streams(self, scope: str) -> list[dict]:
         return [s.view() for s in self._engine.streams.values() if scope in ("all", s.conversation_id)]
+
+
+def _absolute(path: str) -> str:
+    """As the Shell gives paths: absolute and normalized, no NUL."""
+    if "\0" in path or not os.path.isabs(path) or os.path.normpath(path) != path:
+        raise ProtocolError("InvalidArgument", "path must be absolute and normalized")
+    return path
