@@ -383,6 +383,51 @@ def form_through_atspi() -> None:
     close(form)
 
 
+CHROME, PAGE = "/usr/bin/google-chrome", "Mei test page"
+
+
+def chrome_through_atspi() -> None:
+    """Chrome shows accessibility tools its window and next to nothing until one asks a window for its
+    attributes, as screen readers do; Mei now asks, so a web page's button is found and pressed by name."""
+    if not os.path.exists(CHROME):
+        return  # no Chrome here: nothing to check
+    page = OUT / "page.html"
+    page.write_text(f"<!doctype html><title>{PAGE}</title><h1>A page</h1>"
+                    "<button onclick=\"document.title='Pressed'\">Mei test button</button>")
+    env = {**os.environ, "WAYLAND_DISPLAY": wayland_display()}
+    env.pop("DISPLAY", None)
+    proc = subprocess.Popen([CHROME, "--ozone-platform=wayland", f"--user-data-dir={OUT / 'chrome-profile'}",
+                             "--no-first-run", "--no-default-browser-check", "--password-store=basic",
+                             "--disable-background-networking", "--disable-component-update", "--disable-sync",
+                             "--no-pings", page.as_uri()], env=env, stdout=open(OUT / "app-chrome.log", "a"),
+                            stderr=subprocess.STDOUT)
+    PROCS.append(proc)
+
+    def focused() -> bool:  # a window opened without a click may not get the focus
+        if PAGE in str((state()["window"] or {}).get("title")):
+            return True
+        call(HOOKS, "ActivateWindow", "s", f"{PAGE} - Google Chrome")
+        return False
+    until(focused, 30, "Chrome to show the page")
+    pump(1.0)
+    use_script([
+        {"tool_calls": [{"name": "desktop_observe", "arguments": {"window": PAGE}}]},
+        {"tool_calls": [{"name": "desktop_act", "arguments": {"snapshot": "$snapshot", "action": "press",
+                                                               "element": "$e:button:Mei test button"}}]},
+        {"text": "Pressed it."}])
+    conversation = send(f"Press the button on the {PAGE} in Chrome")
+    done = approve_until_done(conversation)
+    pump(1.0)
+    acts = [a for a in done.get("actions", []) if a.get("capability") == "desktop.act"]
+    title = str((state()["window"] or {}).get("title"))
+    check("chrome_page_button_pressed_through_atspi", done["state"] == "COMPLETED" and title.startswith("Pressed")
+          and acts and all(a["execution"] == "SUCCEEDED" for a in acts),
+          {"state": done["state"], "title": title, "acts": [(a["execution"], a.get("error")) for a in acts]})
+    proc.terminate()
+    proc.wait(10)
+    pump(1.0)
+
+
 def checkbox_by_pointer() -> None:
     """A GTK4 check box has no AT-SPI action (like a switch): once the screen is allowed, the pointer toggles it."""
     form = launch("form", OUT / "form-checkbox.json")
@@ -580,6 +625,7 @@ def main() -> int:
         prepare_session()
         runtime("SetupApply", {"step": "offered"})
         form_through_atspi()
+        chrome_through_atspi()
         setup_consent()
         GLib.timeout_add(500, lambda: (watch_dialogs(), True)[1])
         checkbox_by_pointer()

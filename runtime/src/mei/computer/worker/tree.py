@@ -74,6 +74,13 @@ class Snapshot:
     taken: float = field(default_factory=time.monotonic)
 
 
+EMBEDDED = "\ufffc"
+# Chromium and Electron build what's inside a window only once a client asks one of its objects for its
+# attributes, as screen readers do; until then the window shows its frame and next to nothing. So each look
+# asks, and a window's first look gives its tree these moments to fill in, while it still grows.
+FILLING_IN_S = (0.15, 0.35)
+
+
 class Snapshots:
     """Each window's latest snapshot."""
 
@@ -82,7 +89,13 @@ class Snapshots:
 
     def take(self, window: Window, max_nodes: int) -> Snapshot:
         frame, app = find_frame(window)
+        _safe(frame.get_attributes)
         nodes, truncated = walk(frame, max_nodes)
+        for wait in () if window.id in self._by_window else FILLING_IN_S:
+            time.sleep(wait)
+            before, (nodes, truncated) = len(nodes), walk(frame, max_nodes)
+            if len(nodes) <= before:
+                break
         snapshot = Snapshot(secrets.token_hex(6), window, app, nodes, truncated)
         self._by_window[window.id] = snapshot
         return snapshot
@@ -192,7 +205,8 @@ def _text(acc: Atspi.Accessible, interfaces: set[str]) -> str:
     if "Text" in interfaces:
         count = _safe(lambda: Atspi.Text.get_character_count(acc)) or 0
         text = _safe(lambda: Atspi.Text.get_text(acc, 0, min(count, MAX_TEXT))) or ""
-        return " ".join(text.split())[:MAX_TEXT]
+        # U+FFFC stands in a web page's (or any hypertext's) text for each child object: never words.
+        return " ".join(text.replace(EMBEDDED, " ").split())[:MAX_TEXT]
     return ""
 
 
