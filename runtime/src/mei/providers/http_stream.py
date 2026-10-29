@@ -79,6 +79,8 @@ async def _http_error(label: str, response: httpx.Response, headers: dict[str, s
         if len(body) >= MAX_ERROR_BODY_BYTES:
             break
     detail = scrub(error_message(body[:MAX_ERROR_BODY_BYTES]), headers)
+    if key_rejected(response.status_code, body[:MAX_ERROR_BODY_BYTES]):
+        return key_error(label, response.status_code, detail)
     retryable = response.status_code in RETRYABLE_STATUS or error_code(body[:MAX_ERROR_BODY_BYTES]) in RETRYABLE_CODES
     error = ProviderError(f"{label}: HTTP {response.status_code}" + (f": {detail}" if detail else ""),
                           retryable=retryable, status=response.status_code)
@@ -117,6 +119,35 @@ def error_message(body: bytes | str | dict) -> str:
         if isinstance(data.get("message"), str):
             return data["message"][:300]
     return ""
+
+
+# How providers say the key itself is wrong: OpenAI-style codes, Anthropic's error type, Gemini's reason.
+KEY_REJECTED = frozenset({"invalid_api_key", "authentication_error", "API_KEY_INVALID", "API_KEY_EXPIRED"})
+
+
+def key_rejected(status: int, body: bytes) -> bool:
+    """Did the provider refuse the API key (not the request)? HTTP 401, or its own word for a bad key."""
+    if status == 401:
+        return True
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return False
+    data = data[0] if isinstance(data, list) and data else data
+    err = data.get("error") if isinstance(data, dict) else None
+    if not isinstance(err, dict):
+        return False
+    details = err.get("details") if isinstance(err.get("details"), list) else []
+    said = [err.get("code"), err.get("type"), err.get("status"), *(d.get("reason") for d in details if isinstance(d, dict))]
+    return any(isinstance(word, str) and word in KEY_REJECTED for word in said)
+
+
+def key_error(label: str, status: int, detail: str) -> ProviderError:
+    """The key itself was refused: not the model, not Mei. Said plainly, with what to do about it."""
+    error = ProviderError(f"{label} rejected the API key (HTTP {status}" + (f": {detail}" if detail else "") +
+                          "). Enter a new one in Mei's Settings.", status=status)
+    error.details["key_rejected"] = True
+    return error
 
 
 def error_code(body: bytes) -> str:

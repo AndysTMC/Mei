@@ -139,8 +139,10 @@ async def _drive(driver: Driver, task_id: str, tally: Tally) -> str:
 
 
 def _unavailable(error: str) -> bool:
-    """Rate limits, outages, and timeouts; not a model's bad tool call, which is a real failure."""
-    return any(sign in error for sign in ("HTTP 429", "HTTP 5", "timed out", "connection failed", "no complete reply"))
+    """Rate limits, outages, timeouts, and a key the provider rejected: nothing about the model or Mei.
+    A model's bad tool call, or a request Mei got wrong, is a real failure."""
+    return any(sign in error for sign in ("HTTP 429", "HTTP 5", "timed out", "connection failed", "no complete reply",
+                                          "rejected the API key"))
 
 
 def _last_reply(driver: Driver, conversation_id: str) -> str:
@@ -150,7 +152,7 @@ def _last_reply(driver: Driver, conversation_id: str) -> str:
 
 def summarize(results: list[Result]) -> dict:
     """Pass rate, prompts per task, and how often a not-verified result was wrong. Tasks the provider
-    failed (rate limits, outages) are counted apart: they say nothing about the model or Mei."""
+    failed (rate limits, outages, a rejected key) are counted apart: they say nothing about the model or Mei."""
     ran = [r for r in results if r.state not in ("SKIPPED", "ERROR")]
     unverified = [r for r in ran if r.outcome in ("reported", "partially_verified")]
     return {

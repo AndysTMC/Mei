@@ -15,7 +15,7 @@ def test_the_key_never_crosses_the_mei_bus(tmp_path):
     assert r["key_used_upstream"] >= 5 and r["models"] == ["mock-1", "mock-2"]
     assert r["setup_has_key"] is True and r["test_ok"] and r["turn_ok"] == "COMPLETED"
     # ...and the upstream echoing it back didn't carry it into the task's error.
-    assert r["failed_error"].startswith("OpenAI: HTTP 401") and "[redacted]" in r["failed_error"]
+    assert r["failed_error"].startswith("OpenAI rejected the API key (HTTP 401") and "[redacted]" in r["failed_error"]
     # The monitor saw the Mei traffic, including events, and none of it contained the key.
     assert r["mei_messages"] > 20 and r["mei_signals"] > 5
     assert r["leaks"] == []

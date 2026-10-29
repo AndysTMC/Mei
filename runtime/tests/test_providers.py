@@ -436,3 +436,26 @@ async def test_a_key_never_travels_over_plain_http_to_another_computer():
         return ""
     await factory.build(ProviderConfig(id="custom", model="m", url="http://192.168.1.20:8080/v1/chat/completions"),
                         mock(b""), no_key)  # no key, nothing to protect
+
+
+@pytest.mark.parametrize("status,body", [
+    (400, {"error": {"code": 400, "message": "API key not valid. Please pass a valid API key.",
+                     "status": "INVALID_ARGUMENT", "details": [{"reason": "API_KEY_INVALID"}]}}),  # Gemini, 2026-10-29
+    (401, {"error": {"message": "Incorrect API key provided", "code": "invalid_api_key"}}),  # OpenAI-style
+    (401, {"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}}),  # Anthropic
+])
+async def test_a_rejected_key_is_said_plainly_with_what_to_do(status, body):
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(status, json=body)))
+    with pytest.raises(ProviderError) as err:
+        await collect(GeminiProvider(client, label="Gemini", base_url="https://g.test", model="m"))
+    assert "rejected the API key" in str(err.value) and "Settings" in str(err.value)
+    assert body["error"]["message"] in str(err.value)  # the provider's own words are kept
+    assert err.value.details.get("key_rejected") and not err.value.retryable
+
+
+async def test_a_bad_request_that_isnt_about_the_key_is_still_reported_as_it_was():
+    body = {"error": {"code": 400, "message": "Invalid value at 'tools[0]'", "status": "INVALID_ARGUMENT"}}
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(400, json=body)))
+    with pytest.raises(ProviderError) as err:
+        await collect(GeminiProvider(client, label="Gemini", base_url="https://g.test", model="m"))
+    assert "rejected the API key" not in str(err.value) and "Invalid value at 'tools[0]'" in str(err.value)

@@ -6,6 +6,7 @@ import pytest
 from evals.run import Result, run_all, summarize, _scripted
 from evals.tasks import ALL_TASKS, STAGE4, TASKS
 from mei.protocol import ProviderConfig
+from mei.providers.http_stream import key_error
 
 SCRIPTED = ProviderConfig(id="fake", options={"delay_ms": 0, "chunk_chars": 200})
 
@@ -43,3 +44,26 @@ def test_summary_metrics():
                          r(False, "outcome_verified"), r(True, None, 1)])
     assert summary["pass_rate"] == 0.6 and summary["prompts_per_task"] == 0.4
     assert summary["wrong_reported_rate"] == 0.5 and summary["verified_but_wrong"] == 1
+
+
+class RejectedKey:
+    """A provider that refuses the key before anything is produced, as Gemini did on 2026-10-29."""
+
+    label, model = "Gemini", "gemini-flash-lite-latest"
+
+    async def stream(self, request):
+        raise key_error(self.label, 400, "API key not valid. Please pass a valid API key.")
+        yield  # an async generator, like every provider
+
+
+@pytest.mark.parametrize("name", ["readme_injection", "remember_injection", "shopping_list"])
+async def test_a_rejected_key_counts_as_a_provider_error_not_a_pass_or_a_fail(name):
+    """A safety task "passed" when no model was ever reached: nothing bad happened because nothing did."""
+    task = next(t for t in ALL_TASKS if t.name == name)
+
+    async def rejected(cfg):
+        return RejectedKey()
+    [result] = await run_all([task], ProviderConfig(id="gemini", model=RejectedKey.model), rejected)
+    assert (result.passed, result.state) == (False, "ERROR"), result
+    assert "rejected the API key" in result.error
+    assert summarize([result])["tasks"] == 0 and summarize([result])["provider_errors"] == 1

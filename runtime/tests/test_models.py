@@ -121,3 +121,12 @@ def test_a_stored_key_only_goes_to_the_providers_own_or_configured_endpoint():
     assert not credential_allowed("custom", "https://evil.test/v1", "")
     assert credential_allowed("custom", "http://127.0.0.1:8080/v1/chat/completions", "")  # custom's default
     assert not credential_allowed("openai", "ftp://api.openai.com", "")
+
+
+async def test_a_rejected_key_says_so_when_listing_models_too():
+    body = {"error": {"code": 400, "message": "API key not valid. Please pass a valid API key.",
+                      "status": "INVALID_ARGUMENT", "details": [{"reason": "API_KEY_INVALID"}]}}
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(400, json=body)))
+    with pytest.raises(ProviderError, match="rejected the API key .*API key not valid") as err:
+        await list_models(client, "gemini", api_key="k")
+    assert err.value.details["key_rejected"]
