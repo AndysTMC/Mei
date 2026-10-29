@@ -176,7 +176,24 @@ def latest_turn(tx_or_store, task_id: str):
     return tx_or_store.one(sql, (task_id,)) if isinstance(tx_or_store, Tx) else tx_or_store.read_one(sql, (task_id,))
 
 
+# How a task ended, as Mei's reply when the model didn't give one (§18.2: every request gets a reply).
+ENDED = {
+    TaskState.COMPLETED: "I finished, but didn't say anything about it.",
+    TaskState.BLOCKED: "I stopped before finishing.",
+    TaskState.FAILED: "I couldn't finish this.",
+    TaskState.CANCELLED: "Stopped.",
+}
+
+
 def finished_event(tx: Tx, task: dict, *, draft: dict | None = None, outcome: dict | None = None) -> None:
+    if task["state"] in ENDED and _needs_reply(tx, task, outcome):
+        # A reply that was streaming when it ended is that message, finished with how it ended.
+        said = ((draft or {}).get("text") or "").strip()
+        turn = latest_turn(tx, task["id"]) if said else None
+        streaming = turn["message_id"] if turn and tx.one("SELECT 1 FROM messages WHERE id = ?",
+                                                           (turn["message_id"],)) is None else None
+        add_message(tx, task["conversation_id"], "assistant", _ending(task, said if streaming else ""),
+                    task_id=task["id"], metadata={"ended": task["state"]}, message_id=streaming)
     if task["state"] in (TaskState.COMPLETED, TaskState.BLOCKED):
         memory.write_episode(tx, task)
     payload = {"task_id": task["id"], "state": task["state"], "error": task["error"]}
@@ -185,6 +202,24 @@ def finished_event(tx: Tx, task: dict, *, draft: dict | None = None, outcome: di
     if outcome is not None:
         payload["outcome"] = outcome
     tx.event("task.finished", payload, conversation_id=task["conversation_id"], task_id=task["id"])
+
+
+def _needs_reply(tx: Tx, task: dict, outcome: dict | None) -> bool:
+    """The runtime ended it (stopped, failed, or blocked without the model's outcome): the person is told,
+    whatever Mei said on the way. The model ended it (an answer, or an outcome): its words are the reply,
+    unless it said nothing since the person last spoke."""
+    if outcome is None and task["state"] != TaskState.COMPLETED:
+        return True
+    last = tx.one("SELECT role FROM messages WHERE (id = ? OR task_id = ?) AND role IN ('user', 'assistant') "
+                  "AND trim(content) != '' ORDER BY ordinal DESC LIMIT 1", (task["input_message_id"], task["id"]))
+    return last is None or last["role"] == "user"
+
+
+def _ending(task: dict, said: str) -> str:
+    """What was streamed before the end, if anything, then how it ended and why."""
+    why = (task["error"] or "").strip()
+    ended = ENDED[task["state"]] + (" " + why[:1].upper() + why[1:] + ("" if why[-1] in ".!?)" else ".") if why else "")
+    return f"{said}\n\n*{ended}*" if said else ended
 
 
 # ── Idempotent commands ─────────────────────────────────────────────────────

@@ -630,10 +630,9 @@ export class RuntimeChatController {
 
     private _onTaskFinished(event: Envelope, open: boolean): void {
         const state = event.payload.state as string;
-        const error = event.payload.error as string | null;
         this._render();
-        if (state === 'FAILED') this._popup.showError(`${error ?? 'Mei could not answer.'}`);
-        else if (state === 'INTERRUPTED') this._popup.showError('Mei restarted while answering. Regenerate the partial reply to continue.');
+        // An ended task's reply says how it ended (failed, stopped); an interrupted one can still go on.
+        if (state === 'INTERRUPTED') this._popup.showError('Mei restarted while answering. Regenerate the partial reply to continue.');
         if (open) this._popup.open();
     }
 

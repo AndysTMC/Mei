@@ -47,11 +47,8 @@ class Replies:
             self.asking = None
         elif event.type == "input.requested":
             self._say([p["request"]["spec"]["question"]])
-        elif event.type == "task.finished":
-            sentences = self._sentences.flush()
-            if p.get("state") == "FAILED":
-                sentences.append("Sorry, I couldn't do that.")
-            self._say(sentences)
+        elif event.type == "task.finished":  # however it ended, its reply (above) said how
+            self._say(self._sentences.flush())
             self.task = None
             self._end()
 

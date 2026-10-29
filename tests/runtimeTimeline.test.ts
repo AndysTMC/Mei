@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { Projection } from '../src/runtime/projection.js';
-import type { ActionView, AttachReply, Envelope, Outcome } from '../src/runtime/protocol.js';
+import type { ActionView, AttachReply, ConversationSummary, Envelope, Outcome, TaskView } from '../src/runtime/protocol.js';
 import { activityRow, buildTimeline, latestReply, outcomeLine, pendingInteraction, type TimelineItem } from '../src/runtime/timeline.js';
 
 interface Fixture {
@@ -120,4 +120,62 @@ test('a task paused for the person shows in the input area until it goes on', ()
     task.state = 'RUNNING';
     task.error = null;
     assert.equal(pendingInteraction(conv), null);
+});
+
+/** A conversation built by hand: messages in their order, and one task. */
+function conversation(messages: [string, 'user' | 'assistant', string | null, string, number][], task: Partial<TaskView>) {
+    const t: TaskView = { id: 't', conversation_id: 'c', state: 'COMPLETED', input_message_id: 'm1', error: null,
+        created_at: 1, updated_at: 9, ...task };
+    return {
+        summary: { id: 'c', title: '', created_at: 1, updated_at: 9, active: null } as unknown as ConversationSummary,
+        messages: messages.map(([id, role, taskId, content, at]) => ({ id, conversation_id: 'c', task_id: taskId, role,
+            content, thinking: null, metadata: {}, created_at: at })),
+        tasks: new Map([[t.id, t]]), memories: new Map(), loadedSeq: 0,
+    };
+}
+
+const shown = (items: TimelineItem[]) => items.map(i => (i.kind === 'message' ? `${i.message.role}: ${i.message.content}` : i.kind));
+
+test('what the person says while Mei works comes before the reply that follows it, each answered in turn', () => {
+    // From the owner's chats: a spoken request, Mei acting, more said by voice while it worked, then its reply.
+    const conv = conversation([
+        ['m1', 'user', null, 'Open a new tab in Chrome', 1],
+        ['m2', 'assistant', 't', "I'll open a tab.", 2],
+        ['m3', 'user', 't', 'Just type Antigravity into it', 5],
+        ['m4', 'assistant', 't', 'Typing it now.', 6],
+        ['m5', 'assistant', 't', "Done: it's open and searching.", 8],
+    ], { actions: [action({ id: 'a1', created_at: 3, summary: 'Opened a tab' }),
+        action({ id: 'a2', created_at: 7, summary: 'Typed Antigravity' })] });
+    const items = buildTimeline(conv);
+    assert.deepEqual(shown(items), ['user: Open a new tab in Chrome', "assistant: I'll open a tab.",
+        'user: Just type Antigravity into it', "assistant: Done: it's open and searching."]);
+    const [, first, , last] = items;
+    assert.ok(first.kind === 'message' && last.kind === 'message');
+    assert.deepEqual(first.details?.steps.map(s => s.text), ['Opened a tab']); // each reply has what was done for it
+    assert.deepEqual(last.details?.steps.map(s => s.text), ['Typed Antigravity']);
+    assert.deepEqual(last.details?.notes, ['Typing it now.']);
+    // The small popup: the reply to the latest thing the person said, not nothing.
+    assert.deepEqual(shown(latestReply(items)), ["assistant: Done: it's open and searching."]);
+});
+
+test('while Mei still works after the person spoke again, its progress follows what they said', () => {
+    const conv = conversation([
+        ['m1', 'user', null, 'Open a new tab in Chrome', 1],
+        ['m2', 'assistant', 't', "I'll open a tab.", 2],
+        ['m3', 'user', 't', 'Just type Antigravity into it', 5],
+    ], { state: 'RUNNING', actions: [action({ id: 'a1', created_at: 3 }), action({ id: 'a2', created_at: 6, execution: 'STARTED' })] });
+    assert.deepEqual(shown(buildTimeline(conv)), ['user: Open a new tab in Chrome', "assistant: I'll open a tab.",
+        'user: Just type Antigravity into it', 'progress']);
+});
+
+test('a running task that has said something shows its reply so far and the steps it is taking', () => {
+    const conv = conversation([
+        ['m1', 'user', null, 'Tidy my Downloads', 1],
+        ['m2', 'assistant', 't', "I'll tidy that.", 2],
+    ], { state: 'RUNNING', actions: [action({ id: 'a1', created_at: 3, execution: 'STARTED', description: 'Move a' })] });
+    const items = buildTimeline(conv);
+    assert.deepEqual(shown(items), ['user: Tidy my Downloads', "assistant: I'll tidy that.", 'progress']);
+    const progress = items[2];
+    assert.ok(progress.kind === 'progress');
+    assert.deepEqual(progress.rows.map(r => [r.text, r.state]), [['Move a', 'running']]);
 });

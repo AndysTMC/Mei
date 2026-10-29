@@ -36,3 +36,4 @@
 | 0035 | Fixes from the owner's own chats; graded eval tasks; Hey Mei sees the screen without asking | accepted | 2026-10-28 | 0024 (in part: talking over Mei through speakers without the canceller) |
 | 0036 | Mei can look at the whole screen, not only inside one window | accepted | 2026-10-29 | — |
 | 0037 | A request fits what the model can take | accepted | 2026-10-29 | — |
+| 0038 | Every request gets a reply, in the order things were said; Chrome's tree is woken | accepted | 2026-10-29 | — |

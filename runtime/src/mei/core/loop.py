@@ -288,7 +288,7 @@ class TaskLoop:
             if task["guard_trips"] + 1 >= 2:  # the second trip ends the task (§8.2)
                 ledger.skip_rest(tx, taskd, batch["id"], "Mei stopped the task")
                 final = repo.set_task_state(tx, task["id"], S.BLOCKED,
-                                            error="Mei kept repeating the same step, so it stopped.")
+                                            error="I kept repeating the same step.")
                 repo.finished_event(tx, final)
         self.d.publish(tx.events)
         return E.REJECTED

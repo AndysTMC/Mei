@@ -121,7 +121,11 @@ async def test_cancel_mid_stream_persists_request_first_and_keeps_a_draft(tmp_pa
     assert changes == [S.RUNNING, S.CANCEL_REQUESTED, S.CANCELLED]
     finished = next(e for e in rec.events if e.type == "task.finished")
     assert finished.payload["draft"]["text"] and REPLY.startswith(finished.payload["draft"]["text"])
-    assert [m["role"] for m in repo.history(eng.store, r["conversation_id"])] == ["user"]
+    # Decision 0038: what streamed stays, as the message that was streaming, ended with how it ended.
+    user, reply = repo.history(eng.store, r["conversation_id"])
+    started = next(e for e in rec.events if e.type == "model.started")
+    assert (user["role"], reply["role"], reply["id"]) == ("user", "assistant", started.payload["message_id"])
+    assert reply["content"].startswith(finished.payload["draft"]["text"].strip()) and reply["content"].endswith("*Stopped.*")
 
 
 async def test_cancelling_a_queued_task_never_calls_the_provider(tmp_path):

@@ -1,7 +1,9 @@
 /**
  * What a conversation shows, in order (§18.2): each request, then one reply to it, the latest thing
- * Mei said for that task. What Mei said on the way, the actions it took, and how the task ended are
- * details of that reply, opened on demand. While a task runs, its steps show under it as progress.
+ * Mei said for that task. What the person adds while Mei works on it is answered the same way, in the
+ * order it was said: what they said, then the latest thing Mei said before they spoke again. What Mei
+ * said on the way, the actions it took, and how the task ended are details of a reply, opened on
+ * demand. While a task runs, the steps since the person last spoke show under it as progress.
  * A card waiting on the person isn't part of the conversation: it takes over the input area
  * (`pendingInteraction`). Pure: built from the projection, rendered by ui/conversation; no GJS here.
  *
@@ -53,7 +55,7 @@ export function buildTimeline(conv: LoadedConversation): TimelineItem[] {
         .sort((a, b) => a.created_at - b.created_at);
     const items: TimelineItem[] = [];
     for (const message of conv.messages) {
-        if (message.role === 'assistant' && message.task_id && conv.tasks.has(message.task_id)) continue; // under its request
+        if (message.task_id && conv.tasks.has(message.task_id)) continue; // in its task's turns, after its request
         if (message.role !== 'user') {
             if (message.role === 'assistant' && message.content.trim()) items.push({ kind: 'message', message });
             continue;
@@ -67,16 +69,32 @@ export function buildTimeline(conv: LoadedConversation): TimelineItem[] {
 }
 
 function taskItems(conv: LoadedConversation, task: TaskView, remembered: MemoryView[]): TimelineItem[] {
-    const said = conv.messages.filter(m => m.role === 'assistant' && m.task_id === task.id && m.content.trim());
-    const steps = (task.actions ?? []).filter(a => !isMeta(a))
-        .sort((a, b) => a.created_at - b.created_at || a.position - b.position).map(activityRow);
-    const items: TimelineItem[] = [];
-    const reply = said.at(-1);
-    if (reply) {
-        items.push({ kind: 'message', message: reply,
-            details: { notes: said.slice(0, -1).map(m => m.content), steps, outcome: task.outcome ?? null } });
+    // The task's turns: its request (already listed), then each thing the person added, each with what
+    // Mei said until they spoke again.
+    const turns: { from: MessageView | null; said: MessageView[] }[] = [{ from: null, said: [] }];
+    for (const m of conv.messages) {
+        if (m.task_id !== task.id) continue;
+        if (m.role === 'user') turns.push({ from: m, said: [] });
+        else if (m.role === 'assistant' && m.content.trim()) turns.at(-1)!.said.push(m);
     }
-    // While it runs: the steps so far, but not one waiting on the person (the input area asks).
+    const actions = (task.actions ?? []).filter(a => !isMeta(a))
+        .sort((a, b) => a.created_at - b.created_at || a.position - b.position);
+    const items: TimelineItem[] = [];
+    let steps: ActivityRow[] = []; // taken in this turn, and in earlier ones Mei said nothing in
+    turns.forEach((turn, n) => {
+        const from = turn.from?.created_at ?? -Infinity;
+        const until = turns[n + 1]?.from?.created_at ?? Infinity;
+        if (turn.from) items.push({ kind: 'message', message: turn.from });
+        steps = [...steps, ...actions.filter(a => a.created_at >= from && a.created_at < until).map(activityRow)];
+        const reply = turn.said.at(-1);
+        const last = n === turns.length - 1;
+        if (reply) {
+            items.push({ kind: 'message', message: reply,
+                details: { notes: turn.said.slice(0, -1).map(m => m.content), steps, outcome: last ? task.outcome ?? null : null } });
+        }
+        if (reply && !last) steps = [];
+    });
+    // While it runs: the steps since the person last spoke, but not one waiting on them (the input area asks).
     const progress = steps.filter(r => r.state !== 'waiting');
     const picture = latestPicture(task);
     if (!TERMINAL_STATES.has(task.state) && (progress.length || picture))

@@ -114,7 +114,7 @@ class Engine:
                 if active is not None:
                     return self._steer(tx, active, text, attached, metadata)
                 for old in repo.interrupted_tasks(tx, conversation_id):  # superseded by the new message
-                    ledger.cancel_now(tx, old["id"], error="replaced by a new message")
+                    ledger.cancel_now(tx, old["id"], error="You sent a new message instead.")
             message = repo.add_message(tx, conversation_id, "user", text, metadata=metadata)
             task = repo.create_task(tx, conversation_id, message["id"], msgspec.to_builtins(provider))
             if attached:
@@ -290,7 +290,7 @@ class Engine:
             task = repo.task_dict(repo.get_task(tx, request["task_id"]))
             agent.close_input_request(tx, request["id"], "answered", answer=value)
             if request["kind"] == "continue" and value == "Stop":
-                final = repo.set_task_state(tx, task["id"], S.BLOCKED, error="Stopped at the step limit")
+                final = repo.set_task_state(tx, task["id"], S.BLOCKED, error="You chose to stop at the step limit.")
                 repo.finished_event(tx, final)
                 return {"request_id": request["id"], "state": "answered"}, []
             if request["kind"] == "continue":
