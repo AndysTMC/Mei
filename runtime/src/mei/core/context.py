@@ -11,7 +11,7 @@ import datetime
 import ipaddress
 import json
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -26,6 +26,12 @@ from mei.store.db import Store
 from . import prompt
 
 MAX_OBSERVATION_CHARS = 50_000
+# What one request may hold, in characters, tool definitions included (about four to a token; decision 0037).
+# Cloud models take 128k tokens and more; models run on this computer often have a few thousand to 32k.
+BUDGET_CHARS = {"cloud": 400_000, "local": 64_000}
+KEEP_WHOLE = 3  # the current task's newest tool results, never shortened
+SHORTENED_CHARS = 2_000
+SHORTENED_NOTE = "\n[… shortened so the request fits the model; run the tool again for the rest]"
 MAX_PRIOR_ACTIONS_NOTED = 12
 WITHHELD = ("[Withheld: the person's Privacy settings don't send this file's contents to cloud models. "
             "Tell them what you couldn't read; they can change it in Mei's Settings → Privacy.]")
@@ -86,10 +92,49 @@ def build(inputs: Inputs, task) -> ModelRequest:
     turns = [ChatTurn("system", prompt.system_prompt(inputs.env, inputs.now, plan, memories=inputs.memories,
                                                      episodes=inputs.episodes, spoken=spoken,
                                                      sees=any(t.name == "desktop_observe" for t in tools)))]
-    turns += _earlier(store, [r for r in rows if r["ordinal"] < input_ordinal])
-    turns += _current(inputs, task["id"], [r for r in rows if r["ordinal"] == input_ordinal or
-                               (r["task_id"] == task["id"] and r["ordinal"] > input_ordinal)], actions)
-    return ModelRequest(turns, tools=tools)
+    earlier = _earlier(store, [r for r in rows if r["ordinal"] < input_ordinal])
+    current = _current(inputs, task["id"], [r for r in rows if r["ordinal"] == input_ordinal or
+                                 (r["task_id"] == task["id"] and r["ordinal"] > input_ordinal)], actions)
+    budget = BUDGET_CHARS["cloud" if is_cloud(inputs.provider) else "local"]
+    room = budget - sum(len(t.description) + len(json.dumps(t.parameters)) for t in tools)
+    return ModelRequest(fit(turns[0], earlier, current, room), tools=tools)
+
+
+def fit(system: ChatTurn, earlier: list[ChatTurn], current: list[ChatTurn], room: int) -> list[ChatTurn]:
+    """The request within `room` characters (decision 0037). The system prompt and the person's request stay
+    whole. Earlier turns of the conversation go first, oldest first, and the model is told; then the current
+    task's older tool results are shortened, the newest KEEP_WHOLE of them never."""
+    room -= len(system.content)
+    need = sum(map(_size, current))
+    kept = list(earlier)
+    while kept and need + sum(map(_size, kept)) > room:
+        kept.pop(0)
+        while kept and kept[0].role != "user":  # whole exchanges: never an answer without its question
+            kept.pop(0)
+    current = list(current)
+    over = need + sum(map(_size, kept)) - room
+    tool_at = [i for i, t in enumerate(current) if t.role == "tool"]
+    for i in tool_at[:-KEEP_WHOLE] if over > 0 else ():
+        turn = current[i]
+        if len(turn.content) > SHORTENED_CHARS:
+            content = turn.content[:SHORTENED_CHARS] + SHORTENED_NOTE
+            over -= len(turn.content) - len(content)
+            current[i] = replace(turn, content=content)
+        if over <= 0:
+            break
+    left_out = len(earlier) - len(kept)
+    if left_out:
+        first = next(i for i, t in enumerate([*kept, *current]) if t.role == "user")
+        turns = [*kept, *current]
+        turns[first] = replace(turns[first], content=f"<runtime_note>{left_out} earlier messages of this conversation "
+                                                     f"are left out: the model can't hold them all.</runtime_note>\n"
+                                                     + turns[first].content)
+        return [system, *turns]
+    return [system, *kept, *current]
+
+
+def _size(turn: ChatTurn) -> int:
+    return len(turn.content) + sum(len(c.name) + len(c.arguments) for c in turn.tool_calls)
 
 
 def _earlier(store: Store, rows: list) -> list[ChatTurn]:

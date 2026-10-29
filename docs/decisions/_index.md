@@ -35,3 +35,4 @@
 | 0034 | The popup grows into a large page: what Mei is doing, and attachments, read-only; the runtime draws PDF pages | accepted | 2026-10-26 | — (builds on 0023) |
 | 0035 | Fixes from the owner's own chats; graded eval tasks; Hey Mei sees the screen without asking | accepted | 2026-10-28 | 0024 (in part: talking over Mei through speakers without the canceller) |
 | 0036 | Mei can look at the whole screen, not only inside one window | accepted | 2026-10-29 | — |
+| 0037 | A request fits what the model can take | accepted | 2026-10-29 | — |
