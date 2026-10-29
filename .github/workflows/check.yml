@@ -1,0 +1,49 @@
+# The checks every change to Mei has to pass: the extension's (tests, typecheck, format, build, UI-only
+# bundles) and the runtime's tests. Voice tests that need downloaded models, and the nested-Shell e2e
+# (scripts/e2e-stage1.sh, scripts/e2e-computer.sh), need a GNOME desktop and run locally.
+name: check
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: GLib's schema compiler (the build compiles the GSettings schema)
+        run: sudo apt-get update && sudo apt-get install -y libglib2.0-bin
+      - run: npm ci
+      - run: npm run check
+
+  runtime:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: What the runtime's tests use from the system
+        # bubblewrap: the command sandbox; poppler-utils: PDFs; dbus: a private session bus;
+        # libglib2.0-bin: gsettings on a keyfile backend.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap poppler-utils dbus libglib2.0-bin
+          # Ubuntu 24.04 keeps unprivileged user namespaces from bubblewrap unless allowed.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install
+        working-directory: runtime
+        run: uv sync --extra voice
+      - name: Tests
+        working-directory: runtime
+        run: dbus-run-session -- uv run pytest -q
+      - name: The eval tasks, scripted (proves every task's setup and check)
+        working-directory: runtime
+        run: dbus-run-session -- uv run python -m evals.run
