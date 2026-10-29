@@ -86,13 +86,13 @@ or links. If the full answer is long, say the gist and offer the details on scre
 
 # Only when computer use is on (decision 0035). Without it, models told the person they "can't see the
 # screen" while the tool to look was in their hands, and reached for X11 tools that fail on Wayland.
-SCREEN = """You can see and use the person's screen. desktop_observe looks at a window: its controls and \
-text, and with picture=true a picture of it, for whatever its controls don't show (a web page, an image, a \
-video, a notification). When they ask what's on their screen, about something they see, or for something \
-done in an app's window, look with desktop_observe first; never say you can't see the screen. windows_list \
-only names the open windows. To click a place that isn't a control, observe with picture=true and give the \
-point in that picture. Look again after acting: the screen changes. This desktop is Wayland, so X11 tools \
-such as xdotool and wmctrl don't work here: use the desktop and app tools instead."""
+SCREEN = """You can see and use the person's screen. desktop_observe with screen=true shows the whole screen \
+as a picture: every window, notifications, the top bar; use it when they ask what's on their screen or about \
+something they see. desktop_observe on a window gives its controls and text to act on, and with picture=true a \
+picture of it, for whatever its controls don't show (a web page, an image, a video). Never say you can't see \
+the screen: look. windows_list only names the open windows. To click a place that isn't a control, give the \
+point in the picture of the snapshot you act on. Look again after acting: the screen changes. This desktop is \
+Wayland, so X11 tools such as xdotool and wmctrl don't work here: use the desktop and app tools instead."""
 
 
 def system_prompt(env: Env, now: datetime.datetime, plan: dict, *, memories: list[dict] = (),

@@ -21,6 +21,7 @@ from .base import (READ_ONLY, ActionContext, ActionResult, AVAILABLE, Availabili
 
 Action = Literal["press", "toggle", "set_text", "type", "key", "focus", "click", "scroll"]
 MAX_LINES = 400
+SCREEN = {"id": 0, "title": "the screen"}  # what a whole-screen snapshot stands for (no window has id 0)
 SPARSE = 2  # elements or fewer: the window's controls aren't visible to Mei, so it also takes a picture
 LOW_RISK = Effects(mutates="local", undo="none")
 UNKNOWN = Effects(mutates="unknown", undo="none")
@@ -99,6 +100,9 @@ def outline(data: dict, cut: int = MAX_LINES) -> str:
 
 
 class ObserveParams(msgspec.Struct, kw_only=True):
+    screen: Annotated[bool, msgspec.Meta(description="The whole screen instead of one window: a picture of everything "
+                                                     "shown (every window, notifications, the top bar), and the open "
+                                                     "windows listed")] = False
     window: Annotated[str, msgspec.Meta(description="Which window: its id from windows_list, or its app's name. "
                                                     "Empty: the window in front")] = ""
     picture: Annotated[bool, msgspec.Meta(description="Also a picture of it: only when its elements aren't enough "
@@ -107,8 +111,8 @@ class ObserveParams(msgspec.Struct, kw_only=True):
 
 class DesktopObserve(Capability):
     name = "desktop.observe"
-    summary = ("Look at a window: its controls and text as elements (e1, e2, …) to act on with desktop_act. "
-               "Optionally with a picture.")
+    summary = ("Look at the screen: the whole of it as a picture (screen=true), or a window's controls and text as "
+               "elements (e1, e2, …) to act on with desktop_act, optionally with a picture.")
     Params = ObserveParams
     idempotent = True
     timeout_s = 45.0
@@ -120,6 +124,8 @@ class DesktopObserve(Capability):
         return [Resource(kind="screen", value="screen", access="read", role="screen", aliases=("screen",))]
 
     def describe(self, p: ObserveParams, env: Env) -> str:
+        if p.screen:
+            return "Look at the whole screen"
         what = p.window or "the window in front"
         return f"Look at {what}" + (" and take a picture of it" if p.picture else "")
 
@@ -127,6 +133,14 @@ class DesktopObserve(Capability):
         desktop = ctx.env.desktop
         assert desktop is not None
         windows, monitors = await _screen(ctx.env)
+        if p.screen:  # everything shown, as a picture, with the windows named (decision 0036)
+            data = await _desktop(desktop.observe(SCREEN, monitors, picture=True, screen=True))
+            listed = "\n".join(f"- {w.title} ({w.app_id or 'unknown app'}), id {w.id}" for w in windows if w.title)
+            observation = (f"The whole screen, snapshot {data.get('token', '')}.\n"
+                           + (f"Open windows (look at one with desktop_observe window=<id> for its controls):\n"
+                              f"{listed}\n" if listed else "") + outline(data).split("\n", 1)[-1])
+            return ActionResult(ok=True, observation=observation.rstrip(), summary="Looked at the whole screen",
+                                data_class="screen", trust="untrusted", images=[data["picture"]["png"]])
         window = pick_window(windows, p.window)
         data = await _desktop(desktop.observe(window_dict(window), monitors, picture=p.picture))
         if not p.picture and len(data.get("nodes", [])) <= SPARSE:
@@ -168,7 +182,7 @@ class DesktopAct(Capability):
 
     def resources(self, p: ActParams, env: Env) -> list[Resource]:
         seen, _node = _target(p, env)
-        app_id = str(seen.window.get("app_id") or seen.app)
+        app_id = str(seen.window.get("app_id") or seen.app or "screen")  # "screen": a point in the whole screen
         names = (seen.app, app_id.rsplit(".", 1)[-1], str(seen.window.get("title") or ""))
         return [Resource(kind="app", value=app_id, access="write", role="target",
                          aliases=tuple(dict.fromkeys(n for n in names if n)))]
@@ -218,11 +232,12 @@ class DesktopAct(Capability):
             return ActionResult(ok=True, observation="Handed this field to the person.", summary="Asked you to fill in a field",
                                 handoff=HANDOFF.format(field=field, app=seen.app or "the window"))
         windows, monitors = await _screen(ctx.env)
-        now = next((w for w in windows if w.id == seen.window.get("id") and w.buffer), None)
-        if now is None:
+        on_screen = seen.window.get("id") == SCREEN["id"]  # a point in the whole screen's picture: no window to find
+        now = None if on_screen else next((w for w in windows if w.id == seen.window.get("id") and w.buffer), None)
+        if now is None and not on_screen:
             raise CapabilityError("not_found", "that window has closed")
         data = await _desktop(desktop.act(p.snapshot, p.action, element=p.element, point=p.point, text=p.text,
-                                          window=window_dict(now), monitors=monitors,
+                                          window=window_dict(now) if now else None, monitors=monitors,
                                           needs_input=needs_input(p, node)))
         changes = data.get("changes") or []
         observation = "Done. What changed:\n" + "\n".join(f"- {c}" for c in changes)

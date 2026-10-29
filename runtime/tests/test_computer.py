@@ -74,6 +74,21 @@ def test_pointer_moves_are_frame_pixels_with_relative_motion_past_the_logical_si
         geometry.pointer_moves(at_150, 10, 10)  # not on this monitor
 
 
+def test_the_whole_screen_is_one_picture_whatever_the_monitors_scaling():
+    """Two monitors side by side, the second at 150 %: one picture at one scale, and each point in it maps
+    back to the logical point under it on the right monitor."""
+    left = geometry.Stream(1, Rect(0, 0, 1280, 800), 1280)
+    right = geometry.Stream(2, Rect(1280, 0, 1280, 800), 1920)  # 150 %: its frames are 1920 wide
+    picture, places = geometry.screen_picture([left, right], 1600)
+    assert (picture.width, picture.height) == (1600, 500) and picture.per_pixel == 1.6
+    assert places == [(left, Rect(0, 0, 800, 500)), (right, Rect(800, 0, 800, 500))]
+    assert picture.logical(400, 250) == (640.0, 400.0)  # the middle of the left monitor
+    assert picture.logical(1200, 250) == (1920.0, 400.0)  # the middle of the right one
+    above = geometry.Stream(3, Rect(0, -600, 800, 600), 800)  # a smaller one above: the space beside it stays dark
+    picture, places = geometry.screen_picture([left, above], 4000)
+    assert (picture.width, picture.height) == (1280, 1400) and places[1][1] == Rect(0, 0, 800, 600)
+
+
 def test_a_window_picture_maps_back_to_logical_points():
     window = geometry.Window(id=1, title="w", pid=1, buffer=Rect(1059, 27, 410, 666))
     stream = Stream(44, Rect(960, 0, 1280, 720), 1920)
@@ -165,20 +180,28 @@ class FakeDesktop:
     def person_active(self, idle_ms: int) -> bool:
         return self.active
 
-    async def observe(self, window, monitors, *, picture, max_nodes=250):
+    async def observe(self, window, monitors, *, picture, max_nodes=250, screen=False):
         self.observed += 1
-        data = {"token": f"t{self.observed}", "app": "Login", "title": "Sign in", "nodes": self.nodes}
+        self.looked_at = "screen" if screen else window.get("title")
+        data = {"token": f"t{self.observed}", "app": "Login", "title": "Sign in", "nodes": [] if screen else self.nodes}
+        if screen:
+            self.screen_token = data["token"]
+            data["picture"] = {"png": base64.b64encode(b"\x89PNG fake").decode(), "width": 1600, "height": 500}
+            return data
         if picture:
             data["picture"] = {"png": base64.b64encode(b"\x89PNG fake").decode(), "width": 4, "height": 3}
         return data
 
     async def act(self, token, action, **kw):
         self.acts.append((token, action, kw.get("element"), kw.get("text")))
+        self.act_window = kw.get("window")
         return {"how": "text", "changes": ["e1 text “Name”: now “Ada”"], "token": "", "nodes": []}
 
     def seen(self, token):
         if token != f"t{self.observed}":
             return None
+        if token == getattr(self, "screen_token", None):
+            return Seen(token, {"id": 0, "title": "the screen"}, "", {}, (1600, 500))
         return Seen(token, self.window, "Login", {n["id"]: n for n in self.nodes})
 
 
@@ -518,6 +541,24 @@ async def test_a_window_with_no_controls_to_see_is_looked_at_as_a_picture(tmp_pa
     assert observed["execution"] == E.SUCCEEDED and desktop.observed == 2  # the elements, then a picture of it
     seen = h.store.read_one("SELECT content FROM messages WHERE action_id = ?", (observed["id"],))["content"]
     assert "Picture: 4×3 pixels" in seen
+
+
+async def test_the_whole_screen_is_a_look_of_its_own_and_a_point_in_it_can_be_clicked(tmp_path):
+    """Decision 0036: notifications, the top bar and every window, not only one window's inside."""
+    h, desktop = computer_harness(tmp_path, [
+        turn(call("desktop_observe", screen=True)),
+        turn(call("desktop_act", snapshot="t1", action="click", point=[800, 20])),
+        {"text": "Clicked the notification."}])
+    r = h.submit("open the notification on my screen")
+    assert await h.until(r["task_id"]) in (S.COMPLETED, S.WAITING_APPROVAL)
+    if h.task(r["task_id"])["state"] == S.WAITING_APPROVAL:
+        h.approve(r["task_id"])
+        assert await h.until(r["task_id"]) == S.COMPLETED
+    look, click = h.actions(r["task_id"])[:2]
+    seen = h.store.read_one("SELECT content FROM messages WHERE action_id = ?", (look["id"],))["content"]
+    assert desktop.looked_at == "screen" and "The whole screen" in seen and "Sign in" in seen  # the windows, listed
+    assert "Picture: 1600×500 pixels" in seen
+    assert click["execution"] == E.SUCCEEDED and desktop.act_window is None  # a point on the screen, not a window
 
 
 async def test_the_kill_switch_stops_the_tasks_that_used_the_computer(tmp_path):

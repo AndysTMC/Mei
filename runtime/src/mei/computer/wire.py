@@ -35,6 +35,7 @@ class Observe:
     monitors: list = field(default_factory=list)
     image: bool = False
     max_nodes: int = 250
+    screen: bool = False  # the whole screen, as a picture of every monitor (`window` is then ignored)
 
 
 @dataclass(frozen=True)

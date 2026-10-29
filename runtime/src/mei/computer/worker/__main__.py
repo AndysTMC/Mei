@@ -26,6 +26,8 @@ from .tree import Snapshot, Snapshots, TreeError  # noqa: E402
 ATSPI_TIMEOUT_MS = 2000  # an app that doesn't answer AT-SPI in 2 s is treated as unreachable
 SETTLE_S = 0.35  # after acting, before looking again: let the app redraw
 MAX_PICTURE_WIDTH = 1280
+MAX_SCREEN_WIDTH = 1600  # the whole screen, all monitors side by side: a little wider, as it shows more
+SCREEN = 0  # the window id a whole-screen snapshot goes by (no window has it)
 MAX_CHANGES = 20
 
 
@@ -69,6 +71,8 @@ class Worker:
     # ── Commands ─────────────────────────────────────────────────────────────
 
     def observe(self, cmd: wire.Observe) -> dict:
+        if cmd.screen:
+            return self._screen(cmd.monitors)
         window = _window(cmd.window)
         snapshot = self.snapshots.take(window, max(10, min(cmd.max_nodes, 600)))
         data = _view(snapshot)
@@ -84,6 +88,8 @@ class Worker:
         window = _window(cmd.window) if cmd.window else snapshot.window
         how = act(snapshot, node, cmd.action, cmd.text, cmd.point, window, cmd.monitors, self.hands)
         time.sleep(SETTLE_S)
+        if window.id == SCREEN:  # no tree to look at again: a new look at the screen shows what changed
+            return {"how": how, "changes": [], "token": ""}
         try:
             after = self.snapshots.take(window, max(len(snapshot.nodes) + 50, 100))
         except TreeError:
@@ -101,6 +107,23 @@ class Worker:
         return {}
 
     # ── Helpers ──────────────────────────────────────────────────────────────
+
+    def _screen(self, monitors: list) -> dict:
+        """The whole screen: every monitor, in one picture (decision 0036)."""
+        streams = self.hands.streams(monitors)
+        if not streams:
+            raise PortalError("unavailable", "no picture: computer use's screen session isn't open")
+        grabbed = []
+        for stream in streams:
+            frame = frames.grab(self.session.pipewire_fd(), stream.node)
+            grabbed.append((geometry.Stream(stream.node, stream.rect, frame.get_width()), frame))
+        picture, places = geometry.screen_picture([s for s, _f in grabbed], MAX_SCREEN_WIDTH)
+        bounds = geometry.Rect(picture.x, picture.y, picture.width * picture.per_pixel, picture.height * picture.per_pixel)
+        snapshot = self.snapshots.screen(Window(id=SCREEN, title="the screen", pid=0, buffer=bounds))
+        snapshot.picture = picture
+        frame_of = {s.node: f for s, f in grabbed}
+        png = frames.screen_png([(frame_of[s.node], place) for s, place in places], picture.width, picture.height)
+        return {**_view(snapshot), "picture": {"png": png, "width": picture.width, "height": picture.height}}
 
     def _picture(self, snapshot: Snapshot, monitors: list) -> dict:
         streams = self.hands.streams(monitors)

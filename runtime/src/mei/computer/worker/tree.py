@@ -87,6 +87,12 @@ class Snapshots:
         self._by_window[window.id] = snapshot
         return snapshot
 
+    def screen(self, window: Window) -> Snapshot:
+        """The whole screen: no elements of its own (each window has those), only its picture."""
+        snapshot = Snapshot(secrets.token_hex(6), window, "", {}, False)
+        self._by_window[window.id] = snapshot
+        return snapshot
+
     def node(self, token: str, element: str) -> tuple[Snapshot, Node]:
         snapshot = self.get(token)
         node = snapshot.nodes.get(element)

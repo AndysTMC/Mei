@@ -128,6 +128,23 @@ def pointer_moves(stream: Stream, x: float, y: float) -> list[tuple[str, float, 
     return [("absolute", ax, ay), ("relative", (fx - ax) / scale, (fy - ay) / scale)]
 
 
+def screen_picture(streams: list[Stream], max_width: int) -> tuple[Picture, list[tuple[Stream, Rect]]]:
+    """The whole screen as one picture: every monitor at one scale (logical units, so monitors at different
+    scalings line up as they do on screen), at most `max_width` wide. Returns how the picture maps back to
+    logical points, and where in it each stream's frame goes (pixels). Space between monitors stays dark."""
+    if not streams:
+        raise ValueError("no screens")
+    left = min(s.rect.x for s in streams)
+    top = min(s.rect.y for s in streams)
+    right = max(s.rect.x + s.rect.width for s in streams)
+    bottom = max(s.rect.y + s.rect.height for s in streams)
+    shrink = min(1.0, max_width / (right - left))
+    width, height = max(1, round((right - left) * shrink)), max(1, round((bottom - top) * shrink))
+    places = [(s, Rect(round((s.rect.x - left) * shrink), round((s.rect.y - top) * shrink),
+                       max(1, round(s.rect.width * shrink)), max(1, round(s.rect.height * shrink)))) for s in streams]
+    return Picture(left, top, (right - left) / width, width, height), places
+
+
 def window_picture(window: Window, stream: Stream, max_width: int) -> tuple[Rect, Picture] | None:
     """Which part of the stream's frame shows the window (frame pixels), and how the picture made from
     it, at most `max_width` wide, maps back to logical points. None if the window isn't on it."""

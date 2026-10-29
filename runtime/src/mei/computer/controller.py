@@ -104,12 +104,15 @@ class Desktop:
 
     # ── What capabilities use ────────────────────────────────────────────────
 
-    async def observe(self, window: dict, monitors: list, *, picture: bool, max_nodes: int = 250) -> dict:
+    async def observe(self, window: dict, monitors: list, *, picture: bool, max_nodes: int = 250,
+                      screen: bool = False) -> dict:
+        """A window's elements (and its picture), or with `screen` the whole screen as a picture (`window` is
+        then the screen's stand-in, {"id": 0})."""
         await self._in_use()
-        if picture:
+        if picture or screen:
             await self.ensure_session()
         data = await self._request(wire.Observe(id=0, window=window, monitors=monitors, image=picture,
-                                                max_nodes=max_nodes))
+                                                max_nodes=max_nodes, screen=screen))
         self._remember(window, data)
         return data
 

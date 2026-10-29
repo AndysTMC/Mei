@@ -63,14 +63,29 @@ def grab(fd: int, node: int) -> GdkPixbuf.Pixbuf:
                                            stride)
 
 
+def screen_png(frames: list[tuple[GdkPixbuf.Pixbuf, Rect]], width: int, height: int) -> str:
+    """Each monitor's whole frame, scaled into its place (pixels) in a width × height picture, as base64 PNG."""
+    canvas = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, width, height)
+    canvas.fill(0x000000ff)
+    for frame, place in frames:
+        w, h = min(int(place.width), width - int(place.x)), min(int(place.height), height - int(place.y))
+        if w > 0 and h > 0:
+            frame.scale_simple(w, h, GdkPixbuf.InterpType.BILINEAR).copy_area(0, 0, w, h, canvas, int(place.x),
+                                                                                int(place.y))
+    return _encode(canvas)
+
+
 def png(frame: GdkPixbuf.Pixbuf, crop: Rect, width: int, height: int) -> str:
     """The `crop` of a frame, scaled to width × height, as base64 PNG."""
     x = max(0, min(int(crop.x), frame.get_width() - 1))
     y = max(0, min(int(crop.y), frame.get_height() - 1))
     w = max(1, min(int(crop.width), frame.get_width() - x))
     h = max(1, min(int(crop.height), frame.get_height() - y))
-    part = frame.new_subpixbuf(x, y, w, h).scale_simple(width, height, GdkPixbuf.InterpType.BILINEAR)
-    ok, data = part.save_to_bufferv("png", [], [])
+    return _encode(frame.new_subpixbuf(x, y, w, h).scale_simple(width, height, GdkPixbuf.InterpType.BILINEAR))
+
+
+def _encode(picture: GdkPixbuf.Pixbuf) -> str:
+    ok, data = picture.save_to_bufferv("png", [], [])
     if not ok:
         raise FrameError("couldn't encode the picture")
     return base64.b64encode(data).decode()

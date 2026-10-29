@@ -446,6 +446,36 @@ def canvas_from_a_picture(scale: float) -> None:
     close(proc)
 
 
+def canvas_from_the_whole_screen(scale: float) -> None:
+    """Decision 0036: a look at the whole screen (every monitor in one picture), and a click from a point in
+    it lands on the canvas's square, wherever the window is and whatever the monitors' scaling."""
+    out = OUT / f"canvas-screen-{scale:g}.log"
+    proc = launch("canvas", out)
+    pump(1.0)
+    window = state()["window"]
+    area = until(canvas_area, 10, "the canvas's drawing area")
+    ext = Atspi.Component.get_extents(area, Atspi.CoordType.WINDOW)
+    monitors = state()["monitors"]
+    left, top = min(m["x"] for m in monitors), min(m["y"] for m in monitors)
+    right = max(m["x"] + m["width"] for m in monitors)
+    per_pixel = (right - left) / min(1600, right - left)
+    x, y, size = SQUARE
+    buffer = window["buffer"]
+    point = [round((buffer["x"] + ext.x + x + size / 2 - left) / per_pixel),
+             round((buffer["y"] + ext.y + y + size / 2 - top) / per_pixel)]
+    use_script([
+        {"tool_calls": [{"name": "desktop_observe", "arguments": {"screen": True}}]},
+        {"tool_calls": [{"name": "desktop_act", "arguments": {"snapshot": "$snapshot", "action": "click",
+                                                               "point": point}}]},
+        {"text": "Clicked the square."}])
+    conversation = send("Click the red square on my screen")
+    done = approve_until_done(conversation)
+    clicks = out.read_text().split() if out.exists() else []
+    check(f"canvas_clicked_from_the_whole_screen_at_{round(scale * 100)}", done["state"] == "COMPLETED"
+          and "hit" in clicks, {"state": done["state"], "point": point, "clicks": clicks, "monitors": monitors})
+    close(proc)
+
+
 def pauses_for_the_person() -> None:
     out = OUT / "canvas-pause.log"
     proc = launch("canvas", out)
@@ -554,11 +584,13 @@ def main() -> int:
         GLib.timeout_add(500, lambda: (watch_dialogs(), True)[1])
         checkbox_by_pointer()
         canvas_from_a_picture(1.0)
+        canvas_from_the_whole_screen(1.0)
         pauses_for_the_person()
         kill_switch_with_the_runtime_frozen()
         runtime_killed()
         extension_gone()
         canvas_from_a_picture(1.5)
+        canvas_from_the_whole_screen(1.5)
         check("no_portal_dialog_after_setup", not DIALOGS_AFTER_SETUP, DIALOGS_AFTER_SETUP)
     except Exception:  # noqa: BLE001  report what got done, and why it stopped
         import traceback

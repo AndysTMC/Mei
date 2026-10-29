@@ -53,7 +53,8 @@ class FakeDesktop:
     def person_active(self, idle_ms: int) -> bool:
         return False
 
-    async def observe(self, window: dict, monitors: list, *, picture: bool, max_nodes: int = 250) -> dict:
+    async def observe(self, window: dict, monitors: list, *, picture: bool, max_nodes: int = 250,
+                      screen: bool = False) -> dict:
         self._n += 1
         return {"token": f"s{self._n}", "app": self.app, "title": self.title, "nodes": self.nodes}
 
