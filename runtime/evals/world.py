@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+import msgspec
+
 from mei.capabilities.base import App, Env, Window
 from mei.desktop.apps import Launcher
 from mei.desktop.gsettings import GSETTINGS, GSettingsCli
@@ -22,11 +24,12 @@ APPS = [App(id="org.gnome.Nautilus", name="Files", generic="File Manager", keywo
 
 
 class FakeShell:
-    """Opens apps into a window list, as the Shell bridge reports them."""
+    """Opens apps into a window list, as the Shell bridge reports them; a clipboard; nobody at the keys."""
 
     def __init__(self) -> None:
         self.windows: list[Window] = []
         self.launched: list[tuple[str, list[str]]] = []
+        self.clipboard = ""
 
     async def list_windows(self) -> list[Window]:
         return list(self.windows)
@@ -40,10 +43,23 @@ class FakeShell:
         title = Path(unquote(urlparse(uris[0]).path)).name if uris else name
         self.windows.append(Window(app_id=f"{app_id}.desktop", title=title))
 
+    async def focus_window(self, window_id: int) -> None:
+        self.windows = [msgspec.structs.replace(w, focused=w.id == window_id) for w in self.windows]
+
+    async def clipboard_get(self) -> str:
+        return self.clipboard
+
+    async def clipboard_set(self, text: str) -> None:
+        self.clipboard = text
+
+    async def idle_ms(self) -> int:
+        return 3_600_000  # nobody has used the pointer or keys for an hour
+
 
 class FakeDesktop:
     """A window on screen for computer-use tasks: its controls and text as the desktop worker would
-    report them (never a picture: a live model would be sent a fake image). Acts are recorded."""
+    report them. Never a picture (a live model would be sent a fake image): asked for one, or for the
+    whole screen, it says what the real one says when Mei may not use the screen. Acts are recorded."""
 
     def __init__(self, title: str, app: str, nodes: list[dict]) -> None:
         self.title, self.app, self.nodes = title, app, nodes
@@ -53,8 +69,15 @@ class FakeDesktop:
     def person_active(self, idle_ms: int) -> bool:
         return False
 
+    @property
+    def locked(self) -> bool:
+        return False
+
     async def observe(self, window: dict, monitors: list, *, picture: bool, max_nodes: int = 250,
                       screen: bool = False) -> dict:
+        if picture or screen:  # as the real one says when Mei may not use the screen
+            from mei.computer.controller import DesktopError
+            raise DesktopError("unavailable", "Mei isn't allowed to use the screen yet")
         self._n += 1
         return {"token": f"s{self._n}", "app": self.app, "title": self.title, "nodes": self.nodes}
 
