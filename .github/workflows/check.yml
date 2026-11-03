@@ -33,10 +33,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: What the runtime's tests use from the system
         # bubblewrap: the command sandbox; poppler-utils: PDFs; dbus: a private session bus;
-        # libglib2.0-bin and gsettings-desktop-schemas: GNOME settings on a keyfile backend.
+        # GLib and GNOME schema packages: desktop and night-light settings on a keyfile backend.
         run: |
           sudo apt-get update
-          sudo apt-get install -y bubblewrap poppler-utils dbus libglib2.0-bin gsettings-desktop-schemas
+          sudo apt-get install -y bubblewrap poppler-utils dbus libglib2.0-bin \
+            gsettings-desktop-schemas gnome-settings-daemon-common
           # Ubuntu keeps unprivileged user namespaces from bubblewrap unless allowed.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --version
