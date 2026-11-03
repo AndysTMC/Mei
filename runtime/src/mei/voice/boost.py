@@ -51,10 +51,12 @@ def _desktop_name(path: Path) -> str | None:
 
 def learned(store) -> list[str]:
     """Names in active memories and the person's recent messages, most used first."""
+    ordinary = _dictionary()
+    if ordinary is None:
+        return []
     texts = [r["text"] for r in store.read("SELECT text FROM memories WHERE status = 'active'")]
     texts += [r["content"] for r in store.read(
         "SELECT content FROM messages WHERE role = 'user' ORDER BY created_at DESC LIMIT ?", (RECENT_MESSAGES,))]
-    ordinary = _dictionary()
     counts = Counter(m.group(0) for t in texts for m in _NAME.finditer(t) if m.group(0).lower() not in ordinary)
     return [w for w, _ in counts.most_common(MAX_LEARNED)]
 

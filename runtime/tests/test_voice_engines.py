@@ -8,6 +8,7 @@ import math
 import typing
 
 import numpy as np
+import pytest
 
 from mei.protocol import VoiceSettings
 from mei.voice import build, engines
@@ -172,7 +173,18 @@ def test_a_step_that_fails_or_empties_the_text_leaves_it_as_it_was():
 # ── The words Mei listens for ───────────────────────────────────────────────
 
 
-def test_misheard_names_are_put_back_and_ordinary_words_are_left_alone():
+@pytest.fixture
+def ordinary_words(tmp_path, monkeypatch):
+    from mei.voice import cleanup
+    word_list = tmp_path / "words"
+    word_list.write_text("crate\napples\nneed\nfile\nfiles\nsetting\nsettings\nsun\ncredit\ncard\nfire\nfox\n")
+    monkeypatch.setattr(cleanup, "WORDS", str(word_list))
+    cleanup._dictionary.cache_clear()
+    yield
+    cleanup._dictionary.cache_clear()
+
+
+def test_misheard_names_are_put_back_and_ordinary_words_are_left_alone(ordinary_words):
     from mei.voice.cleanup import Boost
     boost = Boost(["Mukesh Thatikonda", "Kokoro", "Krita", "Inkscape", "Firefox", "Files", "Settings"])
     assert boost.clean("send this to Mukes that aconda") == "send this to Mukesh Thatikonda"
@@ -184,7 +196,7 @@ def test_misheard_names_are_put_back_and_ordinary_words_are_left_alone():
         assert boost.clean(ordinary) == ordinary
 
 
-def test_the_words_come_from_apps_memories_and_recent_messages(tmp_path, monkeypatch):
+def test_the_words_come_from_apps_memories_and_recent_messages(tmp_path, monkeypatch, ordinary_words):
     from mei.voice import boost
     apps = tmp_path / "share" / "applications"
     apps.mkdir(parents=True)
@@ -205,6 +217,45 @@ def test_the_words_come_from_apps_memories_and_recent_messages(tmp_path, monkeyp
     assert boost.learned(Store()) == ["Anjali", "Thatikonda"]  # "Files" is an ordinary word; "Rao" too short
     found = boost.words(Store(), [" Kokoro ", ""])
     assert found["yours"] == ["Kokoro"] and found["learned"][0] == "Anjali"
+
+
+@pytest.fixture(params=["missing", "unreadable", "empty"])
+def unavailable_dictionary(tmp_path, monkeypatch, request):
+    from mei.voice import cleanup
+    word_list = tmp_path / "words"
+    if request.param == "unreadable":
+        word_list.mkdir()  # reading a directory fails even for a privileged test runner
+    elif request.param == "empty":
+        word_list.write_text("")
+    monkeypatch.setattr(cleanup, "WORDS", str(word_list))
+    cleanup._dictionary.cache_clear()
+    try:
+        yield
+    finally:
+        cleanup._dictionary.cache_clear()
+
+
+@pytest.mark.parametrize("text", ["I need to file this", "open Creta", "start inks cape please"])
+def test_unavailable_dictionary_preserves_words_instead_of_guessing(unavailable_dictionary, text):
+    from mei.voice.cleanup import Boost
+    assert Boost(["Files", "Krita", "Inkscape"]).clean(text) == text
+
+
+def test_unavailable_dictionary_does_not_learn_ordinary_words_as_names(unavailable_dictionary):
+    from mei.voice import boost
+    class Store:
+        def read(self, *_args):
+            return [{"text": "Open the Files app with Anjali.", "content": "Open the Files app with Anjali."}]
+    assert boost.learned(Store()) == []
+
+
+def test_dictionary_disappearing_after_boost_creation_keeps_the_text(ordinary_words):
+    from pathlib import Path
+    from mei.voice import cleanup
+    boost = cleanup.Boost(["Krita"])
+    Path(cleanup.WORDS).unlink()
+    cleanup._dictionary.cache_clear()
+    assert boost.clean("open Creta") == "open Creta"
 
 
 # ── While Mei works on a spoken request ─────────────────────────────────────

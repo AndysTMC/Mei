@@ -84,7 +84,7 @@ class Rules:
         return text[:1].upper() + text[1:]
 
 
-# Words too common to be a misheard name, when there's no word list to ask.
+# Common words to supplement the system word list.
 _COMMON = frozenset("""a about after all also an and any are as at be because been but by can could do does for from
 get go had has have he her here him his how i if in into is it its just know like make me more my no not now of on
 one or our out over say see she so some take than that the their them then there these they this time to up us use
@@ -93,12 +93,13 @@ please tomorrow today""".split())
 
 
 @functools.cache
-def _dictionary() -> frozenset[str]:
-    """Ordinary words, lower-case (the system's word list; names in it are capitalised and left out)."""
+def _dictionary() -> frozenset[str] | None:
+    """Ordinary lower-case words, or None when the optional system word list is unavailable."""
     try:
-        return frozenset(w for w in Path(WORDS).read_text(errors="replace").split() if w.islower()) | _COMMON
+        words = frozenset(w for w in Path(WORDS).read_text(errors="replace").split() if w.islower())
     except OSError:
-        return _COMMON
+        return None
+    return words | _COMMON if words else None
 
 
 def _sound(word: str) -> str:
@@ -115,7 +116,8 @@ class Boost:
     """The person's words (app names, names from memory and chats, their own list) put back where the
     recognizer heard something close: by sound and by spelling, over one to three heard words.
     An ordinary word is never replaced on its own, and a span never starts or ends with one ("to
-    Kakoro" is "to Kokoro"); terms that are ordinary words (Files, Settings) need no help and get none."""
+    Kakoro" is "to Kokoro"); terms that are ordinary words (Files, Settings) need no help and get none.
+    Without a system word list, leave the transcript alone rather than guessing which words are names."""
 
     name = "boost"
     MIN_SOUND = 0.8
@@ -123,14 +125,17 @@ class Boost:
 
     def __init__(self, terms: Sequence[str] = ()) -> None:
         words = _dictionary()
-        self.terms = [(t, t.lower().replace(" ", ""), _sound(t)) for t in dict.fromkeys(terms)
-                      if len(t) >= 4 and any(w.lower() not in words for w in t.split())]
+        self.terms = [] if words is None else [
+            (t, t.lower().replace(" ", ""), _sound(t)) for t in dict.fromkeys(terms)
+            if len(t) >= 4 and any(w.lower() not in words for w in t.split())]
 
     def clean(self, text: str) -> str:
         if not self.terms:
             return text
-        words = list(re.finditer(r"[A-Za-z][A-Za-z']*", text))
         ordinary = _dictionary()
+        if ordinary is None:
+            return text
+        words = list(re.finditer(r"[A-Za-z][A-Za-z']*", text))
         picks: list[tuple[int, int, str]] = []  # (start word, end word, term)
         taken: set[int] = set()
         for n in (3, 2, 1):
