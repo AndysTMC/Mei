@@ -55,9 +55,8 @@ _FILLER = re.compile(r"(?:^|(?<=[\s,]))(?:u+[hm]+|e+r+m*|h+m+|m+h*m+)(?:[,.]|(?=
 _STUTTER = re.compile(r"\b(\w+(?:'\w+)?(?:\s+\w+(?:'\w+)?)?)(?:\s+\1\b)+", re.I)
 # What the person meant to say again isn't a stutter: "very very", "no no", "bye bye".
 _DOUBLED_ON_PURPOSE = frozenset("very really so no yes yeah bye ha that had".split())
-# "Like" as a filler only where it can't be a word: after a modal ("we could like move"), or before a filler.
-_LIKE_AFTER_MODAL = re.compile(r"\b(can|could|should|will|might|must|may|gonna|just)\s+like\s+(?=\w)", re.I)
-_LIKE_BEFORE_FILLER = re.compile(r"(?:^|(?<=\s))(?:so\s+)?like,?\s+(?=(?:um|uh|you know)\b)", re.I)
+# Keep ambiguous words such as "like", even beside a modal or hesitation: "you might like this"
+# and "I like um jazz" both use it as a verb. Only remove the filler sounds above.
 # A sentence that opens like a question ends with "?"; any other ends with ".".
 _QUESTION = re.compile(r"^(?:hey \w+,? )?(?:can|could|would|will|should|shall|is|are|am|was|were|do|does|did|have|"
                        r"has|had|what|what's|when|where|who|whom|whose|why|how|which)\b", re.I)
@@ -67,14 +66,11 @@ _PROPER = {w.lower(): w for w in ("Monday Tuesday Wednesday Thursday Friday Satu
 
 class Rules:
     """Fillers and stutters out, a capital to start, the days, months and Mei capitalised, and a mark to
-    end: plain rules, no model, microseconds. The careful-edit benchmark (spikes/careful-edit) measured
-    every model it tried changing a meaning somewhere, and these rules none, with most of the gain."""
+    end: plain rules, no model. Ambiguous words stay; raw words are kept by the chain."""
 
     name = "rules"
 
     def clean(self, text: str) -> str:
-        text = _LIKE_AFTER_MODAL.sub(lambda m: m.group(1) + " ", text)
-        text = _LIKE_BEFORE_FILLER.sub("", text)
         text = _FILLER.sub("", text)
         text = _STUTTER.sub(lambda m: m.group(0) if m.group(1).lower() in _DOUBLED_ON_PURPOSE else m.group(1), text)
         text = re.sub(r"\s+([,.!?])", r"\1", re.sub(r"\s{2,}", " ", text)).strip(" ,")

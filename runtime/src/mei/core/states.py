@@ -98,7 +98,8 @@ _ACTION_ALLOWED: dict[Execution, frozenset[Execution]] = {
     # POLICY_DENIED) when the re-check just before it runs finds its target changed.
     E.AUTHORIZED: frozenset({E.STARTED, E.SKIPPED, E.AWAITING_APPROVAL, E.POLICY_DENIED}),
     E.STARTED: frozenset({E.SUCCEEDED, E.FAILED, E.CANCELLED, E.IN_DOUBT}),
-    E.IN_DOUBT: frozenset({E.SUCCEEDED, E.FAILED, E.ABANDONED, E.STARTED}),  # STARTED: an idempotent re-run
+    # An idempotent retry returns to the authorized path so current policy is checked before STARTED.
+    E.IN_DOUBT: frozenset({E.SUCCEEDED, E.FAILED, E.ABANDONED, E.AUTHORIZED}),
 }
 
 

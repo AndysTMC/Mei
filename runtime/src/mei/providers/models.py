@@ -36,19 +36,19 @@ class Endpoint:
     kind: str = "openai"
 
 
-def model_list_url(chat_url: str, model_path: str) -> str:
+def model_list_url(chat_url: str, model_path: str, *, chat_suffix: str | None = None) -> str:
     """Derive a catalog URL from a chat URL (e.g. …/v1/chat/completions → …/v1/models)."""
     m = _URL_RE.match(chat_url.strip())
     if not m:
         return chat_url
     origin, path = m.group(1), (m.group(2) or "").rstrip("/")
-    chat_suffix = "/api/chat" if model_path == "/api/tags" else "/v1/chat/completions"
+    chat_suffix = chat_suffix or ("/chat" if model_path == "/api/tags" else "/chat/completions")
+    version, _, name = model_path.rpartition("/")
     if path.endswith(chat_suffix):
-        return f"{origin}{path[: -len(chat_suffix)]}{model_path}"
+        return f"{origin}{path[: -len(chat_suffix)]}/{name}"
     if not path:
         return f"{origin}{model_path}"
-    base = path if path.endswith("/v1") else f"{path}/v1"
-    return f"{origin}{base}{model_path.replace('/v1', '')}"
+    return f"{origin}{path}/{name}" if version and path.endswith(version) else f"{origin}{path}{model_path}"
 
 
 def endpoint(provider_id: str, *, url: str = "", api_key: str = "") -> Endpoint:
@@ -60,7 +60,7 @@ def endpoint(provider_id: str, *, url: str = "", api_key: str = "") -> Endpoint:
     if provider_id == "gemini" and url.strip():
         target = f"{url.strip().rstrip('/')}/models?pageSize=1000"
     elif url.strip():
-        target = model_list_url(url, path)
+        target = model_list_url(url, path, chat_suffix="/messages" if profile.transport == "anthropic" else None)
     else:
         target = profile.models_url or model_list_url(profile.chat_url, path)
     return Endpoint(target, headers, requires_key=profile.auth != "none" and provider_id != "openrouter",

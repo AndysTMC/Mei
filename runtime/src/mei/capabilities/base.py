@@ -66,6 +66,8 @@ class ActionResult(msgspec.Struct, kw_only=True):
     data_class: DataClass = "metadata"  # what kind of data the observation holds (§13.5)
     trust: Literal["trusted", "untrusted"] = "trusted"  # untrusted: content others could have written
     sources: list[str] = msgspec.field(default_factory=list)  # paths whose content is in the observation
+    # Internal disclosure provenance, not part of ActionView. None: older/untracked result; []: no memory text.
+    memory_ids: list[str] | None = None
     images: list[str] = msgspec.field(default_factory=list)  # base64 PNGs (desktop.observe's picture)
     # Set: a step only the person may do (a password field). The task waits for them to say it's done.
     handoff: str = ""

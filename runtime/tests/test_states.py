@@ -44,7 +44,7 @@ def test_every_non_terminal_state_can_be_stopped_or_fail():
     (E.PROPOSED, E.AUTHORIZED), (E.PROPOSED, E.AWAITING_APPROVAL), (E.PROPOSED, E.REJECTED),
     (E.PROPOSED, E.POLICY_DENIED), (E.AWAITING_APPROVAL, E.AUTHORIZED), (E.AWAITING_APPROVAL, E.SUPERSEDED),
     (E.AUTHORIZED, E.STARTED), (E.AUTHORIZED, E.SKIPPED), (E.AUTHORIZED, E.AWAITING_APPROVAL),
-    (E.STARTED, E.SUCCEEDED), (E.STARTED, E.IN_DOUBT), (E.IN_DOUBT, E.ABANDONED), (E.IN_DOUBT, E.STARTED),
+    (E.STARTED, E.SUCCEEDED), (E.STARTED, E.IN_DOUBT), (E.IN_DOUBT, E.ABANDONED), (E.IN_DOUBT, E.AUTHORIZED),
 ])
 def test_action_allowed(frm, to):
     check_action_transition(frm, to)
@@ -52,6 +52,7 @@ def test_action_allowed(frm, to):
 
 @pytest.mark.parametrize("frm,to", [
     (E.PROPOSED, E.STARTED),  # nothing starts without a recorded authorization (invariant 2)
+    (E.IN_DOUBT, E.STARTED),  # recovery must go through current authorization too
     (E.AWAITING_APPROVAL, E.STARTED), (E.STARTED, E.SKIPPED), (E.SUCCEEDED, E.FAILED), (E.IN_DOUBT, E.SKIPPED),
 ])
 def test_action_forbidden(frm, to):

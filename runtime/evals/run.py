@@ -239,7 +239,11 @@ def _report(results: list[Result], label: str, out: str) -> int:
     if out:
         Path(out).write_text(json.dumps({"provider": label, "summary": summary,
                                          "results": [asdict(r) for r in results]}, indent=1) + "\n")
-    return 0
+    failed = any(not r.passed and r.state not in ("ERROR", "SKIPPED") for r in results)
+    if failed:
+        return 1
+    # An empty, skipped or provider-error run is incomplete, not a successful evaluation.
+    return 2 if not results or any(r.state in ("ERROR", "SKIPPED") for r in results) else 0
 
 
 if __name__ == "__main__":

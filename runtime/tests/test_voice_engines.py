@@ -149,10 +149,10 @@ def test_words_meant_twice_and_words_that_look_like_fillers_are_kept():
     assert rules.clean("i think i'm done, uh, thanks") == "I think I'm done, thanks."
 
 
-def test_like_as_a_filler_the_days_and_mei_and_a_mark_to_end():
-    """The careful-edit benchmark's rules+ (spikes/careful-edit/REPORT.md)."""
+def test_ambiguous_like_stays_the_days_and_mei_and_a_mark_to_end():
+    """A modal alone cannot establish that 'like' was a filler, even in a benchmark example."""
     rules = Rules()
-    assert rules.clean("we could like move it to monday") == "We could move it to Monday."
+    assert rules.clean("we could like move it to monday") == "We could like move it to Monday."
     assert rules.clean("hey mei, can you open files") == "Hey Mei, can you open files?"
     assert rules.clean("i like apples") == "I like apples."  # "like" as a word stays
     assert rules.clean("Is it done?") == "Is it done?"

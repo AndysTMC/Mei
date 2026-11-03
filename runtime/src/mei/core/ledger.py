@@ -100,7 +100,9 @@ def reask(tx: Tx, task: dict, action, *, card: dict | None = None, **fields) -> 
                                                     "resources": json.loads(action["resources"]), "effects": [],
                                                     "scopes": ["once"], "default_scope": "once",
                                                     "scope_text": {"once": "Allow once"}}
-    agent.update_action(tx, action["id"], E.AWAITING_APPROVAL, **fields)
+    # A new card replaces the old attempt's authority. Keep its uncertain disposition, but don't
+    # mistake a fresh approval for one consumed under the previous runtime's epoch.
+    agent.update_action(tx, action["id"], E.AWAITING_APPROVAL, epoch=None, **fields)
     request_approval(tx, task, action["id"], action["params_hash"], card)
 
 

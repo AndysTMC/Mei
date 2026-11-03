@@ -117,11 +117,17 @@ class Store:
         tx = Tx(self)
         try:
             yield tx
+            self.conn.execute("COMMIT")
         except BaseException:
-            self.conn.execute("ROLLBACK")
             tx.events.clear()
+            try:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                # The writer cannot be reused safely if even rollback fails. Preserve the original
+                # failure, but retire the connection rather than leave an uncertain transaction live.
+                self.conn.close()
             raise
-        self.conn.execute("COMMIT")
 
     def read(self, sql: str, params: tuple | dict = ()) -> list[sqlite3.Row]:
         return self.conn.execute(sql, params).fetchall()

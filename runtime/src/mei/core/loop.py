@@ -346,7 +346,11 @@ class TaskLoop:
             return await self._meta(task, action, cap, params)
         if action["approval_id"]:  # invariants 2 and 10: the approval must still match these exact params
             approval = agent.get_approval(self.d.store, action["approval_id"])
-            if approval is None or approval["state"] != "allowed" or approval["params_hash"] != action["params_hash"]:
+            recovered = action["epoch"] is not None and action["epoch"] != self.d.store.epoch
+            expires = approval is not None and recovered and (approval["scope"] == "once" or not any(
+                g["approval_id"] == approval["id"] for g in agent.active_grants(self.d.store, task["id"])))
+            if approval is None or approval["state"] != "allowed" \
+                    or approval["params_hash"] != action["params_hash"] or expires:
                 with self.d.store.tx() as tx:
                     ledger.reask(tx, repo.task_dict(task), action)
                 self.d.publish(tx.events)
@@ -450,7 +454,8 @@ class TaskLoop:
                         else f"Kept for the person to review: {verdict.reason}.")
                 ledger.finish_action(tx, taskd, action, E.SUCCEEDED, note, is_error=False,
                                      result={"ok": True, "summary": f"Remembered: {saved['text']}",
-                                             "memory_id": saved["id"], "memory_status": saved["status"]})
+                                             "memory_id": saved["id"], "memory_status": saved["status"],
+                                             "data_class": "memory", "memory_ids": [saved["id"]]})
         self.d.publish(tx.events)
 
     async def _execute(self, task, action, cap: Capability, params, flight: InFlight) -> None:
@@ -546,8 +551,14 @@ class TaskLoop:
         if cap.meta:
             return await self._meta(task, action, cap, params)  # only task.finish can be mid-way; it reads, so redo it
         if cap.idempotent:
-            await self._execute(task, action, cap, params, flight)
-            return True
+            # Repeatability does not grant authority. Use the ordinary approval, busy and policy
+            # checks, including revocations and settings changed while the runtime was down.
+            with self.d.store.tx() as tx:
+                mutating = (json.loads(action["effects"] or "{}")).get("mutates", "no") != "no"
+                agent.update_action(tx, action["id"], E.AUTHORIZED,
+                                    disposition=Disposition.UNKNOWN if mutating else Disposition.NONE)
+            self.d.publish(tx.events)
+            return await self._authorized(task, agent.get_action(self.d.store, action["id"]), flight)
         try:
             disposition = await cap.probe(params, ActionContext(self.d.env, action["id"], task["conversation_id"], task["id"],
                                                                 _judged(action)))

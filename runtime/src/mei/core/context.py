@@ -10,8 +10,8 @@ import base64
 import datetime
 import ipaddress
 import json
-from collections import defaultdict
-from dataclasses import dataclass, replace
+from collections import defaultdict, deque
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -19,22 +19,22 @@ from mei.capabilities.base import Env
 from mei.capabilities.registry import Registry
 from mei.obs import redact
 from mei.protocol import Privacy, ProviderConfig
-from mei.providers.base import ChatTurn, ModelRequest, Replay, ToolCall
+from mei.providers.base import ChatTurn, ModelRequest, ProviderError, Replay, ToolCall
 from mei.providers.profiles import PROFILES
 from mei.store.db import Store
 
 from . import prompt
 
 MAX_OBSERVATION_CHARS = 50_000
-# What one request may hold, in characters, tool definitions included (about four to a token; decision 0037).
-# Cloud models take 128k tokens and more; models run on this computer often have a few thousand to 32k.
+# Existing text character caps, tool definitions included (decision 0037). These aren't a model's
+# token capacity; per-model limits and image accounting need a separate design.
 BUDGET_CHARS = {"cloud": 400_000, "local": 64_000}
 KEEP_WHOLE = 3  # the current task's newest tool results, never shortened
 SHORTENED_CHARS = 2_000
 SHORTENED_NOTE = "\n[… shortened so the request fits the model; run the tool again for the rest]"
 MAX_PRIOR_ACTIONS_NOTED = 12
-WITHHELD = ("[Withheld: the person's Privacy settings don't send this file's contents to cloud models. "
-            "Tell them what you couldn't read; they can change it in Mei's Settings → Privacy.]")
+WITHHELD = ("[Withheld: the person's privacy choices keep this result on this computer. "
+            "Tell them which information wasn't available.]")
 
 
 def is_cloud(cfg: ProviderConfig) -> bool:
@@ -92,53 +92,67 @@ def build(inputs: Inputs, task) -> ModelRequest:
     turns = [ChatTurn("system", prompt.system_prompt(inputs.env, inputs.now, plan, memories=inputs.memories,
                                                      episodes=inputs.episodes, spoken=spoken,
                                                      sees=any(t.name == "desktop_observe" for t in tools)))]
-    earlier = _earlier(store, [r for r in rows if r["ordinal"] < input_ordinal])
+    earlier = _earlier(inputs, [r for r in rows if r["ordinal"] < input_ordinal])
     current = _current(inputs, task["id"], [r for r in rows if r["ordinal"] == input_ordinal or
                                  (r["task_id"] == task["id"] and r["ordinal"] > input_ordinal)], actions)
     budget = BUDGET_CHARS["cloud" if is_cloud(inputs.provider) else "local"]
-    room = budget - sum(len(t.description) + len(json.dumps(t.parameters)) for t in tools)
+    # Reserve tool definitions and request wrapper as well, including tool names. This bounds the
+    # serialized text/tool fields, not the provider's exact token or image capacity.
+    room = budget - (len(json.dumps(asdict(ModelRequest([], tools)), ensure_ascii=False)) - 2)
     return ModelRequest(fit(turns[0], earlier, current, room), tools=tools)
 
 
 def fit(system: ChatTurn, earlier: list[ChatTurn], current: list[ChatTurn], room: int) -> list[ChatTurn]:
-    """The request within `room` characters (decision 0037). The system prompt and the person's request stay
+    """Text/tool fields within `room` characters (decision 0037). The system prompt and the person's request stay
     whole. Earlier turns of the conversation go first, oldest first, and the model is told; then the current
     task's older tool results are shortened, the newest KEEP_WHOLE of them never."""
-    room -= len(system.content)
-    need = sum(map(_size, current))
-    kept = list(earlier)
-    while kept and need + sum(map(_size, kept)) > room:
-        kept.pop(0)
+    need = _size(system) + sum(map(_size, current))
+    kept = deque(earlier)
+    prior_size = sum(map(_size, kept))
+
+    def notice() -> str:
+        left_out = len(earlier) - len(kept)
+        return (f"<runtime_note>{left_out} earlier messages of this conversation "
+                "are left out: the model can't hold them all.</runtime_note>\n") if left_out else ""
+
+    def overflow() -> int:
+        # The prefix is part of a JSON string: its escaped newlines also consume the cap.
+        return need + prior_size + len(json.dumps(notice(), ensure_ascii=False)) - 2 - room
+
+    while kept and overflow() > 0:
+        prior_size -= _size(kept.popleft())
         while kept and kept[0].role != "user":  # whole exchanges: never an answer without its question
-            kept.pop(0)
+            prior_size -= _size(kept.popleft())
     current = list(current)
-    over = need + sum(map(_size, kept)) - room
     tool_at = [i for i, t in enumerate(current) if t.role == "tool"]
-    for i in tool_at[:-KEEP_WHOLE] if over > 0 else ():
+    for i in tool_at[:-KEEP_WHOLE] if overflow() > 0 else ():
         turn = current[i]
         if len(turn.content) > SHORTENED_CHARS:
             content = turn.content[:SHORTENED_CHARS] + SHORTENED_NOTE
-            over -= len(turn.content) - len(content)
             current[i] = replace(turn, content=content)
-        if over <= 0:
+            need -= _size(turn) - _size(current[i])
+        if overflow() <= 0:
             break
-    left_out = len(earlier) - len(kept)
-    if left_out:
+    if overflow() > 0:
+        raise ProviderError("This request exceeds Mei's current context budget. Start a new conversation or ask "
+                            "for a smaller part. Your stored history has not been deleted.")
+    if notice():
         first = next(i for i, t in enumerate([*kept, *current]) if t.role == "user")
         turns = [*kept, *current]
-        turns[first] = replace(turns[first], content=f"<runtime_note>{left_out} earlier messages of this conversation "
-                                                     f"are left out: the model can't hold them all.</runtime_note>\n"
-                                                     + turns[first].content)
+        turns[first] = replace(turns[first], content=notice() + turns[first].content)
         return [system, *turns]
     return [system, *kept, *current]
 
 
 def _size(turn: ChatTurn) -> int:
-    return len(turn.content) + sum(len(c.name) + len(c.arguments) for c in turn.tool_calls)
+    # Images aren't text tokens: charging their base64 length breaks ordinary screenshots. Keep
+    # them intact; accurate image costs need model-specific accounting. Include signatures, replay
+    # and JSON escaping. Two extra characters cover the array's brackets/separators per item.
+    return len(json.dumps(asdict(replace(turn, images=())), ensure_ascii=False)) + 2
 
 
-def _earlier(store: Store, rows: list) -> list[ChatTurn]:
-    done = _done_by_task(store, {r["task_id"] for r in rows if r["task_id"]})
+def _earlier(inputs: Inputs, rows: list) -> list[ChatTurn]:
+    done = _done_by_task(inputs, {r["task_id"] for r in rows if r["task_id"]})
     last_answer: dict[str, int] = {}
     for i, r in enumerate(rows):
         if r["role"] == "assistant" and not r["tool_calls"] and r["task_id"]:
@@ -155,18 +169,21 @@ def _earlier(store: Store, rows: list) -> list[ChatTurn]:
     return turns
 
 
-def _done_by_task(store: Store, task_ids: set[str]) -> dict[str, list[str]]:
+def _done_by_task(inputs: Inputs, task_ids: set[str]) -> dict[str, list[str]]:
     if not task_ids:
         return {}
     marks = ",".join("?" for _ in task_ids)
-    rows = store.read(f"SELECT task_id, result FROM actions WHERE task_id IN ({marks}) AND execution = 'SUCCEEDED' "
+    rows = inputs.store.read(f"SELECT * FROM actions WHERE task_id IN ({marks}) AND execution = 'SUCCEEDED' "
                       "AND capability NOT IN ('plan.update', 'ask_user', 'task.finish') ORDER BY created_at",
                       tuple(task_ids))
     done: dict[str, list[str]] = defaultdict(list)
     for r in rows:
-        summary = (json.loads(r["result"]) if r["result"] else {}).get("summary")
+        result = json.loads(r["result"]) if r["result"] else {}
+        summary = result.get("summary")
         if summary and len(done[r["task_id"]]) < MAX_PRIOR_ACTIONS_NOTED:
-            done[r["task_id"]].append(summary)
+            # Derived context is subject to the same disclosure rules as the original observation,
+            # including already-stored results and memories whose sensitivity changed since the action.
+            done[r["task_id"]].append(redact(summary) if _may_send(inputs, r, result) else WITHHELD)
     return done
 
 
@@ -262,7 +279,27 @@ def _tool_turn(inputs: Inputs, action, message, *, picture: bool = False) -> Cha
 
 
 def _may_send(inputs: Inputs, action, result: dict) -> bool:
-    if result.get("data_class") not in ("file_content", "clipboard") or not is_cloud(inputs.provider):
+    if not is_cloud(inputs.provider):
+        return True
+    memory_ids = result.get("memory_ids")
+    resources = json.loads(action["resources"] or "[]")
+    judged_memories = [r["value"] for r in resources if r.get("kind") == "memory"]
+    if memory_ids is None:
+        # Save/forget results from before provenance was recorded already carry an id. Old searches
+        # cannot vouch for which memories they quoted; keep those untracked results off cloud models.
+        memory_id = result.get("memory_id") or (result.get("undo") or {}).get("memory_id")
+        if memory_id or judged_memories:
+            memory_ids = [memory_id] if memory_id else []
+        elif result.get("data_class") == "memory":
+            return False
+    if memory_ids is not None:
+        if not isinstance(memory_ids, list) or any(not isinstance(i, str) for i in memory_ids):
+            return False
+        for memory_id in set(memory_ids + judged_memories):
+            row = inputs.store.read_one("SELECT sensitivity FROM memories WHERE id = ?", (memory_id,))
+            if row is None or row["sensitivity"] == "local_only":
+                return False  # deleted or local-only: an old summary cannot override that choice
+    if result.get("data_class") not in ("file_content", "clipboard"):
         return True
     choice = inputs.privacy.cloud_files
     if choice == "always":
