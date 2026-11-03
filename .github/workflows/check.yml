@@ -26,24 +26,27 @@ jobs:
       - run: npm run check
 
   runtime:
-    runs-on: ubuntu-24.04
+    # The sandbox's descriptor mounts require bubblewrap >= 0.10 (24.04 ships 0.9).
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: What the runtime's tests use from the system
         # bubblewrap: the command sandbox; poppler-utils: PDFs; dbus: a private session bus;
-        # libglib2.0-bin: gsettings on a keyfile backend.
+        # libglib2.0-bin and gsettings-desktop-schemas: GNOME settings on a keyfile backend.
         run: |
           sudo apt-get update
-          sudo apt-get install -y bubblewrap poppler-utils dbus libglib2.0-bin
-          # Ubuntu 24.04 keeps unprivileged user namespaces from bubblewrap unless allowed.
+          sudo apt-get install -y bubblewrap poppler-utils dbus libglib2.0-bin gsettings-desktop-schemas
+          # Ubuntu keeps unprivileged user namespaces from bubblewrap unless allowed.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --version
       - name: Install
         working-directory: runtime
         run: uv sync --extra voice
       - name: Tests
         working-directory: runtime
-        run: dbus-run-session -- uv run pytest -q
+        # The runner has no user manager on this private bus; use the process-group fallback.
+        run: env -u XDG_RUNTIME_DIR dbus-run-session -- uv run pytest -q
       - name: The eval tasks, scripted (proves every task's setup and check)
         working-directory: runtime
-        run: dbus-run-session -- uv run python -m evals.run
+        run: env -u XDG_RUNTIME_DIR dbus-run-session -- uv run python -m evals.run
