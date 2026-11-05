@@ -62,6 +62,8 @@ States = ("off", "unavailable", "starting", "idle", "listening", "thinking", "sp
 # (the shortcut, "Hey Mei"), after QUIET_S with nothing said; "dictate", when the mic is pressed again.
 Session = Literal["button", "quiet", "dictate"]
 QUIET_S = 30.0
+# What a listening sends while it hears: dropped once it has been stopped.
+HEARD = (wire.Listening, wire.SpeechStarted, wire.Partial, wire.Final, wire.NoSpeech)
 BOOST_FRESH_S = 60.0  # the words Mei listens for are gathered again after this, when listening starts
 
 
@@ -96,6 +98,8 @@ class VoiceController:
         self._last_spoken_at = 0.0
         self._session: Session | None = None  # listening goes on until this ends
         self._speech_heard = False  # in the utterance being heard now
+        # CancelListens the worker hasn't answered yet: what is heard until it does is from before (hush, F08).
+        self._unanswered_cancels = 0
         self._dictating = False  # this utterance goes into the input box, not to Mei
         self._attachment: Attachment | None = None  # dropped on Mei during a conversation: goes with the next request
         self._locked = False
@@ -317,12 +321,15 @@ class VoiceController:
     async def hush(self) -> None:
         """Close voice: stop listening or speaking, and listen no more (Esc, Stop, the voice button).
         A reply still being written is shown, not spoken."""
+        talking = self._session is not None
         await self._end_session()
         self._replies.follow(None)
         if self._reading is not None:
             await self._send_quietly(wire.StopReading())
+        # A Listen may be on its way, or a barge-in listening: whatever they hear now isn't a request.
+        if talking or self.state == "listening":
+            await self._cancel_listen()
         if self.state == "listening":
-            await self._send(wire.CancelListen())
             self._set("idle")
         elif self.state == "speaking":
             await self._send(wire.StopSpeaking())
@@ -421,7 +428,12 @@ class VoiceController:
             log.info("%s", line.decode("utf-8", "replace").rstrip()[:500])
 
     async def _on_worker(self, event: wire.Event) -> None:
+        if self._unanswered_cancels and (isinstance(event, HEARD) or
+                                         isinstance(event, wire.Loudness) and event.source == "mic"):
+            return  # from a listening that was stopped
         match event:
+            case wire.Cancelled():
+                self._unanswered_cancels = max(0, self._unanswered_cancels - 1)
             case wire.Ready() if event.version != wire.VERSION:
                 # A worker started from other code than this core's (Mei updated while running): it
                 # would refuse what it doesn't know. Start it again, once; then say so.
@@ -433,6 +445,7 @@ class VoiceController:
                 asyncio.ensure_future(self._respawn())
             case wire.Ready():
                 self._restarts = 0
+                self._unanswered_cancels = 0  # a new worker: nothing from an old listening can follow
                 self._version_restarted = False
                 if self._reading is not None:  # a new worker isn't reading anything
                     self._emit("voice.reading", {"message_id": self._reading, "reading": False})
@@ -449,8 +462,14 @@ class VoiceController:
                     await self._send(wire.Arm(on=False))
                 if resume:
                     await self._go_on()
-            case wire.Failed(part=part, message=message):
-                self._set("unavailable" if not self._ready.is_set() else self.state, f"{part}: {message}")
+            case wire.Failed(part=part, message=message, ended=ended):
+                if ended and self._ready.is_set():
+                    # Listening ended on it (the microphone went away): nothing listens now, so
+                    # Live ends and says why, rather than look as if it still heard.
+                    await self._end_session()
+                    self._set("idle", f"{part}: {message}")
+                else:
+                    self._set("unavailable" if not self._ready.is_set() else self.state, f"{part}: {message}")
                 self._ready.set()
             case wire.Listening():
                 self._speech_heard = False
@@ -607,6 +626,16 @@ class VoiceController:
     def _say_end(self) -> None:
         asyncio.ensure_future(self._send_quietly(wire.End()))
 
+    async def _cancel_listen(self) -> None:
+        """Stop listening. What that listening heard and is still on its way is dropped, up to the
+        worker's Cancelled: words said before Esc are never taken for a request."""
+        self._unanswered_cancels += 1  # before writing: the answer can come while the write drains
+        try:
+            await self._send(wire.CancelListen())
+        except ProtocolError as e:
+            self._unanswered_cancels -= 1
+            log.warning("voice: couldn't send CancelListen: %s", e.message)
+
     async def _send_quietly(self, cmd: wire.Command) -> None:
         try:
             await self._send(cmd)
@@ -642,7 +671,7 @@ class VoiceController:
             self._set(self.state, "")
 
     async def _make_way(self) -> None:
-        await self._send_quietly(wire.CancelListen())
+        await self._cancel_listen()
         self._set("paused", PAUSED_NOTE)
 
     def _mic_users_trouble(self, message: str) -> None:

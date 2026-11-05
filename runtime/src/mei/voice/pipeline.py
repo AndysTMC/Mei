@@ -249,17 +249,29 @@ class Speaker:
 
     async def _play(self) -> None:
         loop = asyncio.get_running_loop()
+        failed = False  # the output went away: the rest of this reply isn't played, and it says so once
         while True:
             speech = await self._speech.get()
             if speech is None:
-                await self._sink.drain()
-                self.speaking = False
+                try:
+                    await self._sink.drain()
+                except VoiceError as e:
+                    if not failed:
+                        self._on_error(e)
+                failed = self.speaking = False
                 self._on_done()
+                continue
+            if failed:
+                self._unheard -= 1
                 continue
             if not self.speaking:
                 self.speaking = True
                 self.started_at = loop.time()
                 self._on_start()
             self._on_play(speech)
-            await self._sink.play(speech)
+            try:
+                await self._sink.play(speech)
+            except VoiceError as e:
+                failed = True
+                self._on_error(e)
             self._unheard -= 1

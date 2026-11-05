@@ -76,7 +76,13 @@ class PipeWireSource:
             try:
                 data = await proc.stdout.readexactly(want)
             except asyncio.IncompleteReadError:
-                return  # stopped
+                if self._proc is not proc:
+                    return  # stopped
+                # It ended by itself: the microphone or PipeWire went away. Silence would be a lie.
+                self._proc = None
+                code = await proc.wait()
+                raise VoiceError("microphone", f"recording stopped (pw-record exit {code}); "
+                                               "check that a microphone is connected") from None
             yield np.frombuffer(data, dtype=np.float32).copy()
 
     async def stop(self) -> None:
@@ -98,10 +104,17 @@ class PipeWireSink:
             await self.drain()
             self._proc = await self._open(speech.rate)
             self._rate = speech.rate
-        assert self._proc.stdin is not None
-        self._proc.stdin.write(np.asarray(speech.samples, dtype=np.float32).tobytes())
-        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
-            await self._proc.stdin.drain()
+        proc = self._proc
+        assert proc.stdin is not None
+        try:
+            proc.stdin.write(np.asarray(speech.samples, dtype=np.float32).tobytes())
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            if self._proc is not proc:
+                return  # stopped meanwhile
+            self._proc = None
+            raise VoiceError("speaker", f"playing stopped (pw-cat exit {await proc.wait()}); "
+                                        "check the sound output") from None
 
     async def drain(self) -> None:
         """Wait until everything queued has been played, then close the stream."""
@@ -112,7 +125,8 @@ class PipeWireSink:
             proc.stdin.close()
             with contextlib.suppress(BrokenPipeError, ConnectionResetError):
                 await proc.stdin.wait_closed()
-        await proc.wait()
+        if code := await proc.wait():
+            raise VoiceError("speaker", f"playing failed (pw-cat exit {code}); check the sound output")
 
     async def stop(self) -> None:
         proc, self._proc = self._proc, None

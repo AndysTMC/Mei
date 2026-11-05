@@ -87,6 +87,7 @@ class Worker:
                     self._listener.finish()
             case wire.CancelListen():
                 await self._release_mic()
+                self.emit(wire.Cancelled())  # after everything the listening it stopped said
                 self._rearm()
             case wire.Say(text=text):
                 if self._ready() and not self._suspended and text.strip():
@@ -267,7 +268,7 @@ class Worker:
                     break
                 preroll = None
         except VoiceError as e:
-            self.emit(wire.Failed(part=e.part, message=e.message))
+            self.emit(wire.Failed(part=e.part, message=e.message, ended=True))
         finally:
             if continuous:
                 await source.stop()

@@ -9,7 +9,7 @@ from .parts import Device
 
 # What the worker and the core both speak. The worker says it in Ready; a core that hears another
 # (a worker started from older code) starts it again (decision 0030).
-VERSION = 2
+VERSION = 4
 
 
 class Command(msgspec.Struct, tag_field="op", kw_only=True):
@@ -154,6 +154,7 @@ class Ready(Event, tag="ready"):
 class Failed(Event, tag="error"):
     part: str
     message: str
+    ended: bool = False  # the listening going on stopped on it: nothing listens now
 
 
 class Listening(Event, tag="listening"):
@@ -174,6 +175,11 @@ class Final(Event, tag="final"):
 
 class NoSpeech(Event, tag="no_speech"):
     pass
+
+
+class Cancelled(Event, tag="cancelled"):
+    """A CancelListen is done: nothing more of the listening it stopped follows (commands are acted on
+    in order), so the core drops what of it was still on the way."""
 
 
 class Speaking(Event, tag="speaking"):
@@ -238,7 +244,7 @@ class Loudness(Event, tag="loudness"):
     step_ms: int = 25
 
 
-AnyEvent = (Ready | Failed | Listening | SpeechStarted | Partial | Final | NoSpeech | Speaking | Spoken | BargeIn | Woke
+AnyEvent = (Ready | Failed | Listening | SpeechStarted | Partial | Final | NoSpeech | Cancelled | Speaking | Spoken | BargeIn | Woke
             | Suspended | Diagnosis | Transcribe | Synthesize | MicLevel | Reading | ReadDone | Loudness)
 
 # One message per line; a line can carry audio (up to a 30 s utterance or a long sentence, base64).
