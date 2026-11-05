@@ -258,10 +258,21 @@ def move_at(src: Folder, name: str, dst: Folder, new_name: str) -> None:
     if st is None:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), name)
     if stat.S_ISDIR(st.st_mode):
-        # /proc/self/fd/N is the held folder itself, whatever its path has become since. copytree
-        # makes the new folder itself, so it fails rather than merge into one that appeared.
-        shutil.copytree(f"/proc/self/fd/{src.fd}/{name}", f"/proc/self/fd/{dst.fd}/{new_name}", symlinks=True)
-        shutil.rmtree(name, dir_fd=src.fd)
+        # The folder is opened without following a link, and copied from what was opened: a link
+        # swapped in after the look above can't send the copy elsewhere. /proc/self/fd/N is the held
+        # folder itself, whatever its path has become since. copytree makes the new folder itself,
+        # so it fails rather than merge into one that appeared.
+        fd = os.open(name, _DIR, dir_fd=src.fd)
+        try:
+            held = os.fstat(fd)
+            if not _same(held, st):
+                raise OSError(errno.ESTALE, "it changed while being moved", name)
+            shutil.copytree(f"/proc/self/fd/{fd}", f"/proc/self/fd/{dst.fd}/{new_name}", symlinks=True)
+            if not _same(entry(src.fd, name), held):  # what would be deleted isn't what was copied
+                raise OSError(errno.ESTALE, "it changed while being moved; the copy was kept", name)
+            shutil.rmtree(name, dir_fd=src.fd)
+        finally:
+            os.close(fd)
     elif stat.S_ISLNK(st.st_mode):
         os.symlink(os.readlink(name, dir_fd=src.fd), new_name, dir_fd=dst.fd)
         os.unlink(name, dir_fd=src.fd)
@@ -270,6 +281,10 @@ def move_at(src: Folder, name: str, dst: Folder, new_name: str) -> None:
         os.unlink(name, dir_fd=src.fd)
     else:
         raise OSError(errno.EINVAL, "only files, folders, and links can be moved to another drive", name)
+
+
+def _same(a: os.stat_result | None, b: os.stat_result | None) -> bool:
+    return a is not None and b is not None and (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
 
 
 def _copy_file(src_fd: int, name: str, dst_fd: int, new_name: str) -> None:

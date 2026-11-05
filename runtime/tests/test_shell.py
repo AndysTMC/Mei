@@ -106,6 +106,22 @@ async def test_folders_holding_keys_are_refused(tmp_path):
     assert action["execution"] == E.REJECTED and "holds folders Mei never opens" in action["error"]
 
 
+async def test_a_folder_too_big_to_check_for_secrets_is_not_given_to_the_command(tmp_path, monkeypatch):
+    """The check for secret files stops at a limit; past it, a nested .env would go unmasked."""
+    from mei.policy.paths import PathRules
+    monkeypatch.setattr(PathRules.secrets_under, "__defaults__", (5,))
+    h = Harness(tmp_path, script=run_script("cat nested/.env", folders=[{"path": "~/Projects/big"}],
+                                            cwd="~/Projects/big"))
+    for n in range(10):
+        put(h.env, f"~/Projects/big/{n}.txt", "x")
+    put(h.env, "~/Projects/big/nested/.env", "API_TOKEN=supersecret")
+    r = h.submit("look in ~/Projects/big")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    [action] = h.actions(r["task_id"])
+    assert action["execution"] == E.FAILED and "too much in it" in action["error"]
+    assert "supersecret" not in json.dumps([t["content"] for q in h.requests() for t in q["turns"]])
+
+
 # ── Stopping ────────────────────────────────────────────────────────────────
 
 
@@ -326,3 +342,42 @@ async def test_secrets_already_there_are_masked_and_ordinary_new_files_dont_stop
     assert await h.until(r["task_id"]) == S.COMPLETED
     seen = output(h)
     assert "supersecret" not in seen and "README.md" in seen and "exit 0" in seen
+
+
+async def test_a_secret_that_lands_after_the_look_stops_the_command_before_it_starts(tmp_path, monkeypatch):
+    """Between looking for secrets to mask and the jail starting, a .env saved meanwhile isn't masked."""
+    from mei.policy.paths import PathRules
+    h = Harness(tmp_path, script=run_script("cat .env", folders=[{"path": "~/Projects/site"}], cwd="~/Projects/site"))
+    put(h.env, "~/Projects/site/notes.txt", "notes")
+    look = PathRules.secrets_under
+
+    def look_then_save(self, folder, *args, **kw):
+        found = look(self, folder, *args, **kw)
+        put(h.env, "~/Projects/site/.env", "API_TOKEN=supersecret")  # saved just after the look
+        return found
+    monkeypatch.setattr(PathRules, "secrets_under", look_then_save)
+    r = h.submit("show me what's in ~/Projects/site")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    seen = "\n".join(t["content"] for req in h.requests() for t in req["turns"] if t["role"] == "tool")
+    assert "supersecret" not in seen and "may hold secrets" in seen
+
+
+async def test_a_secret_written_as_the_command_ends_still_withholds_its_output(tmp_path, monkeypatch):
+    """The command finishes before Mei reads the watch: its end and the secret are seen together."""
+    from mei.desktop import sandbox
+    real = asyncio.create_subprocess_exec
+
+    async def run_to_the_end(*argv, **kw):
+        proc = await real(*argv, **kw)
+        await proc.wait()  # everything happens before the runner looks
+        return proc
+    monkeypatch.setattr(sandbox.asyncio, "create_subprocess_exec", run_to_the_end)
+    h = Harness(tmp_path, script=run_script("printf 'API_TOKEN=super''secret' > .env; cat .env",
+                                            folders=[{"path": "~/Projects/site", "write": True}], cwd="~/Projects/site"))
+    put(h.env, "~/Projects/site/notes.txt", "notes")
+    r = h.submit("build ~/Projects/site")
+    assert await h.until(r["task_id"]) == S.WAITING_APPROVAL
+    h.approve(r["task_id"])
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    seen = "\n".join(t["content"] for req in h.requests() for t in req["turns"] if t["role"] == "tool")
+    assert "supersecret" not in seen and "may hold secrets" in seen

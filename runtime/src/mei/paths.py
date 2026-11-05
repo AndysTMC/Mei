@@ -22,6 +22,12 @@ def cache_home() -> Path:
     return _xdg("XDG_CACHE_HOME", ".cache")
 
 
+def workspaces_dir(cache: Path | None = None) -> Path:
+    """Commands' scratch folders, one per conversation, under `cache` ($XDG_CACHE_HOME). Mei's own:
+    deleted with their conversation, and all of them by uninstall --purge."""
+    return (cache or cache_home()) / "mei" / "workspaces"
+
+
 def data_dir() -> Path:
     """Mei's store. MEI_DATA_DIR overrides it for tests and development."""
     return Path(os.environ["MEI_DATA_DIR"]) if os.environ.get("MEI_DATA_DIR") else data_home() / "mei"

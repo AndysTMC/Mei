@@ -14,7 +14,7 @@ from pathlib import Path
 
 from mei.capabilities.base import App, BridgePort
 
-from .run import checked
+from .run import checked, user_manager
 
 GIO = "/usr/bin/gio"
 SYSTEMD_RUN = "/usr/bin/systemd-run"
@@ -84,7 +84,7 @@ class Launcher:
                  systemd_run: str = SYSTEMD_RUN) -> None:
         self._bridge = bridge
         self._gio = gio
-        self._systemd_run = systemd_run if os.access(systemd_run, os.X_OK) else None
+        self._systemd_run = systemd_run if os.access(systemd_run, os.X_OK) and user_manager() else None
 
     async def launch(self, app: App, uris: list[str]) -> None:
         bridge = self._bridge()

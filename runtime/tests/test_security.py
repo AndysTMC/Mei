@@ -381,6 +381,46 @@ def test_a_move_across_drives_goes_through_the_held_folders(tmp_path, monkeypatc
     assert (tmp_path / "dst-real" / "again.txt").read_text() == "kept" and (tmp_path / "src" / "again.txt").exists()
 
 
+@pytest.mark.parametrize("swap_in", ["link", "folder"])
+def test_a_folder_swapped_during_a_move_across_drives_is_never_copied_from(tmp_path, monkeypatch, swap_in):
+    """Between looking at what `tree` is and copying it, something else takes its name: a link to a
+    folder Mei never opens, or another folder. Neither is copied, and the original isn't deleted."""
+    import errno
+    from mei.capabilities import fs_at
+    from agent_harness import make_world
+    env = make_world(tmp_path)
+    (tmp_path / "src" / "tree").mkdir(parents=True)
+    (tmp_path / "src" / "tree" / "f.txt").write_text("tree")
+    (tmp_path / "dst").mkdir()
+    (tmp_path / "secret").mkdir()
+    (tmp_path / "secret" / "id_rsa").write_text("PRIVATE")
+
+    def cross_device(*_args):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+    look = fs_at.entry
+    calls = []
+
+    def look_then_swap(dir_fd, name):
+        found = look(dir_fd, name)
+        if not calls:
+            (tmp_path / "src" / "tree").rename(tmp_path / "src" / "tree-moved")
+            if swap_in == "link":
+                (tmp_path / "src" / "tree").symlink_to(tmp_path / "secret")
+            else:
+                (tmp_path / "src" / "tree").mkdir()
+                (tmp_path / "src" / "tree" / "other.txt").write_text("other")
+        calls.append(name)
+        return found
+    monkeypatch.setattr(fs_at, "rename_noreplace", cross_device)
+    monkeypatch.setattr(fs_at, "entry", look_then_swap)
+    with fs_at.folder(env, tmp_path / "src") as src, fs_at.folder(env, tmp_path / "dst") as dst:
+        with pytest.raises(OSError):
+            fs_at.move_at(src, "tree", dst, "tree")
+    assert not (tmp_path / "dst" / "tree").exists()
+    assert (tmp_path / "src" / "tree-moved" / "f.txt").read_text() == "tree"
+    assert (tmp_path / "secret" / "id_rsa").exists()
+
+
 async def test_trashing_or_moving_a_link_acts_on_the_link_not_what_it_points_to(tmp_path):
     import os
     from mei.capabilities.base import ActionContext

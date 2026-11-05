@@ -19,6 +19,7 @@ from pathlib import Path
 
 from mei.capabilities.base import RunResult, RunSpec
 
+from .run import user_manager
 from .watch import MAX_FOLDERS as MAX_WATCHED, SecretWatch
 
 BWRAP = "/usr/bin/bwrap"
@@ -36,7 +37,7 @@ class Sandbox:
 
     def __init__(self, bwrap: str = BWRAP, systemd_run: str = SYSTEMD_RUN) -> None:
         self._bwrap = bwrap if os.access(bwrap, os.X_OK) else None
-        self._scope = systemd_run if os.access(systemd_run, os.X_OK) and os.environ.get("XDG_RUNTIME_DIR") else None
+        self._scope = systemd_run if os.access(systemd_run, os.X_OK) and user_manager() else None
 
     def available(self, sandboxed: bool = True) -> bool:
         return self._bwrap is not None or not sandboxed
@@ -51,25 +52,41 @@ class Sandbox:
             cwd = "/"
         else:  # the child's copy of the held folder: the folder judged, whatever its path leads to now
             cwd = f"/proc/self/fd/{spec.cwd_fd}" if spec.cwd_fd is not None else str(spec.cwd)
-        proc = await asyncio.create_subprocess_exec(
-            *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-            cwd=cwd, env=_host_env() if not spec.sandboxed else _minimal_env(), start_new_session=True,
-            pass_fds=held)
         result = RunResult(None, b"", b"", 0, 0.0, spilled=spec.spill)
         watched = [(m.path, m.fd) for m in spec.mounts if m.fd is not None]
-        watch = SecretWatch(watched, spec.secret) if spec.secret is not None and watched else None
+        # Watching starts before the command does (decision 0016), so nothing it writes lands unseen;
+        # a secret already there that wasn't masked (it came after the look) stops it before it starts.
+        watch = SecretWatch(watched, spec.secret, frozenset(spec.hidden)) \
+            if spec.secret is not None and watched else None
+        if watch is not None:
+            watch.start()
+            if not watch.complete:
+                result.notes.append(f"Mei could watch only {MAX_WATCHED} folders for secret files appearing")
+            if watch.tripped.is_set():
+                watch.close()
+                result.secret_appeared = watch.found
+                return result
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT, cwd=cwd, env=_host_env() if not spec.sandboxed else _minimal_env(),
+                start_new_session=True, pass_fds=held)
+        except BaseException:
+            if watch is not None:
+                watch.close()
+            raise
         collect = asyncio.ensure_future(self._collect(proc, spec.spill, result))
         tripped = asyncio.ensure_future(watch.tripped.wait()) if watch is not None else None
         try:
-            if watch is not None:
-                watch.start()
-                if not watch.complete:
-                    result.notes.append(f"Mei could watch only {MAX_WATCHED} folders for secret files appearing")
             done, _ = await asyncio.wait({collect, *([tripped] if tripped else [])}, timeout=spec.timeout_s,
                                          return_when=asyncio.FIRST_COMPLETED)
             if collect in done:
                 collect.result()
                 result.exit_code = await proc.wait()
+                if watch is not None:
+                    watch.drain()  # a secret written just before the end counts, though the end was seen first
+                    if watch.tripped.is_set():
+                        result.secret_appeared = watch.found
             else:
                 if tripped is not None and tripped in done:
                     result.secret_appeared = watch.found

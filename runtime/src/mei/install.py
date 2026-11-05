@@ -5,6 +5,7 @@ by absolute path because the ones on PATH may be Homebrew's, Nix's, or conda's (
 """
 
 import asyncio
+import contextlib
 import fcntl
 import hashlib
 import os
@@ -38,6 +39,7 @@ class Paths:
     dbus_service: Path
     extensions: Path
     data: Path
+    workspaces: Path | None = None  # commands' scratch folders, in the cache (paths.workspaces_dir)
 
     @property
     def extension(self) -> Path:
@@ -48,7 +50,7 @@ def paths() -> Paths:
     return Paths(unit=xdg.config_home() / "systemd/user" / UNIT_NAME,
                  dbus_service=xdg.data_home() / "dbus-1/services" / f"{BUS_NAME}.service",
                  extensions=xdg.data_home() / "gnome-shell/extensions",
-                 data=xdg.data_dir())
+                 data=xdg.data_dir(), workspaces=xdg.workspaces_dir())
 
 
 def systemd_unit(python: str = sys.executable) -> str:
@@ -218,6 +220,19 @@ def _store_lock(data: Path) -> int | None:
     return fd
 
 
+def _remove_workspaces(folder: Path, r: Result) -> None:
+    """Delete the workspaces folder; a link there is removed, never followed (rmtree follows none)."""
+    if folder.is_symlink():
+        folder.unlink()
+    elif folder.exists():
+        shutil.rmtree(folder)
+    else:
+        return
+    r.say(f"deleted the files Mei's commands made in {folder}")
+    with contextlib.suppress(OSError):
+        folder.parent.rmdir()  # Mei's cache folder, if nothing else is in it
+
+
 def remove_service(host: Host, p: Paths, r: Result) -> None:
     host.systemctl("stop", UNIT_NAME)
     for path in (p.unit, p.dbus_service):
@@ -329,19 +344,22 @@ def uninstall(host: Host | None = None, *, purge: bool = False, p: Paths | None 
     if not purge:
         r.say(f"kept your conversations and settings in {p.data} (delete them with --purge)")
         return r
-    if p.data.exists():
-        # Only once no runtime holds the store (decision 0033): stopping the service can fail, and a
-        # runtime started some other way would go on writing to files being deleted under it.
-        lock = _store_lock(p.data)
-        if lock is None:
-            r.errors.append(f"Mei's runtime is still running, so its data in {p.data} was kept; stop it "
-                            f"(systemctl --user stop {UNIT_NAME}) and run uninstall --purge again")
-            return r
-        try:
+    # Only once no runtime holds the store (decision 0033): stopping the service can fail, and a
+    # runtime started some other way would go on writing to files being deleted under it.
+    lock = _store_lock(p.data) if p.data.exists() else -1
+    if lock is None:
+        r.errors.append(f"Mei's runtime is still running, so its data in {p.data} was kept; stop it "
+                        f"(systemctl --user stop {UNIT_NAME}) and run uninstall --purge again")
+        return r
+    try:
+        if p.data.exists():
             shutil.rmtree(p.data)
-        finally:
+            r.say(f"deleted Mei's data in {p.data}")
+        if p.workspaces is not None:  # files commands made, there even when the store is gone already
+            _remove_workspaces(p.workspaces, r)
+    finally:
+        if lock >= 0:
             os.close(lock)
-        r.say(f"deleted Mei's data in {p.data}")
     try:
         host.dconf_reset_dir(DCONF_DIR)
     except TOOL_ERRORS as e:

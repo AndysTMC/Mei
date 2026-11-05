@@ -20,6 +20,7 @@ from mei.core.states import Disposition
 
 if TYPE_CHECKING:
     from mei.computer.controller import Seen
+from mei.paths import workspaces_dir
 from mei.policy.paths import PathRules
 
 
@@ -278,7 +279,7 @@ class Env:
 
     def workspace(self, conversation_id: str) -> Path:
         """A conversation's scratch folder for commands: Mei's own, so changes there need no card."""
-        return (self.cache_home or self.home / ".cache") / "mei" / "workspaces" / conversation_id
+        return workspaces_dir(self.cache_home or self.home / ".cache") / conversation_id
 
     def artifacts(self, conversation_id: str) -> Path:
         """Where a conversation's large outputs are kept; deleted with the conversation."""

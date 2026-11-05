@@ -30,9 +30,12 @@ _libc = ctypes.CDLL(None, use_errno=True)
 
 
 class SecretWatch:
-    def __init__(self, folders: list[tuple[Path, int]], secret: Callable[[Path], bool]) -> None:
-        """`folders`: each folder's judged path and the descriptor holding it open."""
+    def __init__(self, folders: list[tuple[Path, int]], secret: Callable[[Path], bool],
+                 masked: frozenset[Path] = frozenset()) -> None:
+        """`folders`: each folder's judged path and the descriptor holding it open. `masked`: the
+        secrets the command won't see; any other already there landed after they were looked for."""
         self._secret = secret
+        self._masked = masked
         self._dirs: dict[int, Path] = {}  # watch → the folder's judged path (what a secret is judged by)
         self._reach: dict[int, str] = {}  # watch → how to reach it: through the held descriptor
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -42,12 +45,17 @@ class SecretWatch:
         self._fd = _libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
         if self._fd < 0:
             raise OSError(ctypes.get_errno(), "inotify_init1 failed")
-        for path, fd in folders:  # what is there now is masked already: only new names count
+        for path, fd in folders:  # watched before the command starts, then what is there is checked
             self._add_tree(f"/proc/self/fd/{fd}", path, new=False)
 
     def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._loop.add_reader(self._fd, self._read)
+
+    def drain(self) -> None:
+        """Take in what inotify has queued now (the command may have ended before it was read)."""
+        while self._fd >= 0 and self._read():
+            pass
 
     def close(self) -> None:
         if self._loop is not None:
@@ -65,8 +73,8 @@ class SecretWatch:
             base = shown if rel == "." else shown / rel
             if not self._add(here, base, root=here == real):
                 return
-            if new:
-                for name in [*dirs, *files]:
+            for name in [*dirs, *files]:
+                if new or base / name not in self._masked:
                     self._check(base / name)
             dirs[:] = [d for d in dirs if not self._secret(base / d)]
 
@@ -93,11 +101,12 @@ class SecretWatch:
             self.found = path
             self.tripped.set()
 
-    def _read(self) -> None:
+    def _read(self) -> bool:
+        """Handle one read's worth of events; False when there was nothing to read."""
         try:
             data = os.read(self._fd, 65536)
         except BlockingIOError:
-            return
+            return False
         offset = 0
         while offset + _EVENT.size <= len(data):
             wd, mask, _cookie, length = _EVENT.unpack_from(data, offset)
@@ -115,3 +124,4 @@ class SecretWatch:
             if mask & _IN_ISDIR and not self._secret(path):
                 # A folder made during the run: watch it, and look at what may already be inside.
                 self._add_tree(os.path.join(self._reach[wd], name), path, new=True)
+        return True

@@ -57,7 +57,8 @@ def env(tmp_path):
     (ext / "schemas/gschemas.compiled").write_bytes(b"\x00GVariant")
     p = Paths(unit=tmp_path / "config/systemd/user/mei-runtime.service",
               dbus_service=tmp_path / "data/dbus-1/services/com.andystmc.Mei1.service",
-              extensions=tmp_path / "data/gnome-shell/extensions", data=tmp_path / "data/mei")
+              extensions=tmp_path / "data/gnome-shell/extensions", data=tmp_path / "data/mei",
+              workspaces=tmp_path / "cache/mei/workspaces")
     return ext, p
 
 
@@ -197,6 +198,34 @@ def test_uninstall_keeps_data_unless_purged(env):
     assert not p.data.exists()
     assert ("dconf-reset", "/org/gnome/shell/extensions/mei/") in host.calls
     assert any("locked" in x for x in r.notes)
+
+
+def test_purge_deletes_what_commands_left_in_the_cache_too(env, tmp_path):
+    """Workspaces live in the cache, not the store; they go with --purge, even with no store left."""
+    _ext, p = env
+    p.data.mkdir(parents=True)
+    (p.workspaces / "c1").mkdir(parents=True)
+    (p.workspaces / "c1/out.txt").write_text("private")
+    install.uninstall(FakeHost(), p=p)
+    assert (p.workspaces / "c1/out.txt").exists()  # without --purge, kept with the data
+    r = install.uninstall(FakeHost(), purge=True, p=p)
+    assert not p.data.exists() and not p.workspaces.exists() and not p.workspaces.parent.exists()
+    assert not r.errors
+
+    (p.workspaces / "c2").mkdir(parents=True)  # left from before purge knew about them
+    install.uninstall(FakeHost(), purge=True, p=p)
+    assert not p.workspaces.exists()
+
+
+def test_purge_removes_a_linked_workspaces_folder_without_following_it(env, tmp_path):
+    _ext, p = env
+    elsewhere = tmp_path / "Projects"
+    elsewhere.mkdir()
+    (elsewhere / "keep.txt").write_text("mine")
+    p.workspaces.parent.mkdir(parents=True)
+    p.workspaces.symlink_to(elsewhere)
+    install.uninstall(FakeHost(), purge=True, p=p)
+    assert not p.workspaces.is_symlink() and (elsewhere / "keep.txt").read_text() == "mine"
 
 
 def test_purge_keeps_the_data_while_a_runtime_still_uses_it(env):
