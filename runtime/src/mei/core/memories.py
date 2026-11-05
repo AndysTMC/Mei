@@ -4,6 +4,7 @@ written when a task ends, and the person's own edits (§17)."""
 import json
 from collections.abc import Callable
 
+from mei.core.context import memory_may_leave, ran_locally
 from mei.protocol import Envelope
 from mei.store import memory as mem
 from mei.store.db import Store
@@ -46,15 +47,14 @@ def recall(store: Store, task, *, local_only_ok: bool) -> list[dict]:
     request = " ".join(r["content"] for r in store.read(
         "SELECT content FROM messages WHERE role = 'user' AND (id = ? OR task_id = ?)",
         (task["input_message_id"], task["id"])))
-    found = [r for r in mem.recall(store, request, limit=RECALL_LIMIT)
-             if local_only_ok or r["sensitivity"] != "local_only"]
+    found = [r for r in mem.recall(store, request, limit=RECALL_LIMIT) if local_only_ok or memory_may_leave(store, r)]
     ids = [r["id"] for r in found]  # what the request brought up: for policy, the person's words (§17.5)
     # Matching words alone find nothing for a question about the person in general (decision 0035: "Do you
     # know what I like?" against "I love Android", "What do you know about me?" against everything). The
     # places words leave are filled with what matters most anyway. Shown, not vouched for: only what the
     # request matched counts as the person's words.
     found += [r for r in mem.best_known(store, exclude=ids, limit=RECALL_LIMIT - len(found))
-              if local_only_ok or r["sensitivity"] != "local_only"]
+              if local_only_ok or memory_may_leave(store, r)]
     previous = json.loads(task["recalled"])
     if set(ids) - set(previous):
         with store.tx() as tx:
@@ -64,10 +64,13 @@ def recall(store: Store, task, *, local_only_ok: bool) -> list[dict]:
     return [mem.memory_view(r) for r in found]
 
 
-def episodes(store: Store, task) -> list[dict]:
+def episodes(store: Store, task, *, cloud: bool = False) -> list[dict]:
+    """Earlier tasks like this one. For a cloud model, not those a local model answered (decision 0042)."""
     request = store.read_one("SELECT content FROM messages WHERE id = ?", (task["input_message_id"],))["content"]
-    return [dict(r) for r in mem.episodes(store, request, limit=EPISODE_LIMIT,
-                                          exclude_conversation=task["conversation_id"])]
+    found = [dict(r) for r in mem.episodes(store, request, limit=EPISODE_LIMIT,
+                                           exclude_conversation=task["conversation_id"])]
+    local = ran_locally(store, [e["task_id"] for e in found]) if cloud else set()
+    return [e for e in found if e["task_id"] not in local]
 
 
 def stated(store: Store, task) -> list[str]:

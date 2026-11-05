@@ -96,7 +96,8 @@ class HistorySearch(Capability):
                  f"{' '.join(h['content'].split())[:300]}" for h in found]
         # Replies in old conversations may quote documents: data, not instructions.
         return ActionResult(ok=True, observation="\n".join(lines) or "No earlier conversation mentions that.",
-                            summary=f"Searched earlier conversations ({len(found)} found)", trust="untrusted")
+                            summary=f"Searched earlier conversations ({len(found)} found)", trust="untrusted",
+                            from_tasks=[h["task_id"] for h in found if h["role"] == "assistant" and h.get("task_id")])
 
 
 class ForgetParams(msgspec.Struct, kw_only=True):

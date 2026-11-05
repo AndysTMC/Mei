@@ -185,7 +185,7 @@ def search_history(store: Store, text: str, *, limit: int = 10) -> list:
     query = fts_query(text)
     if not query:
         return []
-    return store.read("SELECT m.content, m.role, m.created_at, c.title, c.id AS conversation_id "
+    return store.read("SELECT m.content, m.role, m.created_at, m.task_id, c.title, c.id AS conversation_id "
                       "FROM messages_fts f JOIN messages m ON m.rowid = f.rowid "
                       "JOIN conversations c ON c.id = m.conversation_id "
                       "WHERE messages_fts MATCH ? ORDER BY bm25(messages_fts) LIMIT ?", (query, limit))

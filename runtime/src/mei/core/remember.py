@@ -3,8 +3,10 @@
 A saved memory is replayed into every future prompt, so a poisoned one is a long-lived injection.
 The rules therefore go by where the words came from, not by what the model says:
 
+- the task read content others wrote → *pending review*, whatever the words: that content can steer
+  how the model puts the person's own words ("do not delete reports" saved as "delete reports"), and
+  sharing words can't tell the two apart (decision 0041). Keeping it in review is the person's say;
 - the person's own words in this task carry it → active, *user-stated*;
-- the task read content others wrote and the person's words don't carry it → *pending review*;
 - otherwise it's the model's inference → active and labelled *inferred* when automatic saving is
   on, pending review when it's off (unless the person asked Mei to remember).
 
@@ -35,11 +37,11 @@ def judge(text: str, user_texts: list[str], *, tainted: bool, auto_save: bool) -
         return Verdict("refused", "inferred", f"a memory is one fact, up to {MAX_CHARS} characters")
     if redact(text) != text:
         return Verdict("refused", "inferred", "it looks like a secret (a key or token); Mei never stores those")
-    if support(text, user_texts) >= SUPPORTED:
-        return Verdict("active", "user_stated", "the person said it")
-    if tainted:
+    if tainted:  # first: word overlap is no proof once something others wrote is in the task
         return Verdict("pending_review", "untrusted", "it may have come from something Mei read, so the person "
                                                       "reviews it first")
+    if support(text, user_texts) >= SUPPORTED:
+        return Verdict("active", "user_stated", "the person said it")
     if auto_save or any(_ASKED.search(t) for t in user_texts):
         return Verdict("active", "inferred", "inferred from the conversation")
     return Verdict("pending_review", "inferred", "automatic saving is off, so the person reviews it first")

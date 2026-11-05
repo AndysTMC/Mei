@@ -39,3 +39,5 @@
 | 0038 | Every request gets a reply, in the order things were said; Chrome's tree is woken | accepted | 2026-10-29 | — |
 | 0039 | One switch decides whether Mei looks at the screen without asking; a screen button beside Live | accepted | 2026-11-05 | 0029, 0035 (in part: Live and "Hey Mei" looked without asking) |
 | 0040 | The Live bar: dots that follow how loud the person or Mei is, a look per state, bounded by construction | accepted | 2026-11-05 | — |
+| 0041 | In a task that read content others wrote, a memory waits for the person; keeping it makes it theirs | accepted | 2026-11-05 | 0012 (in part: word overlap made a memory user-stated in a task that had read others' content) |
+| 0042 | What a model on this computer wrote stays off cloud models (interim, until text carries where it came from) | accepted | 2026-11-05 | — |

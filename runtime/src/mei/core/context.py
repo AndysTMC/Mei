@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import msgspec
+
 from mei.capabilities.base import Env
 from mei.capabilities.registry import Registry
 from mei.obs import redact
@@ -46,6 +48,36 @@ def is_cloud(cfg: ProviderConfig) -> bool:
     if profile is None or profile.type == "cloud":
         return True
     return not is_loopback_url(cfg.url.strip() or profile.chat_url)
+
+
+# What a cloud model gets in place of an earlier reply a model on this computer wrote (decision 0042).
+LOCAL_REPLY = "[A reply from a model on this computer, kept off cloud models.]"
+
+
+def ran_locally(store: Store, task_ids) -> set[str]:
+    """Of these tasks, those a model on this computer ran (decision 0042): what it wrote may hold what
+    it read under the person's privacy choices, so it stays off cloud models. A task whose provider
+    can't be read counts as local."""
+    ids = tuple({t for t in task_ids if t})
+    if not ids:
+        return set()
+    rows = store.read(f"SELECT id, provider FROM tasks WHERE id IN ({','.join('?' for _ in ids)})", ids)
+    local = set()
+    for r in rows:
+        try:
+            if not is_cloud(msgspec.convert(json.loads(r["provider"]), ProviderConfig)):
+                local.add(r["id"])
+        except (ValueError, TypeError, msgspec.ValidationError):
+            local.add(r["id"])
+    return local
+
+
+def memory_may_leave(store: Store, memory) -> bool:
+    """May a cloud model see this memory? Not one marked local-only, nor one a model on this computer
+    inferred (decision 0042): the person's own words, or ones they kept, go."""
+    if memory["sensitivity"] == "local_only":
+        return False
+    return memory["provenance"] == "user_stated" or not ran_locally(store, [memory["source_task_id"]])
 
 
 def is_loopback_url(url: str) -> bool:
@@ -153,6 +185,8 @@ def _size(turn: ChatTurn) -> int:
 
 def _earlier(inputs: Inputs, rows: list) -> list[ChatTurn]:
     done = _done_by_task(inputs, {r["task_id"] for r in rows if r["task_id"]})
+    local = ran_locally(inputs.store, {r["task_id"] for r in rows if r["role"] == "assistant"}) \
+        if is_cloud(inputs.provider) else set()
     last_answer: dict[str, int] = {}
     for i, r in enumerate(rows):
         if r["role"] == "assistant" and not r["tool_calls"] and r["task_id"]:
@@ -165,7 +199,7 @@ def _earlier(inputs: Inputs, rows: list) -> list[ChatTurn]:
             note = ""
             if r["task_id"] and last_answer.get(r["task_id"]) == i and done.get(r["task_id"]):
                 note = "\n\n[What Mei did: " + "; ".join(done[r["task_id"]]) + "]"
-            turns.append(ChatTurn("assistant", r["content"] + note))
+            turns.append(ChatTurn("assistant", (LOCAL_REPLY if r["task_id"] in local else r["content"]) + note))
     return turns
 
 
@@ -281,6 +315,11 @@ def _tool_turn(inputs: Inputs, action, message, *, picture: bool = False) -> Cha
 def _may_send(inputs: Inputs, action, result: dict) -> bool:
     if not is_cloud(inputs.provider):
         return True
+    quoted = result.get("from_tasks")
+    if quoted is None and action["capability"] == "history.search":
+        return False  # from before searches said whose replies they quote
+    if quoted and ran_locally(inputs.store, quoted):
+        return False
     memory_ids = result.get("memory_ids")
     resources = json.loads(action["resources"] or "[]")
     judged_memories = [r["value"] for r in resources if r.get("kind") == "memory"]
@@ -296,9 +335,10 @@ def _may_send(inputs: Inputs, action, result: dict) -> bool:
         if not isinstance(memory_ids, list) or any(not isinstance(i, str) for i in memory_ids):
             return False
         for memory_id in set(memory_ids + judged_memories):
-            row = inputs.store.read_one("SELECT sensitivity FROM memories WHERE id = ?", (memory_id,))
-            if row is None or row["sensitivity"] == "local_only":
-                return False  # deleted or local-only: an old summary cannot override that choice
+            row = inputs.store.read_one("SELECT sensitivity, provenance, source_task_id FROM memories WHERE id = ?",
+                                        (memory_id,))
+            if row is None or not memory_may_leave(inputs.store, row):
+                return False  # deleted, local-only, or a local model's: an old summary cannot override that
     if result.get("data_class") not in ("file_content", "clipboard"):
         return True
     choice = inputs.privacy.cloud_files

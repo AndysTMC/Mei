@@ -189,6 +189,19 @@ def test_reading_start_up_files_is_fine_writing_them_asks():
     assert decide(write, "hands_off", [grant]).reason == "runs_code"
 
 
+@pytest.mark.parametrize("effects", [Effects(mutates="unknown"), Effects(mutates="local", loses_data=True),
+                                     Effects(mutates="local", visibility="others")])
+@pytest.mark.parametrize("path,reason", [("~/.config/autostart", "runs_code"), ("~/Documents", "protected_folder")])
+def test_floors_hold_whatever_else_the_action_does(effects, path, reason):
+    """A task grant for a command that loses data (or has an unknown effect) never covers writing a
+    startup or protected folder: those ask every time."""
+    f = facts(subject(path, provenance="user", role="folder"), effects=effects, capability="shell.run")
+    task_grant = Grant("g", "shell.run", rules_for(f.subjects), task_id="t1")
+    for grants in ((), (task_grant,)):
+        d = decide(f, "hands_off", grants)
+        assert (d.decision, d.reason, d.scopes) == ("ask", reason, ("once",))
+
+
 @pytest.mark.parametrize("preset", PRESETS)
 def test_data_loss_asks_and_only_a_task_grant_covers_it(preset):
     f = facts(subject("~/Projects/site", provenance="user"), effects=Effects(mutates="local", loses_data=True),

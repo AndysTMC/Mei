@@ -18,7 +18,8 @@ from pathlib import Path
 
 import msgspec
 
-from mei.capabilities.base import ActionContext, ActionResult, Capability, CapabilityError, CheckResult, Env
+from mei.capabilities.base import (CONTENT_CLASSES, ActionContext, ActionResult, Capability, CapabilityError,
+                                  CheckResult, Env)
 from mei.capabilities.computer import HANDOFF_DONE, HANDOFF_SKIP
 from mei.capabilities.registry import Registry
 from mei.core.states import ACTION_TERMINAL, TERMINAL, Disposition, Execution, TaskState, Verification
@@ -114,7 +115,7 @@ class TaskLoop:
         earlier: list[dict] = []
         if config.memory.enabled:
             recalled = memories.recall(store, task, local_only_ok=not context.is_cloud(cfg))
-            earlier = memories.episodes(store, task)
+            earlier = memories.episodes(store, task, cloud=context.is_cloud(cfg))
         request = context.build(context.Inputs(
             store, self.d.env, self.d.registry, config.privacy, cfg, self.d.now(), memories=tuple(recalled),
             episodes=tuple(earlier), hidden_tools=hidden_tools(config)), task)
@@ -239,7 +240,7 @@ class TaskLoop:
         for r in rows:
             result = json.loads(r["result"])
             if result.get("trust") == "untrusted":
-                (content if result.get("data_class") in ("file_content", "screen") else other).append(r["content"])
+                (content if result.get("data_class") in CONTENT_CLASSES else other).append(r["content"])
         return decide.Seen(texts, content, other, workspace=self.d.env.workspace(task["conversation_id"]),
                            pointed=pointed)
 
@@ -529,8 +530,8 @@ class TaskLoop:
                                  verification=check.status if check else V.NOT_APPLICABLE,
                                  disposition=Disposition.CONFIRMED if result.ok and mutating else Disposition.NONE,
                                  error=None if result.ok else result.observation[:500])
-            # Content others wrote (a document, a screen) taints the task; a folder listing doesn't.
-            taints = result.trust == "untrusted" and result.data_class in ("file_content", "screen")
+            # Content others wrote (a document, the clipboard, a screen) taints the task; a listing doesn't.
+            taints = result.trust == "untrusted" and result.data_class in CONTENT_CLASSES
             tx.execute("UPDATE tasks SET active_ms = active_ms + ?, tainted = MAX(tainted, ?) WHERE id = ?",
                        (elapsed_ms, int(taints), task["id"]))
         self.d.publish(tx.events)

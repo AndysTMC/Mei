@@ -283,4 +283,12 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE grants ADD COLUMN discloses INTEGER NOT NULL DEFAULT 0
     """,
+    # 8: a memory saved as user-stated in a task that had read content others wrote went by word
+    # overlap alone (decision 0041). Those go back to the person's review; keeping one makes it
+    # theirs again. Memories whose task is gone can't be told apart and are left as they are.
+    """
+    UPDATE memories SET status = 'pending_review', provenance = 'untrusted'
+        WHERE status = 'active' AND provenance = 'user_stated'
+          AND source_task_id IN (SELECT id FROM tasks WHERE tainted = 1)
+    """,
 ]

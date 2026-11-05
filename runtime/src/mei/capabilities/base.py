@@ -48,6 +48,9 @@ class Resource(msgspec.Struct, frozen=True, kw_only=True):
 
 
 DataClass = Literal["none", "metadata", "file_content", "clipboard", "settings", "memory", "screen"]
+# What others wrote, where instructions hide: reading it (untrusted) taints the task (§18.4), and the
+# policy weighs a path against it as content rather than as a name in a listing.
+CONTENT_CLASSES = frozenset({"file_content", "clipboard", "screen"})
 # changed: what policy judged isn't what the path leads to any more (a folder on the way became a link).
 ErrorClass = Literal["", "invalid", "not_found", "exists", "permission", "unavailable", "failed", "timeout", "changed"]
 
@@ -68,6 +71,9 @@ class ActionResult(msgspec.Struct, kw_only=True):
     sources: list[str] = msgspec.field(default_factory=list)  # paths whose content is in the observation
     # Internal disclosure provenance, not part of ActionView. None: older/untracked result; []: no memory text.
     memory_ids: list[str] | None = None
+    # Internal too: the tasks whose replies the observation quotes (history.search). None: older or
+    # not a quote. A local model's replies stay off cloud models (decision 0042).
+    from_tasks: list[str] | None = None
     images: list[str] = msgspec.field(default_factory=list)  # base64 PNGs (desktop.observe's picture)
     # Set: a step only the person may do (a password field). The task waits for them to say it's done.
     handoff: str = ""

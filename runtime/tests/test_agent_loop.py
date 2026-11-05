@@ -3,6 +3,7 @@ home (§20 "Loop" layer): outcomes, approvals, steering, cancelling, policy, and
 
 import asyncio
 import datetime
+import json
 import os
 
 import pytest
@@ -358,6 +359,44 @@ async def test_the_time_allowance_is_checked_before_each_action_in_a_batch(tmp_p
 
 
 # ── Disclosure to cloud models (§13.5) ──────────────────────────────────────
+
+
+def to_cloud(h: Harness) -> None:
+    """The person switches Mei to a cloud model in Settings."""
+    import msgspec
+    from mei.protocol import UpdateConfigArgs
+    config = h.engine.get_config()
+    doc = config["config"] if isinstance(config.get("config"), dict) else msgspec.to_builtins(config["config"])
+    doc["providers"]["fake"]["options"]["cloud"] = True
+    h.engine.update_config(msgspec.convert({"revision": config["revision"], "config": doc}, UpdateConfigArgs))
+
+
+async def test_what_a_local_model_wrote_stays_off_a_cloud_model_later(tmp_path):
+    """F03: with files kept off cloud models, a local model reads a private file and says what's in it.
+    After a switch to a cloud model, neither the old reply, nor its episode, nor a history search, nor a
+    memory the local model inferred brings it there (decision 0042). The person's own words still go."""
+    from mei.store import memory as mem
+    h = Harness(tmp_path, cloud_files="never", scripts={
+        "what is the project code": [turn(call("fs_read_text", path="~/Projects/p/code.txt")),
+                                     {"text": "The project code is MARKER-77."}],
+        "and now": [{"text": "ok"}],
+        "the project code again": [turn(call("history_search", query="project code")), {"text": "ok"}]})
+    put(h.env, "~/Projects/p/code.txt", "MARKER-77")
+    r = h.submit("what is the project code in ~/Projects/p/code.txt?")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    with h.store.tx() as tx:
+        mem.add_memory(tx, "The project code is MARKER-77", provenance="inferred", status="active",
+                       task_id=r["task_id"], conversation_id=r["conversation_id"])
+    to_cloud(h)
+    same = h.submit("and now?", conversation_id=r["conversation_id"])
+    assert await h.until(same["task_id"]) == S.COMPLETED
+    other = h.submit("the project code again?")
+    assert await h.until(other["task_id"]) == S.COMPLETED
+    cloud_requests = h.requests()[-3:]
+    sent = json.dumps(cloud_requests)
+    assert "MARKER-77" not in sent
+    assert context.LOCAL_REPLY in json.dumps(cloud_requests[0])
+    assert "what is the project code in ~/Projects/p/code.txt?" in json.dumps(cloud_requests[0])  # the person's words
 
 
 @pytest.mark.parametrize("cloud,setting,path,sent", [

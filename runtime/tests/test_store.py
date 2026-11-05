@@ -72,6 +72,32 @@ def test_the_agent_migration_keeps_existing_chats(tmp_path, monkeypatch):
     store.close()
 
 
+def test_memories_said_in_a_task_that_read_others_content_go_back_to_review(tmp_path, monkeypatch):
+    """Migration 8 (decision 0041): word overlap made them user-stated; the person reviews them now."""
+    from mei.store import db as db_mod
+    from mei.store import memory as mem
+    monkeypatch.setattr(db_mod, "MIGRATIONS", MIGRATIONS[:7])
+    old = Store(tmp_path)
+    ids = {}
+    with old.tx() as tx:
+        conv = repo.create_conversation(tx, "hi")
+        for name, tainted in (("read", 1), ("clean", 0)):
+            msg = repo.add_message(tx, conv["id"], "user", name)
+            task = repo.create_task(tx, conv["id"], msg["id"], {"id": "p"})
+            tx.execute("UPDATE tasks SET tainted = ? WHERE id = ?", (tainted, task["id"]))
+            ids[name] = mem.add_memory(tx, f"Fact from the {name} task", provenance="user_stated", status="active",
+                                       task_id=task["id"], conversation_id=conv["id"])["id"]
+        ids["gone"] = mem.add_memory(tx, "Fact whose task is gone", provenance="user_stated", status="active",
+                                     task_id="deleted-task", conversation_id=None)["id"]
+    old.close()
+    monkeypatch.undo()
+    store = Store(tmp_path)
+    rows = {r["id"]: (r["status"], r["provenance"]) for r in store.read("SELECT id, status, provenance FROM memories")}
+    assert rows[ids["read"]] == ("pending_review", "untrusted")
+    assert rows[ids["clean"]] == ("active", "user_stated") and rows[ids["gone"]] == ("active", "user_stated")
+    store.close()
+
+
 def test_new_epoch_each_open(tmp_path):
     a = Store(tmp_path)
     epoch_a = a.epoch

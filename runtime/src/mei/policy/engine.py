@@ -107,6 +107,14 @@ def evaluate(facts: Facts, preset: Preset, grants: list[Grant], rules: PathRules
         return Decision("allow", "read_only")
     if not facts.subjects:
         return _ask("no_resources", preset, floor=True)  # nothing to judge it by: never on autopilot
+    # Floors come before anything that could allow: whatever else the action does (loses data, has an
+    # unknown effect, is seen by others), writing a folder Mei protects or one that runs code asks
+    # each time, and no grant covers it.
+    writes = [Path(s.value) for s in facts.subjects if s.kind == "path" and s.access == "write"]
+    if any(rules.protected(p) for p in writes):
+        return _ask("protected_folder", preset, floor=True)
+    if any(rules.runs_code(p) for p in writes):
+        return _ask("runs_code", preset, floor=True)
     grant = next((g for g in grants if covers(g, facts)), None)
     task_grant = grant if grant is not None and grant.task_id is not None else None
     untrusted = any(s.provenance == "untrusted" or (facts.tainted and s.provenance == "model") for s in facts.subjects)
@@ -126,11 +134,6 @@ def evaluate(facts: Facts, preset: Preset, grants: list[Grant], rules: PathRules
         return _granted(task_grant) or _ask("loses_data", preset, scopes=("once", "task"))
     if e.visibility == "others":
         return _granted(task_grant) or _ask("visible_to_others", preset, scopes=("once", "task"))
-    writes = [Path(s.value) for s in facts.subjects if s.kind == "path" and s.access == "write"]
-    if any(rules.protected(p) for p in writes):
-        return _ask("protected_folder", preset, floor=True)
-    if any(rules.runs_code(p) for p in writes):
-        return _ask("runs_code", preset, floor=True)
     if grant is not None:
         return _granted(grant)
     if e.mutates == "local":

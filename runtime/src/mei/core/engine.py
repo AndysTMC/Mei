@@ -348,6 +348,8 @@ class Engine:
             fields = {**patch, "pinned": int(patch["pinned"])} if "pinned" in patch else dict(patch)
             if "text" in fields:
                 fields["provenance"] = "user_stated"  # the person wrote it now
+            elif fields.get("status") == "active" and row["status"] == "pending_review":
+                fields["provenance"] = "user_stated"  # the person kept it: their say, as if they'd said it (0041)
             view = mem.update_memory(tx, args.memory_id, **fields) if fields else mem.memory_view(row)
             return {"memory": view}, []
 
