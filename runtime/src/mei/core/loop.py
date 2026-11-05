@@ -166,8 +166,10 @@ class TaskLoop:
                                                                                "its criteria"), text="")
         self.d.publish(tx.events)
 
-    def _ask_to_continue(self, task) -> bool:
-        over_calls = task["model_calls"] >= task["call_budget"]
+    def _ask_to_continue(self, task, *, steps: bool = True) -> bool:
+        """Over the task's allowance of steps or working time: ask whether to go on. In a batch only the
+        time counts (`steps` False): the step that made the batch was within its allowance."""
+        over_calls = steps and task["model_calls"] >= task["call_budget"]
         if not over_calls and task["active_ms"] < task["time_budget_ms"]:
             return False
         question = (f"Mei has taken {task['model_calls']} steps on this task. Keep going?" if over_calls else
@@ -197,6 +199,10 @@ class TaskLoop:
                     ledger.skip_rest(tx, repo.task_dict(task), batch["id"], "the person sent a new message first")
                 self.d.publish(tx.events)
                 return True
+            # Each action starts within the working-time allowance, not only the batch: the cursor
+            # stays here, and "Keep going" carries on from it.
+            if state in (E.PROPOSED, E.AUTHORIZED) and self._ask_to_continue(task, steps=False):
+                return False
             if state == E.PROPOSED:
                 state = self._decide(task, batch, action)
             if state == E.AWAITING_APPROVAL:

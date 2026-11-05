@@ -115,6 +115,34 @@ test('a conflict replays only this client\'s field change, keeping another clien
     assert.equal(saved.model, 'changed-elsewhere');
 });
 
+test('a change made while a conflict is being resolved is kept, not undone', async () => {
+    const rt = fakeRuntime({ ...BASE, computer: { see_without_asking: true } });
+    let release: () => void = () => {};
+    let gate: Promise<void> | null = null;
+    const call = async <T>(method: string, args: object = {}): Promise<T> => {
+        if (method === 'GetConfig' && gate) await gate;
+        return rt.call<T>(method, args);
+    };
+    const settings = new RuntimeSettings(call);
+    await settings.reload();
+    gate = new Promise(resolve => {
+        release = resolve;
+    });
+    rt.remote(d => {
+        (d as Doc).providers.gemini.model = 'changed-elsewhere';
+    });
+    settings.setProviderField('gemini', 'url', 'https://proxy.test/v1beta'); // conflicts; reading the fresh copy waits
+    await flush();
+    settings.setSeeWithoutAsking(false); // the person turns screen access off meanwhile
+    release();
+    await settings.flushed();
+    assert.equal(settings.seeWithoutAsking, false);
+    const saved = rt.doc as Doc & { computer: { see_without_asking: boolean } };
+    assert.equal(saved.computer.see_without_asking, false);
+    assert.equal(saved.providers.gemini.url, 'https://proxy.test/v1beta');
+    assert.equal(saved.providers.gemini.model, 'changed-elsewhere');
+});
+
 test('a remote change is announced by key', async () => {
     const rt = fakeRuntime(BASE);
     const settings = new RuntimeSettings(rt.call);

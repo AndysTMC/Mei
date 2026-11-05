@@ -1,11 +1,13 @@
 """The agent loop end to end with a scripted model and the real file capabilities in a temporary
 home (§20 "Loop" layer): outcomes, approvals, steering, cancelling, policy, and disclosure."""
 
+import asyncio
 import datetime
 import os
 
 import pytest
 
+from mei.capabilities.base import RunResult
 from mei.core import context
 from mei.core.states import Execution, TaskState
 from mei.store import agent
@@ -326,6 +328,33 @@ async def test_the_step_budget_asks_before_continuing(tmp_path):
     assert h.task(r["task_id"])["state"] == S.WAITING_INPUT and len(h.requests()) == 25
     h.answer(r["task_id"], "Stop")
     assert await h.until(r["task_id"]) == S.BLOCKED
+
+
+async def test_the_time_allowance_is_checked_before_each_action_in_a_batch(tmp_path):
+    """One reply asking for several slow commands doesn't run them all past the allowance."""
+    class SlowRunner:
+        ran: list[str] = []
+
+        def available(self, **_):
+            return True
+
+        async def run(self, spec):
+            self.ran.append(spec.command)
+            await asyncio.sleep(0.06)
+            return RunResult(0, b"ok", b"", 2, 0.06)
+
+    env = make_world(tmp_path)
+    env.runner = SlowRunner()
+    h = Harness(tmp_path, env=env, script=[turn(*[call("shell_run", command=f"step {i}") for i in range(3)]),
+                                           {"text": "Done."}])
+    r = h.submit("do the three steps")
+    with h.store.tx() as tx:
+        tx.execute("UPDATE tasks SET time_budget_ms = 30 WHERE id = ?", (r["task_id"],))
+    assert await h.until(r["task_id"]) == S.WAITING_INPUT
+    assert env.runner.ran == ["step 0"]  # the second asks first
+    h.answer(r["task_id"], "Keep going")
+    assert await h.until(r["task_id"]) == S.COMPLETED
+    assert env.runner.ran == ["step 0", "step 1", "step 2"]
 
 
 # ── Disclosure to cloud models (§13.5) ──────────────────────────────────────

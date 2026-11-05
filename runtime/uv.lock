@@ -293,6 +293,7 @@ voice = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "numpy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
@@ -311,6 +312,7 @@ provides-extras = ["voice"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "numpy", specifier = ">=2,<3" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
 ]

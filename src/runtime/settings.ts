@@ -69,10 +69,16 @@ export class RuntimeSettings {
 
     applyRemote(reply: ConfigReply): void {
         if (reply.revision <= this._revision && this.loaded) return;
+        this._adopt(reply);
+    }
+
+    /** Take the runtime's copy and redo on it every change not saved yet: the batch being sent and
+     * any made since (while a save or a conflict's read was under way), so none is lost. */
+    private _adopt(reply: ConfigReply): void {
         const before = KEYS.map(key => this._snapshot(key));
         this._doc = normalize(reply.config);
         this._revision = reply.revision;
-        for (const change of [...this._sending, ...this._pending]) change(this._doc); // not saved yet: keep showing them
+        for (const change of [...this._sending, ...this._pending]) change(this._doc);
         KEYS.forEach((key, i) => {
             if (this._snapshot(key) !== before[i]) this._emit(key);
         });
@@ -355,10 +361,7 @@ export class RuntimeSettings {
             }
             // Someone else saved first: take their copy and replay our field changes on top.
             try {
-                const fresh = await this._call<ConfigReply>('GetConfig');
-                this._doc = normalize(fresh.config);
-                this._revision = fresh.revision;
-                changes.forEach(change => change(this._doc));
+                this._adopt(await this._call<ConfigReply>('GetConfig'));
             } catch (e) {
                 this._hold(changes, (e as Error).message);
                 return;

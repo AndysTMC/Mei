@@ -22,7 +22,7 @@ voice = ["sherpa-onnx==1.13.8", "sherpa-onnx-core==1.13.8", "numpy>=2,<3"]  # -c
 mei-runtime = "mei.__main__:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "numpy>=2,<3"]  # numpy: the voice tests build audio, with or without the voice extra
 
 [build-system]
 requires = ["hatchling"]

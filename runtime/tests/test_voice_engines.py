@@ -10,11 +10,13 @@ import typing
 import numpy as np
 import pytest
 
-from mei.protocol import VoiceSettings
-from mei.voice import build, engines
-from mei.voice.cleanup import Chain, Rules
-from mei.voice.models import GTCRN, KOKORO, KROKO, KWS, PIPER, SILERO
-from mei.voice.turns import WAIT, WordTurn
+pytest.importorskip("sherpa_onnx")  # the voice extra: building engines loads it
+
+from mei.protocol import VoiceSettings  # noqa: E402
+from mei.voice import build, engines  # noqa: E402
+from mei.voice.cleanup import Chain, Rules  # noqa: E402
+from mei.voice.models import GTCRN, KOKORO, KROKO, KWS, PIPER, SILERO  # noqa: E402
+from mei.voice.turns import WAIT, WordTurn  # noqa: E402
 
 
 def _choices(field: str) -> set[str]:

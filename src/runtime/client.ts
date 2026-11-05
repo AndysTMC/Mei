@@ -67,6 +67,8 @@ export class RuntimeClient {
     private _generation = 0;
     private _destroyed = false;
     private _owner: string | null = null;
+    /** Why this runtime can't be used (an event this extension doesn't know but must), until the next attach. */
+    private _incompatible: string | null = null;
 
     /** `_bridge`: the Shell bridge's object path, offered in Hello; empty for clients without one. */
     constructor(private readonly _cursor: () => number, private readonly _bridge = '') {}
@@ -136,6 +138,7 @@ export class RuntimeClient {
         const generation = ++this._generation;
         this._attaching = true;
         this._buffer = [];
+        this._incompatible = null;
         this.onStatus?.('connecting');
         try {
             const hello = await this.call<HelloReply>('Hello', {
@@ -147,6 +150,13 @@ export class RuntimeClient {
             const reply = await this.call<AttachReply>('Attach', { scope: 'all', after_seq: this._cursor() });
             if (generation !== this._generation) return;
             this._attaching = false;
+            // Replayed events pass the same check as live ones, and either stops the connection.
+            for (const event of reply.events ?? []) this._check(event);
+            if (this._incompatible) {
+                this._buffer = [];
+                this.onStatus?.('incompatible', this._incompatible);
+                return;
+            }
             this.onAttached?.(reply, hello);
             const buffered = this._buffer;
             this._buffer = [];
@@ -177,8 +187,9 @@ export class RuntimeClient {
             Logger.warn(Tag.Extension, `Ignoring malformed runtime event: ${e}`);
             return;
         }
-        if (!KNOWN_EVENTS.has(event.type) && event.required) {
-            this.onStatus?.('incompatible', `Unknown required event ${event.type}; update Mei.`);
+        const was = this._incompatible;
+        if (!this._check(event)) {
+            if (!was && !this._attaching) this.onStatus?.('incompatible', this._incompatible!);
             return;
         }
         // Any other event a newer runtime sends goes on: the projection skips it but counts its seq, so
@@ -188,6 +199,14 @@ export class RuntimeClient {
             return;
         }
         this.onEvent?.(event);
+    }
+
+    /** False once an event this extension doesn't know is marked required: nothing more is applied
+     * until a fresh attach, and the status says to update Mei. */
+    private _check(event: Envelope): boolean {
+        if (!this._incompatible && !KNOWN_EVENTS.has(event.type) && event.required)
+            this._incompatible = `Unknown required event ${event.type}; update Mei.`;
+        return this._incompatible === null;
     }
 
     private _onVanished(): void {
