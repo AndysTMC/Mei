@@ -1,45 +1,47 @@
 {
     "version": 1,
     "name": "Mei",
-    "tagline": "A GNOME Shell assistant powered by LLMs",
-    "description": "Mei is a GNOME Shell 50 extension that puts an assistant on the top panel. It talks to local servers (Ollama, llama.cpp, LM Studio) and cloud APIs (OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter, OpenCode, GitHub Models, plus any OpenAI-compatible URL), streams replies in the expanded popup, and renders Markdown with native St widgets. Provider settings live in GSettings. API keys go to libsecret with a GSettings fallback. Chats and logs stay in XDG user directories. The longer vision is a Gemini-like assistant, in the spirit of Hermes Agent, that understands intent, interacts with the system, and helps finish tasks.",
-    "tags": ["GNOME", "AI assistant", "LLM", "desktop", "chat"],
-    "skills": ["TypeScript", "JavaScript", "Node.js", "GTK", "GJS", "esbuild"],
+    "tagline": "An assistant built into the GNOME desktop that does things, not only chats",
+    "description": "Mei is a GNOME Shell 50 extension and a Python runtime that together act as an everyday desktop assistant. You ask from the top bar, a shortcut, or by voice; Mei plans, uses 34 tools (files, apps and windows, desktop settings, sandboxed commands, memory, the clipboard, media, and the screen through accessibility), and asks in plain words before anything that changes your computer. It works with local models (Ollama, llama.cpp, LM Studio) and cloud APIs (OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter, OpenCode, GitHub Models, any OpenAI-compatible URL). Voice runs on the computer: wake word, Live conversation with barge-in, dictation and read-aloud. Keys stay in the keyring; content from files and pages is treated as data, never as instructions.",
+    "tags": ["GNOME", "AI assistant", "agent", "desktop", "voice", "accessibility", "privacy"],
+    "skills": ["TypeScript", "GJS", "Python", "asyncio", "SQLite", "D-Bus", "bubblewrap", "AT-SPI", "PipeWire", "ONNX Runtime", "esbuild"],
     "highlights": [
-        "Ships as GNOME Shell extension mei@andystmc.com targeting Shell 50, built to dist/extension.js and dist/prefs.js",
-        "Twelve backends share one Provider.sendMessage interface, with live model-list fetch in prefs and the popup",
-        "Native St Markdown renderer covers headings, lists, tables, code, math, footnotes, and sanitized http/https/mailto links",
-        "48 Node regression tests cover catalog, payloads, streaming parsers, Markdown, and GSettings identity",
-        "API keys migrate to libsecret (schema com.andystmc.mei.provider-api-key) and keep a GSettings fallback",
-        "Chat sessions persist as ~/.local/share/mei/chats.json with 0700/0600 modes; logs go to ~/.local/state/mei/logs.txt"
+        "A durable agent loop: every action is recorded before it runs, so a crash or a Shell restart resumes or asks, never repeats a change blindly",
+        "A policy engine decides per action whether to ask: approvals in Mei's own words, task and standing grants, and floors no grant can lift (startup folders, data leaving the machine)",
+        "Content Mei reads (files, PDFs, the clipboard, the screen) taints the task, so a document can't steer Mei into changes or plant memories the person didn't confirm",
+        "Sandboxed commands run in bubblewrap on descriptor-pinned folders, with secret files masked and watched while they run",
+        "Local voice with sherpa-onnx: wake word, streaming speech-to-text, Piper and Kokoro speech, echo-cancelled barge-in, and a Live bar that follows who is speaking",
+        "Computer use through AT-SPI and the ScreenCast portal: forms, buttons and text through accessibility first, a password hand-off, and a kill switch the Shell enforces",
+        "779 runtime tests, about 100 extension tests, 28 scored agent evals, and end-to-end runs in nested GNOME Shells that never touch the real session",
+        "44 decision records document each design choice and what superseded it"
     ],
     "story": {
-        "why": "A modern GNOME Shell extension powered by LLMs that understands intent, interacts with the system, and assists in accomplishing tasks, closer to a Gemini assistant and the Hermes Agent vision than to a coding tool.",
-        "problem": "The shipped extension is still a panel chat client. It does not yet interact with the desktop or complete tasks on the user's behalf.",
+        "why": "A desktop assistant in the spirit of Gemini on Android: one that understands intent and finishes everyday tasks on the computer, not a coding tool or a chat window.",
+        "problem": "Chat assistants can talk about your computer but can't safely act on it. Acting needs durable state, honest approvals, protection against instructions hidden in content, and privacy for what local models see.",
         "challenges": [
-            "Preferences run in a GTK process that cannot import St, Clutter, or Shell Main, so settings UI is duplicated (src/prefs.ts)",
-            "Secret Service can succeed when saving keys and vanish after a Shell restart, so a GSettings copy is kept (src/providers/apiKeys.ts)",
-            "libsoup delivers SSE and NDJSON as byte chunks, so parsers must reassemble UTF-8 and error frames (src/utils/http.ts)",
-            "The panel button is inserted into Shell's private _centerBox, which may be missing at runtime (src/panel/indicator.ts)",
-            "Markdown has to become St actors, not HTML, and large code is truncated for popup performance (src/ui/messageRenderer.ts)"
+            "Shell code can't block or crash, so the agent, tools and voice run in a separate Python runtime reached over D-Bus (runtime/src/mei/ipc)",
+            "A file or page can carry instructions for the assistant; taint and provenance tracking keep it from turning into actions or memories (runtime/src/mei/policy, core/remember.py)",
+            "Commands and file changes must act on what was judged, not on a path that a link swap redirected (capabilities/fs_at.py, desktop/sandbox.py)",
+            "Voice has to be fast on a CPU, pause for other apps that record, and never hear itself through the speakers (runtime/src/mei/voice)",
+            "Acting on other apps' windows through accessibility, with the person able to stop it at once even if the runtime freezes (runtime/src/mei/computer)"
         ],
         "designDecisions": [
-            "esbuild emits two ESM bundles and leaves gi:// and resource:// imports external (esbuild.js)",
-            "Every backend implements Provider.sendMessage so the Shell loop never branches on vendor APIs (src/providers/types.ts)",
-            "Groq, Mistral, OpenRouter, LM Studio, OpenCode, GitHub Models, and Custom subclass one OpenAI-compatible client (src/providers/openai.ts)",
-            "Per-provider settings are one GSettings JSON string rather than a key per field (schemas/org.gnome.shell.extensions.mei.gschema.xml)",
-            "Gemini sends the API key in the x-goog-api-key header instead of the query string (src/providers/gemini.ts)",
-            "Node tests stub gi:// and resource:// through an esbuild plugin so the suite runs without GNOME (scripts/run-tests.js)",
-            "Streaming token updates run only while the expanded popup is open (src/extension.ts)"
+            "The extension is UI only; the runtime owns the agent loop, the store and every tool (docs/decisions)",
+            "Every action is written to SQLite before it runs and its result before the next model call, so recovery never guesses (runtime/src/mei/core/loop.py)",
+            "One policy engine with presets and grants decides each action; some floors ask every time whatever was granted (runtime/src/mei/policy/engine.py)",
+            "What a local model wrote stays off cloud models, and local-only memories never leave (runtime/src/mei/core/context.py)",
+            "Voice runs in a jailed worker process speaking a small versioned wire protocol (runtime/src/mei/voice/wire.py)",
+            "Tests never touch the real desktop: private homes, buses, PipeWire and nested headless Shells (scripts/e2e-stage1.sh, scripts/e2e-computer.sh)"
         ]
     },
     "future": {
-        "next": "Move Mei toward the Hermes Agent vision: a Gemini-like assistant that can interact with the system, not only chat.",
+        "next": "Exact context limits per model, learned from the provider and from overflow errors, so long tasks fit any model.",
         "roadmap": [
-            "Grow Mei toward that Hermes-inspired assistant vision"
+            "Per-model context limits and Ollama context sizing",
+            "Text that carries where it came from, replacing the interim rule that keeps a local model's words off cloud models",
+            "Broader computer use: browsers and more apps through accessibility"
         ],
         "upcomingFeatures": [
-            "System interaction so Mei can help accomplish tasks, not only chat",
             "Inline image display in chat",
             "Mermaid diagram rendering"
         ],
