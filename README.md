@@ -1,6 +1,10 @@
 # Mei (AI Assistant GNOME Extension)
 Mei is a modern GNOME Shell extension powered by LLMs that understands your intent, interacts with your system, and assists in accomplishing tasks seamlessly.
 
+[![Mei demo: setup, quick answers, files with approvals, documents, the desktop, memory, a longer task, and Live voice](docs/media/mei-demo-thumbnail.png)](docs/media/mei-demo.mp4)
+
+*The demo (4 minutes): setup, asking from anywhere, tidying files with approvals, reading documents (and refusing a hidden instruction in one), desktop settings, memory, a longer task, and talking to Mei in Live. Recorded in a nested GNOME session with `scripts/demo-record.sh`, with Gemini Flash answering.*
+
 ## Key Features
 - **Broad AI Support**: Seamless integration with local engines (Ollama, llama.cpp) and cloud APIs (OpenAI, Anthropic, Gemini, Groq, Mistral, OpenRouter).
 - **Gets things done, with your say**: Mei can find, read (including PDFs), write, move, and trash files; open apps and switch windows; use the clipboard; play and pause music; check battery and disk; and change a short list of desktop settings (dark mode, accent color, text size, night light, wallpaper, volume). It asks before anything you didn't name, shows where each thing it touches came from, and checks the result itself: "Verified by Mei" means its own check passed, not that the model said so.
