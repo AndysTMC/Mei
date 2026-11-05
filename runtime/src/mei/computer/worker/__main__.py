@@ -18,7 +18,7 @@ from mei.computer import geometry, wire  # noqa: E402
 from mei.computer.geometry import Window  # noqa: E402
 
 from . import frames  # noqa: E402
-from .act import ActError, Hands, act  # noqa: E402
+from .act import SCREEN, ActError, Hands, act  # noqa: E402
 from .control import Control, ControlLost  # noqa: E402
 from .portal import PortalError, Session  # noqa: E402
 from .tree import Snapshot, Snapshots, TreeError  # noqa: E402
@@ -27,7 +27,6 @@ ATSPI_TIMEOUT_MS = 2000  # an app that doesn't answer AT-SPI in 2 s is treated a
 SETTLE_S = 0.35  # after acting, before looking again: let the app redraw
 MAX_PICTURE_WIDTH = 1280
 MAX_SCREEN_WIDTH = 1600  # the whole screen, all monitors side by side: a little wider, as it shows more
-SCREEN = 0  # the window id a whole-screen snapshot goes by (no window has it)
 MAX_CHANGES = 20
 
 

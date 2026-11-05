@@ -142,6 +142,30 @@ def find_frame(window: Window) -> tuple[Atspi.Accessible, str]:
     return frame, _safe(app.get_name) or ""
 
 
+def focused_role(window: Window) -> str | None:
+    """The role of what has the keyboard focus in `window`, looked up now ("password text" for a
+    password field); None when it can't be told: no accessible frame, or nothing in it focused."""
+    try:
+        frame, _app = find_frame(window)
+    except TreeError:
+        return None
+    stack, visited = [frame], 0
+    while stack and visited < MAX_VISITED:
+        acc = stack.pop()
+        visited += 1
+        states = _safe(acc.get_state_set)
+        if states is None:
+            continue
+        if states.contains(Atspi.StateType.FOCUSED):
+            return _safe(acc.get_role_name) or ""
+        if acc is not frame and not states.contains(Atspi.StateType.SHOWING):
+            continue
+        count = _safe(acc.get_child_count) or 0
+        stack.extend(c for c in (_safe(lambda i=i: acc.get_child_at_index(i)) for i in range(min(count, 500)))
+                     if c is not None)
+    return None
+
+
 def walk(root: Atspi.Accessible, max_nodes: int) -> tuple[dict[str, Node], bool]:
     """The showing nodes worth a model's attention, in reading order, up to `max_nodes`. A label inside
     a control that already says the same (a button's own text) is left out."""

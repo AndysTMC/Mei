@@ -119,7 +119,9 @@ class Desktop:
     async def act(self, token: str, action: str, *, element: str = "", point: list | None = None, text: str = "",
                   window: dict | None = None, monitors: list | None = None, needs_input: bool = True) -> dict:
         await self._in_use()
-        async with self._hands if needs_input else contextlib.nullcontext():
+        # Every act holds control for as long as it lasts, an AT-SPI action too: a revoke or a core
+        # that stops renewing stops it in the worker (F06). Only injected input needs the screen session.
+        async with self._hands:
             if needs_input:
                 await self.ensure_session()
                 if self._make_way is not None:
@@ -129,7 +131,7 @@ class Desktop:
                         raise DesktopError("failed", f"couldn't bring the window to the front first ({e})") from None
             before = self._seen.get(token)
             try:
-                async with self._lease(needs_input):
+                async with self._lease():
                     data = await self._request(wire.Act(id=0, token=token, action=action, element=element,
                                                         point=list(point or []), text=text, window=window or {},
                                                         monitors=list(monitors or [])))
@@ -239,10 +241,7 @@ class Desktop:
     # ── The control lease (§10.3) ────────────────────────────────────────────
 
     @contextlib.asynccontextmanager
-    async def _lease(self, needed: bool):
-        if not needed:
-            yield
-            return
+    async def _lease(self):
         self._generation += 1
         generation = self._generation
         worker = await self._started()

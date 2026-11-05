@@ -2,7 +2,8 @@
 an AT-SPI action, EditableText, focus and typed keys, a pointer click at the element's bounds.
 
 Every injected key or pointer event first checks the control token, so a revoke stops a long string
-halfway. AT-SPI actions and EditableText inject nothing: they ask the app itself.
+halfway. AT-SPI actions and EditableText inject nothing (they ask the app itself), but they change
+the app all the same: they check it too, just before the call.
 """
 
 import time
@@ -17,8 +18,9 @@ from mei.computer.geometry import Rect, Stream, Window  # noqa: E402
 
 from .control import Control  # noqa: E402
 from .portal import PortalError, Session  # noqa: E402
-from .tree import Node, Snapshot, TreeError  # noqa: E402
+from .tree import Node, Snapshot, TreeError, focused_role  # noqa: E402
 
+SCREEN = 0  # the window id a whole-screen snapshot goes by (no window has it)
 PREFERRED_ACTIONS = ("click", "press", "activate", "toggle", "jump", "select", "open")
 KEY_GAP_S = 0.008
 MODIFIERS = {"ctrl": 0xFFE3, "control": 0xFFE3, "shift": 0xFFE1, "alt": 0xFFE9, "super": 0xFFEB}
@@ -69,6 +71,10 @@ class Hands:
     def __init__(self, session: Session, control: Control) -> None:
         self._session = session
         self._control = control
+
+    def check(self) -> None:
+        """Control still holds (raises ControlLost if not): before an effect that injects nothing."""
+        self._control.check()
 
     def streams(self, monitors: list) -> list[Stream]:
         """The session's streams, each with its frame width from its monitor's scale."""
@@ -135,30 +141,38 @@ def act(snapshot: Snapshot, node: Node | None, action: str, text: str, point: li
                 hands.scroll(x, y, monitors, _steps(text))
             return "pointer"
         if action in ("type", "key"):  # at whatever has the focus
-            hands.type(text) if action == "type" else hands.key(text)
+            if action == "type":
+                _typing_goes_somewhere_safe(window)
+                hands.type(text)
+            else:
+                _not_into_a_password(window)
+                hands.key(text)
             return "keys"
         raise ActError("invalid", f"{action} needs an element")
     if not node.enabled:
         raise ActError("invalid", f"{node.id} is disabled")
     if action in ("press", "toggle"):
         name = next((a for a in PREFERRED_ACTIONS if a in node.actions), node.actions[0] if node.actions else "")
-        if name and _call(lambda: Atspi.Action.do_action(node.accessible, _action_index(node, name))):
+        if name and _native(hands, lambda: Atspi.Action.do_action(node.accessible, _action_index(node, name))):
             return "action"
         hands.click(*geometry.element_point(window, node.extents), monitors)
         return "pointer"
     if action == "set_text":
-        if node.editable and _call(lambda: Atspi.EditableText.set_text_contents(node.accessible, text)):
+        if node.editable and _native(hands, lambda: Atspi.EditableText.set_text_contents(node.accessible, text)):
             return "text"
         _focus(node, window, monitors, hands)
+        _typing_goes_somewhere_safe(window)  # where the focus went, not where it was meant to
         hands.key("ctrl+a")
         hands.type(text)
         return "keys"
     if action == "type":
         _focus(node, window, monitors, hands)
+        _typing_goes_somewhere_safe(window)
         hands.type(text)
         return "keys"
     if action == "key":
         _focus(node, window, monitors, hands)
+        _not_into_a_password(window)
         hands.key(text)
         return "keys"
     if action == "focus":
@@ -190,7 +204,7 @@ def _steps(text: str) -> int:
 def _focus(node: Node, window: Window, monitors: list, hands: Hands) -> None:
     if "focused" in node.states:
         return
-    if not _call(lambda: Atspi.Component.grab_focus(node.accessible)):
+    if not _native(hands, lambda: Atspi.Component.grab_focus(node.accessible)):
         hands.click(*geometry.element_point(window, node.extents), monitors)
     time.sleep(0.05)
 
@@ -204,6 +218,32 @@ def _picture_point(snapshot: Snapshot, point: list) -> tuple[float, float]:
         return snapshot.picture.logical(float(point[0]), float(point[1]))
     except ValueError as e:
         raise ActError("invalid", str(e)) from None
+
+
+def _focused(window: Window) -> str | None:
+    return None if window.id == SCREEN else focused_role(window)
+
+
+def _typing_goes_somewhere_safe(window: Window) -> None:
+    """Text is typed only where Mei can see what has the focus, and never into a password field
+    (F07): the focus is looked up now, after any window was raised or element focused."""
+    role = _focused(window)
+    if role == "password text":
+        raise ActError("handoff", "a password field has the focus: Mei never types into one")
+    if role is None:
+        raise ActError("handoff", "Mei can't tell what has the keyboard focus here")
+
+
+def _not_into_a_password(window: Window) -> None:
+    """A key (Return, a shortcut) may go where the focus can't be told, but not into a password field."""
+    if _focused(window) == "password text":
+        raise ActError("handoff", "a password field has the focus: Mei never types into one")
+
+
+def _native(hands: Hands, call) -> bool:
+    """An AT-SPI call that changes the app, only while control holds (checked at the last moment)."""
+    hands.check()
+    return _call(call)
 
 
 def _call(call) -> bool:

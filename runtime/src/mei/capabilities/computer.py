@@ -36,6 +36,9 @@ OUTWARD = re.compile(r"\b(send|submit|post|publish|share|reply|buy|order|pay|pur
 MESSAGING = re.compile(r"mail|geary|thunderbird|evolution|telegram|signal|slack|discord|element|fractal|teams|"
                        r"whatsapp|polari|chat", re.IGNORECASE)
 HANDOFF = "Please fill in “{field}” in {app} yourself: Mei never types into password fields. Choose Done when it's filled in."
+# When the worker finds, just before typing, that it can't tell where the keys would go (F07).
+HANDOFF_UNSURE = ("Please type “{text}” in {app} yourself: Mei can't tell what would receive the keys there, and it "
+                  "never types into password fields. Choose Done when it's typed.")
 HANDOFF_DONE, HANDOFF_SKIP = "Done", "Skip it"
 
 
@@ -236,9 +239,17 @@ class DesktopAct(Capability):
         now = None if on_screen else next((w for w in windows if w.id == seen.window.get("id") and w.buffer), None)
         if now is None and not on_screen:
             raise CapabilityError("not_found", "that window has closed")
-        data = await _desktop(desktop.act(p.snapshot, p.action, element=p.element, point=p.point, text=p.text,
-                                          window=window_dict(now) if now else None, monitors=monitors,
-                                          needs_input=needs_input(p, node)))
+        from mei.computer.controller import DesktopError
+        try:
+            data = await _desktop(desktop.act(p.snapshot, p.action, element=p.element, point=p.point, text=p.text,
+                                              window=window_dict(now) if now else None, monitors=monitors,
+                                              needs_input=needs_input(p, node)), keep=("handoff",))
+        except DesktopError as e:  # the worker looked at the focus just before typing: the person types it
+            app = seen.app or "the window"
+            handoff = HANDOFF.format(field="the password field", app=app) if "password" in e.message \
+                else HANDOFF_UNSURE.format(text=_short(p.text, 60), app=app)
+            return ActionResult(ok=True, observation=f"Handed this to the person: {e.message}.",
+                                summary="Asked you to type something", handoff=handoff)
         changes = data.get("changes") or []
         observation = "Done. What changed:\n" + "\n".join(f"- {c}" for c in changes)
         if data.get("token"):
@@ -303,11 +314,14 @@ def _target(p: ActParams, env: Env):
     return seen, node
 
 
-async def _desktop(call):
+async def _desktop(call, keep: tuple[str, ...] = ()):
+    """The desktop's answer, its errors as the tool's; those in `keep` are raised as they are."""
     from mei.computer.controller import DesktopError
     try:
         return await call
     except DesktopError as e:
+        if e.error in keep:
+            raise
         error = {"stale": "invalid", "revoked": "unavailable", "handoff": "invalid"}.get(e.error, e.error)
         raise CapabilityError(error if error in ("invalid", "not_found", "unavailable", "failed", "timeout",
                                                  "permission") else "failed", e.message) from None

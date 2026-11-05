@@ -251,6 +251,33 @@ async def test_a_password_field_is_handed_to_the_person(tmp_path):
     assert any(t["role"] == "tool" and "filled it in themselves" in t["content"] for t in h.requests()[-1]["turns"])
 
 
+@pytest.mark.parametrize("found,asks_for", [("a password field has the focus: Mei never types into one",
+                                              "the password field"),
+                                             ("Mei can't tell what has the keyboard focus here", "“hello”")])
+async def test_typing_the_worker_finds_unsafe_is_handed_to_the_person(tmp_path, found, asks_for):
+    """F07: typing with no element goes where the focus is; the worker looks just before typing."""
+    h, desktop = computer_harness(tmp_path, [
+        turn(call("desktop_observe")),
+        turn(call("desktop_act", snapshot="t1", action="type", element="", text="hello")),
+        {"text": "Done."}])
+
+    async def refuse(token, action, **kw):
+        desktop.acts.append((token, action, kw.get("element"), kw.get("text")))
+        raise DesktopError("handoff", found)
+    desktop.act = refuse
+    r = h.submit("type hello into Login")
+    state = await h.until(r["task_id"])
+    if state == S.WAITING_APPROVAL:  # typing at whatever has the focus asks first
+        h.approve(r["task_id"])
+        state = await h.until(r["task_id"])
+    assert state == S.WAITING_INPUT
+    request = h.store.read_one("SELECT spec FROM input_requests WHERE task_id = ? AND kind = 'handoff'",
+                               (r["task_id"],))
+    assert asks_for in json.loads(request["spec"])["question"]
+    h.answer(r["task_id"], HANDOFF_DONE)
+    assert await h.until(r["task_id"]) == S.COMPLETED
+
+
 async def test_turned_off_and_stale_snapshots_are_refused(tmp_path):
     h, desktop = computer_harness(tmp_path, [
         turn(call("desktop_observe")), turn(call("desktop_observe")),
@@ -378,7 +405,9 @@ async def test_the_controller_keeps_snapshots_renews_the_lease_and_keeps_the_new
     gaps = [b["t"] - a["t"] for a, b in zip(renewals, renewals[1:])]
     assert max(gaps) < ctl.LEASE_VALID_MS / 1000  # never long enough to lapse
     await d.act("s1", "press", element="e1", needs_input=False)
-    assert not any(m["op"] == "lease" and m["generation"] == 2 for m in d.logged())  # AT-SPI only: no lease
+    await asyncio.sleep(0.1)
+    native = [m for m in d.logged() if m["op"] == "lease" and m["generation"] == 2]
+    assert native and native[-1]["valid_ms"] == 0  # an AT-SPI action holds control too, then ends it
     await d.stop()
 
 
@@ -613,6 +642,87 @@ print(said)
     src = str(Path(__file__).resolve().parents[1] / "src")
     out = subprocess.run(["/usr/bin/python3", "-c", script, src], capture_output=True, text=True, timeout=30)
     assert out.stdout.strip() == "['lease: the core stopped renewing control']", out.stderr
+
+
+WORKER_ACT = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from mei.computer.worker import act as A
+from mei.computer.worker.control import Control, ControlLost
+from mei.computer.geometry import Rect
+from mei.computer.worker.tree import Node, Snapshot
+done = []
+A.Atspi.Action.do_action = lambda acc, i: done.append("do_action") or True
+A.Atspi.EditableText.set_text_contents = lambda acc, text: done.append("set_text") or True
+A.Atspi.Component.grab_focus = lambda acc: done.append("grab_focus") or True
+A._action_index = lambda node, name: 0
+c = Control(lambda reason, by: None)
+c._shell_owner = ":1.1"
+hands = A.Hands(None, c)
+node = Node("e1", "push button", "Delete", "", (), ("click",), True, Rect(0, 0, 10, 10), None)
+snapshot = Snapshot("s1", None, "app", {"e1": node}, False)
+for action in ("press", "set_text", "focus"):
+    for lease in ("none", "held", "revoked"):
+        if lease == "held":
+            c.lease(1, 5000)
+        if lease == "revoked":
+            c.revoke("you took over", "shell")
+        before = len(done)
+        try:
+            A.act(snapshot, node, action, "x", [], None, [], hands)
+            print(action, lease, "acted" if len(done) > before else "nothing")
+        except ControlLost:
+            print(action, lease, "stopped" + ("" if len(done) == before else " after acting"))
+    c = Control(lambda reason, by: None); c._shell_owner = ":1.1"; hands = A.Hands(None, c)
+"""
+
+
+@pytest.mark.skipif(not SYSTEM_GI, reason="the desktop worker runs on the system's Python with PyGObject")
+def test_an_accessibility_action_needs_control_like_injected_input():
+    """F06: pressing a button or setting text through AT-SPI changes the app; without control (none
+    given, or revoked by the person) it doesn't happen."""
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    out = subprocess.run(["/usr/bin/python3", "-c", WORKER_ACT, src], capture_output=True, text=True, timeout=30)
+    assert out.stdout.split("\n")[:-1] == [f"{a} {lease} {'acted' if lease == 'held' else 'stopped'}"
+                                           for a in ("press", "set_text", "focus")
+                                           for lease in ("none", "held", "revoked")], out.stdout + out.stderr
+
+
+WORKER_TYPING = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from mei.computer.worker import act as A
+from mei.computer.geometry import Rect, Window
+from mei.computer.worker.tree import Node, Snapshot
+typed = []
+class Hands:
+    def type(self, text): typed.append(("type", text))
+    def key(self, text): typed.append(("key", text))
+    def check(self): pass
+win = Window(id=7, title="Sign in", pid=42, buffer=Rect(0, 0, 400, 300))
+screen = Window(id=A.SCREEN, title="the screen", pid=0, buffer=Rect(0, 0, 1600, 500))
+for focus in ("text", "password text", None):
+    A.focused_role = lambda window, focus=focus: focus
+    for where, action in ((win, "type"), (win, "key"), (screen, "type")):
+        before = len(typed)
+        try:
+            A.act(Snapshot("s1", where, "app", {}, False), None, action, "x", [], where, [], Hands())
+            print(focus, where.id, action, "typed" if len(typed) > before else "nothing")
+        except A.ActError as e:
+            print(focus, where.id, action, e.error)
+"""
+
+
+@pytest.mark.skipif(not SYSTEM_GI, reason="the desktop worker runs on the system's Python with PyGObject")
+def test_typing_at_the_focus_looks_at_the_focus_first():
+    """F07: text goes only where the focus is known and isn't a password field; a key (Return) may go
+    where the focus can't be told, never into a password field."""
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    out = subprocess.run(["/usr/bin/python3", "-c", WORKER_TYPING, src], capture_output=True, text=True, timeout=30)
+    assert out.stdout.split("\n")[:-1] == [
+        "text 7 type typed", "text 7 key typed", "text 0 type handoff",
+        "password text 7 type handoff", "password text 7 key handoff", "password text 0 type handoff",
+        "None 7 type handoff", "None 7 key typed", "None 0 type handoff"], out.stdout + out.stderr
 
 
 # ── Seeing the screen (decision 0029) ───────────────────────────────────────

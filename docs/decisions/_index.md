@@ -41,3 +41,5 @@
 | 0040 | The Live bar: dots that follow how loud the person or Mei is, a look per state, bounded by construction | accepted | 2026-11-05 | — |
 | 0041 | In a task that read content others wrote, a memory waits for the person; keeping it makes it theirs | accepted | 2026-11-05 | 0012 (in part: word overlap made a memory user-stated in a task that had read others' content) |
 | 0042 | What a model on this computer wrote stays off cloud models (interim, until text carries where it came from) | accepted | 2026-11-05 | — |
+| 0043 | A command gets a folder only if it was checked for secrets in full; the watch starts before the command | accepted | 2026-11-05 | 0016 (in part: an unscanned folder only said so; only names new after the start counted) |
+| 0044 | Every act holds control; typing looks at the focus first | accepted | 2026-11-05 | — |
