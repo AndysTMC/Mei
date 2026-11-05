@@ -631,10 +631,12 @@ async def test_asked_in_chat_mei_asks_before_it_looks_and_an_always_grant_holds(
     assert await h.until(r["task_id"]) == S.COMPLETED  # always: no second card
 
 
-async def test_asked_in_live_mei_looks_without_asking(tmp_path):
+@pytest.mark.parametrize("source", ["text", "voice"])
+async def test_the_screen_switch_alone_decides_whether_mei_asks(tmp_path, source):
+    """Decision 0039: nothing about how it was asked (typed, Live, "Hey Mei") lets Mei look unasked."""
     from mei.protocol import SubmitInputArgs
-    h, desktop = computer_harness(tmp_path, [turn(call("desktop_observe")), {"text": "A login form."}],
-                                  see_without_asking=False)
-    r = h.engine.submit_input(SubmitInputArgs(command_id="spoken-1", text="what's on my screen?", source="voice"))
-    assert await h.until(r["task_id"]) == S.COMPLETED
-    assert h.actions(r["task_id"])[0]["execution"] == E.SUCCEEDED
+    script = [turn(call("desktop_observe")), {"text": "A login form."}]
+    for on, state in ((False, S.WAITING_APPROVAL), (True, S.COMPLETED)):
+        h, desktop = computer_harness(tmp_path / str(on), script, see_without_asking=on)
+        r = h.engine.submit_input(SubmitInputArgs(command_id="ask-1", text="what's on my screen?", source=source))
+        assert await h.until(r["task_id"]) == state

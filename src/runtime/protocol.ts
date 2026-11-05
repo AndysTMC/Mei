@@ -402,7 +402,7 @@ export interface ConfigDoc {
     approvals?: { preset: ApprovalPreset; [field: string]: unknown };
     memory?: { enabled: boolean; auto_save: boolean; [field: string]: unknown };
     voice?: VoiceSettingsDoc;
-    // see_without_asking: look at the screen without asking in chat too (in Live it never asks; decision 0029)
+    // see_without_asking: the screen switch; on, Mei looks without asking however it was asked (decision 0039)
     computer?: { enabled: boolean; see_without_asking?: boolean; [field: string]: unknown };
     /** Fields a newer runtime added; kept as they are when this client writes the config back. */
     [field: string]: unknown;

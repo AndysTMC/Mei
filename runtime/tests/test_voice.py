@@ -112,7 +112,9 @@ async def test_speaking_plays_each_sentence_then_says_it_is_done(tmp_path, model
     await w.handle(wire.Say(text="Files is open in Downloads."))
     await w.handle(wire.End())
     await events.until(wire.Spoken, timeout=30)
-    assert events.kinds()[1:] == ["Speaking", "Spoken"]
+    assert [k for k in events.kinds()[1:] if k != "Loudness"] == ["Speaking", "Spoken"]
+    # How loud each sentence is goes out as it starts playing, for the Live bar (decision 0040).
+    assert [e.source for e in events.got if isinstance(e, wire.Loudness)] == ["mei", "mei"]
     assert 2.0 < len(np.fromfile(played, dtype=np.float32)) / 16000 < 6.0
 
 

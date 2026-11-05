@@ -169,6 +169,9 @@ export class RuntimeChatController {
     /** The popup is built with `settings`, so it's bound after construction and before `start()`. */
     bind(popup: ChatPopup): void {
         this._popup = popup;
+        const screen = () => popup.showScreen(this.settings.computerEnabled, this.settings.seeWithoutAsking);
+        this.settings.connect('changed::computer', screen);
+        screen();
     }
 
     start(): void {
@@ -219,6 +222,11 @@ export class RuntimeChatController {
      * been said, or with nothing said, stop; while Mei speaks, stop it and talk (decision 0026). */
     voiceListen(): void {
         this._listen(false, 'shortcut');
+    }
+
+    /** The screen switch beside Live flips the setting itself, so Settings and the button agree (0039). */
+    screenToggle(): void {
+        this.settings.setSeeWithoutAsking(!this.settings.seeWithoutAsking);
     }
 
     /** The voice button: talk with Mei until closed; while listening, send what's been said, or
@@ -499,6 +507,12 @@ export class RuntimeChatController {
     private _onEvent(event: Envelope): void {
         if (event.type === 'voice.state' || event.type === 'voice.partial') {
             this._onVoice(event);
+            return;
+        }
+        if (event.type === 'voice.level') {
+            const p = event.payload;
+            const levels = Array.isArray(p.levels) ? p.levels.filter((x): x is number => typeof x === 'number') : [];
+            this._popup.voiceLevel(p.source === 'mei' ? 'mei' : 'mic', levels, Number(p.step_ms) || 25);
             return;
         }
         if (event.type === 'voice.reading') {

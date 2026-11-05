@@ -230,8 +230,16 @@ class Diagnosis(Event, tag="diagnosis"):
     pulse_socket: bool
 
 
+class Loudness(Event, tag="loudness"):
+    """How loud the person (`mic`, as it arrives) or Mei (`mei`, a sentence as it starts playing) is,
+    every `step_ms`, 0–1 (parts.loudness): what the Live bar moves with. Never the audio."""
+    source: Literal["mic", "mei"]
+    levels: list[float]
+    step_ms: int = 25
+
+
 AnyEvent = (Ready | Failed | Listening | SpeechStarted | Partial | Final | NoSpeech | Speaking | Spoken | BargeIn | Woke
-            | Suspended | Diagnosis | Transcribe | Synthesize | MicLevel | Reading | ReadDone)
+            | Suspended | Diagnosis | Transcribe | Synthesize | MicLevel | Reading | ReadDone | Loudness)
 
 # One message per line; a line can carry audio (up to a 30 s utterance or a long sentence, base64).
 MAX_LINE = 8 << 20

@@ -26,7 +26,7 @@ import numpy as np
 
 from . import build, local, pipeline, remote, wire
 from .gpu_speaker import GpuKokoro
-from .parts import CHUNK, SAMPLE_RATE, AudioSink, AudioSource, Speech, VoiceError, level_db
+from .parts import CHUNK, SAMPLE_RATE, AudioSink, AudioSource, Speech, VoiceError, level_db, loudness
 from .pipewire import EchoCancelledSource, PipeWireSink, PipeWireSource, echo_canceller_missing, output_into_ears
 from .recorded import CaptureSink, RecordedSource
 
@@ -189,9 +189,13 @@ class Worker:
         self._sink = CaptureSink(Path(cfg.sink_file)) if cfg.sink_file else PipeWireSink(cfg.output)
         aside_sink = CaptureSink(Path(cfg.sink_file + ".aside")) if cfg.sink_file else PipeWireSink(cfg.output)
         ep = pipeline.Endpointing(end_silence_s=cfg.end_silence_s, no_speech_s=cfg.quiet_s)
-        self._listener = pipeline.Listener(self._source, self._vad, stt, ep, turn, denoiser)
+        self._listener = pipeline.Listener(
+            self._source, self._vad, stt, ep, turn, denoiser,
+            on_heard=lambda chunk: self.emit(wire.Loudness(source="mic", levels=loudness(chunk, SAMPLE_RATE))))
         self._speaker = pipeline.Speaker(tts, self._sink, on_start=self._spoke, on_done=self._spoken,
-                                         on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)))
+                                         on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)),
+                                         on_play=lambda s: self.emit(wire.Loudness(source="mei",
+                                                                                   levels=loudness(s.samples, s.rate))))
         self._aside = pipeline.Speaker(tts, aside_sink, on_start=self._aside_started, on_done=self._aside_done,
                                        on_error=lambda e: self.emit(wire.Failed(part=e.part, message=e.message)))
         self._config, self._tts = cfg, tts

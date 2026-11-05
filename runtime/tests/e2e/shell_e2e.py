@@ -787,8 +787,11 @@ async def main() -> int:
             await h.hook("Screenshot", os.path.join(OUT, "voice-listening-top-bar.png"))
             st = await h.until(lambda s: s["controller"]["voice"]["state"] == "speaking", 60, "the spoken answer")
             opened_with_answer = st["popup"]["open"]
+            await asyncio.sleep(0.6)  # the Live bar fills in (decision 0040)
+            await h.hook("Screenshot", os.path.join(OUT, "voice-speaking.png"))
             st = await h.until(lambda s: s["controller"]["current"] and s["controller"]["voice"]["state"] == "listening"
                                and len(s["controller"]["messages"]) >= 2, 60, "listening again after the answer")
+            await asyncio.sleep(1.0)  # the Live bar, from Mei's filled one back to listening's (decision 0040)
             await h.hook("Screenshot", os.path.join(OUT, "voice-listening.png"))
             conv = await h.runtime("GetConversation", {"conversation_id": st["controller"]["current"]})
             user = conv["messages"][0]

@@ -30,6 +30,7 @@ import type { ThemeManager } from '../utils/theme.js';
 import { AttachmentChip } from './conversation/attachmentChip.js';
 import { voiceLine, type VoiceView } from '../runtime/voice.js';
 import { Composer } from './conversation/composer.js';
+import type { BarState } from './conversation/voiceBarModel.js';
 import { attachmentLabel, attachmentTitle, canOpen } from '../runtime/attachment.js';
 import type { ApprovalScope, Attachment, Picture } from '../runtime/protocol.js';
 import type { Interaction, TimelineItem, WorkView } from '../runtime/timeline.js';
@@ -98,6 +99,8 @@ export class ChatPopup {
     onDictate: (() => void) | null = null;
     /** Called when the person presses voice (talk with Mei, or stop). */
     onVoice: (() => void) | null = null;
+    /** Called when the person presses the screen switch beside Live. */
+    onScreen: (() => void) | null = null;
     /** Called when the person drops what "Ask about this" attached. */
     onRemoveAttachment: (() => void) | null = null;
     /** Called when the person clicks the picture at the top of a task's steps. */
@@ -188,6 +191,7 @@ export class ChatPopup {
             onStop: () => this.onCancel?.(),
             onDictate: () => this.onDictate?.(),
             onVoice: () => this.onVoice?.(),
+            onScreen: () => this.onScreen?.(),
         }, Gio.FileIcon.new(Gio.File.new_for_path(`${extensionPath}/icons/mei-voice-symbolic.svg`)));
         this._error = new ErrorPill(this._sources);
         this._attachment = new AttachmentChip(() => this.onRemoveAttachment?.(), () => {
@@ -314,8 +318,19 @@ export class ChatPopup {
         const dictating = view.dictating && ['listening', 'paused'].includes(view.state);
         const mode = dictating ? 'dictating' : talking ? 'talking' : 'idle';
         this._voiceReady = !['off', 'unavailable', 'starting'].includes(view.state);
-        this._composer.setVoice({ available: view.state !== 'off', mode, status: voiceLine(view).status,
+        const bar = talking && ['listening', 'thinking', 'speaking'].includes(view.state) ? view.state as BarState : null;
+        this._composer.setVoice({ available: view.state !== 'off', mode, status: voiceLine(view).status, bar,
             transcript: talking && view.state !== 'speaking' ? view.transcript : '' });
+    }
+
+    /** How loud the person or Mei is, for the Live bar. */
+    voiceLevel(source: 'mic' | 'mei', levels: number[], stepMs: number): void {
+        this._composer.voiceLevel(source, levels, stepMs);
+    }
+
+    /** The screen switch: shown once Mei may use the computer; `on`: it looks without asking. */
+    showScreen(available: boolean, on: boolean): void {
+        this._composer.setScreen(available, on);
     }
 
     /** The reply Read aloud is reading, or none: its button shows Stop. */

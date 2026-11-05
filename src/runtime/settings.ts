@@ -187,7 +187,8 @@ export class RuntimeSettings {
         return this._doc.computer?.enabled ?? false;
     }
 
-    /** Mei looks at the screen without asking, in chat too (in Live it never asks; decision 0029). */
+    /** The screen switch: Mei looks at the screen without asking, typed, in Live or with "Hey Mei" alike
+     * (decision 0039). Off, it asks every time. */
     get seeWithoutAsking(): boolean {
         return this._doc.computer?.see_without_asking ?? false;
     }

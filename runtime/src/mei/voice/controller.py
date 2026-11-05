@@ -512,6 +512,9 @@ class VoiceController:
                 self._set("suspended")
             case wire.Transcribe() | wire.Synthesize():
                 asyncio.ensure_future(self._cloud_answer(event))
+            case wire.Loudness(source=source, levels=levels, step_ms=step_ms):
+                if not self._dictating:  # the Live bar's; dictation shows the words instead
+                    self._emit("voice.level", {"source": source, "levels": levels, "step_ms": step_ms})
             case wire.MicLevel():
                 if self._mic_level is not None and not self._mic_level.done():
                     self._mic_level.set_result(event)

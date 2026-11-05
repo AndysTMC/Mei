@@ -90,8 +90,10 @@ class WakeGate:
 
 class Listener:
     def __init__(self, source: AudioSource, vad: Vad, stt: SpeechToText, endpointing: Endpointing = Endpointing(),
-                 turn: TurnDetector | None = None, denoiser: Denoiser | None = None) -> None:
+                 turn: TurnDetector | None = None, denoiser: Denoiser | None = None,
+                 on_heard: Callable[[np.ndarray], None] = lambda _chunk: None) -> None:
         self._source = source
+        self._on_heard = on_heard  # each chunk as it arrives, cleaned (the Live bar's loudness)
         self._vad = vad
         self._stt = stt
         self._ep = endpointing
@@ -142,6 +144,7 @@ class Listener:
             async for chunk in chunks:
                 total += len(chunk) / SAMPLE_RATE
                 chunk = self._clean(chunk)
+                self._on_heard(chunk)
                 if self._vad.is_speech(chunk) and not heard:
                     heard = True
                     yield SpeechStarted()
@@ -184,8 +187,10 @@ class Speaker:
     LOOKAHEAD = 2
 
     def __init__(self, tts: TextToSpeech, sink: AudioSink, on_start: Callable[[], None],
-                 on_done: Callable[[], None], on_error: Callable[[VoiceError], None] = lambda _e: None) -> None:
+                 on_done: Callable[[], None], on_error: Callable[[VoiceError], None] = lambda _e: None,
+                 on_play: Callable[[Speech], None] = lambda _speech: None) -> None:
         self._tts = tts
+        self._on_play = on_play  # each sentence as it starts playing (the Live bar's loudness)
         self._sink = sink
         self._on_start = on_start
         self._on_done = on_done
@@ -255,5 +260,6 @@ class Speaker:
                 self.speaking = True
                 self.started_at = loop.time()
                 self._on_start()
+            self._on_play(speech)
             await self._sink.play(speech)
             self._unheard -= 1

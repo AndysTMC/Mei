@@ -71,8 +71,8 @@ class Facts:
     subjects: tuple[Subject, ...]
     tainted: bool
     always_ask: bool = False  # the capability asks every time (shell.run_host)
-    # Looking at the screen needs no asking: the task was asked for in Live (the person is there,
-    # talking about what's in front of them), or the person's setting says so.
+    # Looking at the screen needs no asking: the person's screen switch is on (decision 0039), however
+    # the request came (typed, Live or "Hey Mei").
     screen_ok: bool = False
 
 
@@ -98,7 +98,7 @@ def evaluate(facts: Facts, preset: Preset, grants: list[Grant], rules: PathRules
     if facts.always_ask:
         return _ask("host_command", preset, floor=True)
     if any(s.kind == "screen" for s in facts.subjects):
-        # Seeing the screen (decision 0029): asked in chat, not in Live.
+        # Seeing the screen (decision 0039): asked unless the screen switch is on.
         if facts.screen_ok:
             return Decision("allow", "screen_ok")
         return _granted(next((g for g in grants if covers(g, facts)), None)) \

@@ -97,6 +97,7 @@ export default class MeiExtension extends Extension {
         this._dropZone.onDrop = drop => runtime.attachDrop(drop);
         popup.onDictate = () => runtime.dictate();
         popup.onVoice = () => runtime.voiceToggle();
+        popup.onScreen = () => runtime.screenToggle();
         popup.onKeepMemory = id => runtime.keepMemory(id);
         popup.onForgetMemory = id => runtime.forgetMemory(id);
         popup.onOpenSettings = () => this.openPreferences();

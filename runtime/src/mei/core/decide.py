@@ -147,15 +147,8 @@ def judge(store: Store, env: Env, task, proposal: Proposal, preset_name: str,
               for g in agent.active_grants(store, task["id"])]
     facts = Facts(proposal.cap.name, proposal.cap.meta, proposal.effects, proposal.subjects, bool(task["tainted"]),
                   always_ask=proposal.cap.always_ask,
-                  screen_ok=bool(computer and computer.see_without_asking) or spoken(store, task["id"]))
+                  screen_ok=bool(computer and computer.see_without_asking))
     return evaluate(facts, PRESETS.get(preset_name, PRESETS["balanced"]), grants, env.rules, env.home)
-
-
-def spoken(store: Store, task_id: str) -> bool:
-    """Was this task's request said out loud (Live)?"""
-    row = store.read_one("SELECT m.metadata FROM tasks t JOIN messages m ON m.id = t.input_message_id WHERE t.id = ?",
-                         (task_id,))
-    return row is not None and json.loads(row["metadata"] or "{}").get("source") == "voice"
 
 
 def repeated(store: Store, task_id: str, action_id: str, capability: str, params_hash: str) -> bool:

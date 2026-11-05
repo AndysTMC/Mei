@@ -53,7 +53,8 @@ DURABLE_EVENTS = frozenset({
     "memory.updated",
     "memory.deleted",
 })
-EPHEMERAL_EVENTS = frozenset({"message.delta", "runtime.notice", "voice.state", "voice.partial", "voice.reading"})
+EPHEMERAL_EVENTS = frozenset({"message.delta", "runtime.notice", "voice.state", "voice.partial", "voice.reading",
+                              "voice.level"})
 
 
 class Envelope(msgspec.Struct, kw_only=True):

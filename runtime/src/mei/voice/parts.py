@@ -110,6 +110,18 @@ class TextToSpeech(Protocol):
     async def synthesize(self, text: str) -> Speech: ...
 
 
+LOUDNESS_STEP_S = 0.025  # the Live bar's steps: 40 a second, played back on the Shell's clock
+QUIET_DB, LOUD_DB = -60.0, -15.0
+
+
+def loudness(samples: np.ndarray, rate: int) -> list[float]:
+    """How loud each 25 ms is, from 0 (−60 dBFS or quieter) to 1 (−15 dBFS or louder): what the Live
+    bar moves with. Numbers only: the audio itself never leaves the worker this way."""
+    step = max(1, int(rate * LOUDNESS_STEP_S))
+    frames = [samples[i:i + step] for i in range(0, len(samples) - step // 2, step)]
+    return [round(min(1.0, max(0.0, (level_db(f) - QUIET_DB) / (LOUD_DB - QUIET_DB))), 2) for f in frames]
+
+
 def level_db(chunk: np.ndarray) -> float:
     """RMS level in dBFS (silence is about −60 or lower)."""
     if not len(chunk):

@@ -186,6 +186,17 @@
     color: white;
 }
 
+/* The screen switch, on: filled in like a button in use, without taking the row. */
+.mei-dark .mei-mic-btn.on {
+    background-color: rgba(255, 255, 255, 0.92);
+    color: black;
+}
+
+.mei-light .mei-mic-btn.on {
+    background-color: rgba(0, 0, 0, 0.85);
+    color: white;
+}
+
 /* While talking with Mei: in the message box's place, what voice is doing and what it heard. */
 .mei-voice-line {
     margin: 0 10px;
@@ -907,4 +918,9 @@
 .mei-msg-note-link:hover,
 .mei-msg-note-link:focus {
     text-decoration: underline;
+}
+
+/* The Live bar (decision 0040): under the buttons, drawn in the popup's text colour. */
+.mei-voice-bar {
+    margin: 0 10px 10px 10px;
 }

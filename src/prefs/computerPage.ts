@@ -30,9 +30,9 @@ export function computerBasics(window: Gtk.Window, settings: RuntimeSettings, ca
     const screen = new Adw.ActionRow({ title: 'Screen', subtitle: 'Checking…' });
     const allow = new Gtk.Button({ label: 'Allow…', valign: Gtk.Align.CENTER, visible: false });
     screen.add_suffix(allow);
-    // Asked in chat, Mei asks before it looks; in Live it looks (decision 0029).
+    // The same switch as the screen button beside Live (decision 0039).
     const look = new Adw.SwitchRow({ title: 'Look at the screen without asking',
-        subtitle: 'When you ask in a chat, Mei asks before it looks at your screen. In Live, it looks when you ask.' });
+        subtitle: 'Off, Mei asks each time before it looks at your screen. The screen button beside Live turns this on and off.' });
     for (const row of [enabled, look, accessibility, screen]) group.add(row);
 
     let updating = false;

@@ -5,8 +5,9 @@
  * mode the Ask button becomes Stop.
  *
  * The mic dictates: what's said goes into the box, to edit and send (Ask and voice hide meanwhile).
- * Voice is a conversation: talk, and Mei answers out loud; while it's on, the box shows what voice
- * is doing and what it heard, and only the voice button (now Stop) remains.
+ * Voice is a conversation: talk, and Mei answers out loud; while it's on, the box shows what it
+ * heard, the Live bar under the buttons what voice is doing (decision 0040), and only the voice
+ * button (now Stop) and the screen switch remain.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  */
@@ -21,6 +22,8 @@ import St from 'gi://St';
 import { dictated } from '../../runtime/voice.js';
 import { addClickScale, wrapLabel } from '../effects.js';
 import type { SourceSet } from '../sources.js';
+import { VoiceBar } from './voiceBar.js';
+import type { BarState } from './voiceBarModel.js';
 
 export type InputScrollTarget = 'none' | 'top' | 'cursor' | 'bottom';
 
@@ -37,6 +40,8 @@ export interface ComposerActions {
     onDictate(): void;
     /** Voice: talk with Mei; again: stop. */
     onVoice(): void;
+    /** The screen switch: Mei looks at the screen without asking, or asks each time (decision 0039). */
+    onScreen(): void;
 }
 
 /** What the voice controls show: hidden (voice off), idle, dictating, or a conversation. */
@@ -45,6 +50,8 @@ export interface ComposerVoice {
     mode: 'idle' | 'dictating' | 'talking';
     /** While talking: what voice is doing ("Listening…") and what it heard. */
     status: string;
+    /** Listening, thinking or speaking: the Live bar shows it, in the status's place (decision 0040). */
+    bar: BarState | null;
     transcript: string;
 }
 
@@ -54,13 +61,17 @@ export class Composer {
     readonly askButton: St.Button;
     readonly micButton: St.Button;
     readonly voiceButton: St.Button;
+    readonly screenButton: St.Button;
     readonly restoreButton: St.Button;
     /** Expanded, Ask adds to the task in progress, so Stop has a button of its own. */
     readonly stopButton: St.Button;
+    private _screen = { available: false, on: false };
+    private _dictatingRow = false;
     private readonly _scroll: St.ScrollView;
     private readonly _voiceLine = new St.BoxLayout({ vertical: true, x_expand: true, visible: false, style_class: 'mei-voice-line' });
     private readonly _voiceStatus = new St.Label({ style_class: 'mei-voice-status' });
     private readonly _voiceHeard = wrapLabel(new St.Label({ style_class: 'mei-voice-heard', x_expand: true }));
+    private readonly _voiceBar = new VoiceBar();
     private _voiceMode: ComposerVoice['mode'] = 'idle';
     /** What was typed before dictation began; dictated words follow it. */
     private _dictationBase: string | null = null;
@@ -121,6 +132,9 @@ export class Composer {
         });
         this.voiceButton = voiceControl(new St.Icon({ gicon: voiceIcon, icon_size: 14 }), 'Live');
         this.voiceButton.connect('clicked', () => this._actions.onVoice());
+        this.screenButton = voiceControl(new St.Icon({ icon_name: 'video-display-symbolic', icon_size: 14 }),
+            'Look at the screen without asking');
+        this.screenButton.connect('clicked', () => this._actions.onScreen());
         // After dictation, if the words were tidied: put them back as heard.
         this.restoreButton = voiceControl(new St.Icon({ icon_name: 'edit-undo-symbolic', icon_size: 14 }),
             'Restore the words as heard');
@@ -141,9 +155,11 @@ export class Composer {
         buttons.add_child(this.askButton);
         buttons.add_child(this.stopButton);
         buttons.add_child(this.restoreButton);
+        buttons.add_child(this.screenButton);
         buttons.add_child(this.micButton);
         buttons.add_child(this.voiceButton);
         this.actor.add_child(buttons);
+        this.actor.add_child(this._voiceBar.actor);
         // Enter anywhere in the input area while the mic or a conversation is on ends it.
         this.actor.connect('key-press-event', (_actor: Clutter.Actor, event: Clutter.Event) => {
             const key = event.get_key_symbol();
@@ -222,10 +238,16 @@ export class Composer {
         this._syncStop();
         this.micButton.visible = v.available && !talking;
         this.voiceButton.visible = v.available && !dictating;
+        this._dictatingRow = dictating;
+        this._syncScreen();
         setActive(this.micButton, dictating, dictating ? 'Done dictating' : 'Dictate');
         setActive(this.voiceButton, talking, talking ? 'End Live' : 'Live');
         this._scroll.visible = !talking;
-        this._voiceLine.visible = talking;
+        const bar = talking ? v.bar : null;
+        if (bar) this._voiceBar.setState(bar, v.status);
+        this._voiceBar.show(bar !== null);
+        this._voiceLine.visible = talking && (bar === null || Boolean(v.transcript));
+        this._voiceStatus.visible = bar === null;
         this._voiceStatus.text = v.status;
         this._voiceHeard.text = v.transcript;
         this._voiceHeard.visible = Boolean(v.transcript);
@@ -233,6 +255,25 @@ export class Composer {
         // (clicking the mic doesn't move the focus).
         if ((startedTalking || startedDictating) && this.actor.mapped) this.focus();
         if (!talking) this.queueLayout();
+    }
+
+    /** How loud the person or Mei is (the runtime's `voice.level`): the Live bar moves with it. */
+    voiceLevel(source: 'mic' | 'mei', levels: number[], stepMs: number): void {
+        this._voiceBar.push(source, levels, stepMs);
+    }
+
+    /** The screen switch beside Live: shown once Mei may use the computer; on, it is filled in. */
+    setScreen(available: boolean, on: boolean): void {
+        this._screen = { available, on };
+        this._syncScreen();
+    }
+
+    private _syncScreen(): void {
+        const { available, on } = this._screen;
+        this.screenButton.visible = available && !this._dictatingRow; // the mic takes the row while dictating
+        if (on) this.screenButton.add_style_class_name('on');
+        else this.screenButton.remove_style_class_name('on');
+        this.screenButton.accessible_name = on ? 'Ask before looking at the screen' : 'Look at the screen without asking';
     }
 
     /** Dictated words so far (`final`: an utterance done): after what was already typed and

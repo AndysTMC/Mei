@@ -377,3 +377,45 @@ async def test_a_worker_of_another_version_is_started_again_once_then_named(tmp_
     await until(lambda: v.state == "unavailable", 10)
     assert len(spawned) == 2 and "log out and back in" in v.note
     await v.stop()
+
+
+# ── The Live bar's loudness (decision 0040) ─────────────────────────────────
+
+
+def test_loudness_is_numbers_from_0_to_1_every_25_ms():
+    from mei.voice.parts import loudness
+    t = np.arange(16000) / 16000
+    quiet, speech = np.zeros(1600, np.float32), (0.05 * np.sin(2 * np.pi * 220 * t[:1600])).astype(np.float32)
+    assert loudness(quiet, 16000) == [0.0] * 4  # 100 ms: four steps
+    assert all(0.3 < x < 1 for x in loudness(speech, 16000))  # about −29 dBFS: speech, not the top
+    assert len(loudness(np.zeros(24000, np.float32), 24000)) == 40  # a second of Mei's 24 kHz voice
+
+
+async def test_live_sends_how_loud_the_person_then_mei_is(tmp_path, models, voice):
+    h = Harness(tmp_path, script=[{"text": "It will be sunny tomorrow."}])
+    v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "What's the weather like tomorrow?", 8.0))
+    await v.apply(VoiceSettings(enabled=True))
+    await v.wait_ready()
+    await v.listen(None)
+    await until(lambda: "speaking" in states(seen) and states(seen)[-1] == "idle")
+    levels = {src: [x for kind, p in seen if kind == "voice.level" and p["source"] == src for x in p["levels"]]
+              for src in ("mic", "mei")}
+    assert all(0 <= x <= 1 for xs in levels.values() for x in xs)
+    assert max(levels["mic"]) > 0.3 and levels["mic"][0] < 0.1  # the 0.3 s of quiet first, then the question
+    assert max(levels["mei"]) > 0.3  # the answer, as it played
+    await v.stop()
+
+
+async def test_dictation_and_read_aloud_send_no_loudness(tmp_path, models, voice):
+    h = Harness(tmp_path)
+    v, seen = controller(h, models, tmp_path, await say(voice, 0.3, "Buy milk.", 2.0))
+    await v.apply(VoiceSettings(enabled=True))
+    await v.wait_ready()
+    await v.listen(None, dictate=True)
+    await until(lambda: any(kind == "voice.partial" and p["final"] for kind, p in seen))
+    await v.listen(None, dictate=True)  # done dictating
+    await until(lambda: states(seen)[-1] == "idle")
+    await v.read_aloud("m1", "I moved two files.")
+    await until(lambda: [p["reading"] for kind, p in seen if kind == "voice.reading"] == [True, False])
+    assert not [p for kind, p in seen if kind == "voice.level"]
+    await v.stop()

@@ -9,6 +9,7 @@ const common = {
     target: 'es2023',
     external: [
         'gi://*',
+        'cairo', // GJS's own module, like gi://
         'resource://*',
     ],
     define: {
