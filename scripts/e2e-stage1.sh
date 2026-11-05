@@ -44,8 +44,18 @@ main() {
     chmod 700 "$run"
     unset PIPEWIRE_REMOTE PIPEWIRE_RUNTIME_DIR PULSE_SERVER PULSE_RUNTIME_PATH
     export XDG_RUNTIME_DIR="$run"
-    # Expanded now (run is local). The private document portal's FUSE mount may outlive the session.
-    trap "fusermount3 -uz '$run/doc' 2>/dev/null; rm -rf '$run'" EXIT
+    # Expanded now (run is local). The private document portal's and GVFS's FUSE mounts may outlive the
+    # session.
+    # The session's own daemons (AT-SPI, GVFS) can still be exiting, and writing here, after the bus is
+    # gone: retry for a few seconds. The run's result stays the checks', never the cleanup's.
+    trap "status=\$?
+        for _ in 1 2 3 4 5; do
+            fusermount3 -uz '$run/doc' 2>/dev/null || true; fusermount3 -uz '$run/gvfs' 2>/dev/null || true
+            rm -rf '$run' 2>/dev/null && break
+            sleep 1
+        done
+        if [ -e '$run' ]; then echo \"warning: couldn't remove $run\" >&2; fi
+        exit \$status" EXIT
     echo "e2e output: $out"
     dbus-run-session -- "$py" "$root/runtime/tests/e2e/shell_e2e.py" "$out" "$port" 2>"$out/e2e.stderr"
 }
