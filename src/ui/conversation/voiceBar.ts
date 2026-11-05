@@ -13,7 +13,8 @@ import St from 'gi://St';
 
 import { BAR_MAX, VoiceBarModel, type BarState, type Frame } from './voiceBarModel.js';
 
-const MARGIN = 2;
+/** Room for the outline's 1px stroke, so the bar's edges line up with the buttons above. */
+const MARGIN = 0.5;
 
 export class VoiceBar {
     readonly actor: St.DrawingArea;
@@ -22,7 +23,7 @@ export class VoiceBar {
     private _frame: Frame | null = null;
 
     constructor() {
-        this.actor = new St.DrawingArea({ style_class: 'mei-voice-bar', x_expand: true, height: BAR_MAX + 2 * MARGIN,
+        this.actor = new St.DrawingArea({ style_class: 'mei-voice-bar', x_expand: true, height: BAR_MAX + 2,
             visible: false, accessible_name: 'Listening' });
         this._model = new VoiceBarModel(!St.Settings.get().enable_animations);
         this.actor.connect('repaint', () => this._draw());
@@ -77,8 +78,9 @@ export class VoiceBar {
         if (frame) {
             const fg = this.actor.get_theme_node().get_foreground_color();
             const [r, g, b] = [fg.red / 255, fg.green / 255, fg.blue / 255];
-            const top = (height - frame.height) / 2;
-            pill(cr, MARGIN, top, width - 2 * MARGIN, frame.height);
+            // On half pixels, so the 1px outline is crisp rather than spread over two rows.
+            const top = Math.round((height - frame.height) / 2) + MARGIN;
+            pill(cr, MARGIN, top, width - 2 * MARGIN, frame.height - 2 * MARGIN);
             // Outlined while the person talks or Mei thinks; filled, its dots cut out, while Mei speaks.
             cr.setSourceRGBA(r, g, b, 0.28 * (1 - frame.filled));
             cr.setLineWidth(1);

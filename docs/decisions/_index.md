@@ -43,3 +43,4 @@
 | 0042 | What a model on this computer wrote stays off cloud models (interim, until text carries where it came from) | accepted | 2026-11-05 | — |
 | 0043 | A command gets a folder only if it was checked for secrets in full; the watch starts before the command | accepted | 2026-11-05 | 0016 (in part: an unscanned folder only said so; only names new after the start counted) |
 | 0044 | Every act holds control; typing looks at the focus first | accepted | 2026-11-05 | — |
+| 0045 | The Live bar stays one height and moves only with emphasis; Live shows no spinner | accepted | 2026-11-05 | 0040 (in part: Speaking's taller bar; sound moving the dots from its first trace) |

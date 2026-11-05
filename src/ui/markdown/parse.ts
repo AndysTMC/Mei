@@ -163,13 +163,19 @@ export function parseMarkdownBlocks(markdown: string, options: MessageRendererOp
             const start = i;
             const ordered = /^\s*\d+[.)]\s+/.test(line);
             const items: ListBlock['items'] = [];
+            const base = (line.match(/^\s*/)?.[0] ?? '').length;
             while (i < lines.length && /^\s*(?:[-*+]\s+|\d+[.)]\s+)/.test(lines[i])) {
-                const itemText = lines[i].replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/, '');
+                const marker = lines[i].match(/^(\s*)(?:[-*+]|(\d+)[.)])\s+/)!;
+                const itemText = lines[i].slice(marker[0].length);
                 const task = itemText.match(/^\[([ xX])\]\s+(.+)$/);
                 items.push({
                     text: task ? task[2] : itemText,
                     checked: task ? task[1].toLowerCase() === 'x' : undefined,
                     task: task !== null,
+                    // Each item's own marker, so "2." after a paragraph is 2, and bullets under a
+                    // numbered item stay bullets, one level in.
+                    ...(marker[2] !== undefined ? { number: Number(marker[2]) } : {}),
+                    depth: Math.max(0, Math.floor((marker[1].length - base) / 2)),
                 });
                 i++;
             }

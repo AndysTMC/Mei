@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { LOOKS, VoiceBarModel, type BarState } from '../src/ui/conversation/voiceBarModel.js';
+import { LOOKS, VoiceBarModel, type BarState, type Frame } from '../src/ui/conversation/voiceBarModel.js';
 
 const STEP = 25;
 
@@ -37,12 +37,37 @@ for (const state of ['listening', 'thinking', 'speaking'] as BarState[]) {
     }
 }
 
+/** How far the outermost dot is from the middle, and the tallest dot. */
+const outer = (f: Frame, width: number) => Math.max(...f.dots.map(d => Math.abs(d.x - width / 2)));
+const tallest = (f: Frame) => Math.max(...f.dots.map(d => d.height));
+
 test('the person talking moves the dots; what Mei says does not while listening', () => {
     const model = new VoiceBarModel();
     const still = run(model, 1000, 372, 'mei', () => 1).at(-1)!;
     const moved = run(model, 400, 372, 'mic', () => 0.9, 1000).at(-1)!;
-    const tallest = (f: typeof still) => Math.max(...f.dots.map(d => d.height));
-    assert.ok(tallest(moved) > tallest(still) * 1.5, `${tallest(moved)} vs ${tallest(still)}`);
+    assert.ok(outer(moved, 372) > outer(still, 372) * 1.3, `${outer(moved, 372)} vs ${outer(still, 372)}`);
+    assert.ok(tallest(moved) > tallest(still) * 1.2, `${tallest(moved)} vs ${tallest(still)}`);
+});
+
+test('a room\'s hum and Mei\'s steady voice leave the dots round and still', () => {
+    const quiet = new VoiceBarModel();
+    const hum = run(quiet, 2000, 372, 'mic', () => 0.2 + Math.random() * 0.05).slice(-30);
+    for (const f of hum) for (const d of f.dots) assert.ok(d.height < d.width * 1.05, `stretched by hum: ${d.height}`);
+    const speaking = new VoiceBarModel(false, 'speaking');
+    const steady = run(speaking, 2000, 372, 'mei', () => 0.5 + Math.random() * 0.1).slice(-30);
+    for (const f of steady) for (const d of f.dots) assert.ok(d.height < d.width * 1.25, `stretched while speaking: ${d.height}`);
+});
+
+test('every state draws the same bar height, so nothing around it moves', () => {
+    assert.equal(new Set(Object.values(LOOKS).map(l => l.bar)).size, 1);
+});
+
+test('thinking and pausing keep their dots round: the wave only brightens them', () => {
+    for (const state of ['thinking', 'listening'] as BarState[]) {
+        const model = new VoiceBarModel(false, state);
+        for (const f of run(model, 3000, 372, 'mic', () => 0).slice(-60))
+            for (const d of f.dots) assert.ok(Math.abs(d.height - d.width) < 0.01, `${state}: ${d.height} vs ${d.width}`);
+    }
 });
 
 test('speaking follows Mei and fills the bar; a pause in listening settles to the pausing look', () => {
@@ -85,8 +110,8 @@ test('a hiccup in the microphone does not leave the bar seconds behind', () => {
 test('a bar made while Mei is speaking starts in the speaking look and follows Mei', () => {
     const model = new VoiceBarModel(false, 'speaking');
     assert.equal(model.state, 'speaking');
-    assert.ok(Math.abs(model.frame(0, 372).height - LOOKS.speaking.bar) < 1e-6);
-    const quiet = Math.max(...model.frame(20, 372).dots.map(d => d.height));
-    const loud = run(model, 400, 372, 'mei', () => 0.9, 40).at(-1)!;
-    assert.ok(Math.max(...loud.dots.map(d => d.height)) > quiet * 1.5);
+    assert.ok(model.frame(0, 372).filled > 0.99);
+    const quiet = outer(model.frame(20, 372), 372);
+    const loud = run(model, 400, 372, 'mei', () => 1, 40).at(-1)!;
+    assert.ok(outer(loud, 372) > quiet * 1.1, `${outer(loud, 372)} vs ${quiet}`);
 });

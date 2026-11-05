@@ -38,17 +38,20 @@ export interface BarLook {
     waveSpeed: number;
     /** Filled (Mei speaking) or outlined. */
     filled: number;
+    /** Sound quieter than this (0–1) moves nothing: a room's hum, or Mei's voice at its steady
+     * loudness, so the dots stay round and still most of the time and answer only to emphasis. */
+    floor: number;
 }
 
 export const LOOKS: Record<Look, BarLook> = {
-    listening: { bar: 20, dots: 10, size: 0.28, fill: 0.56, spread: 0.55, stretch: 0.6, glow: 0.5, speed: 3.2,
-        bounce: 0.35, ripple: 40, attack: 25, release: 180, wave: 0, waveSpeed: 1, filled: 0 },
-    pausing: { bar: 20, dots: 10, size: 0.26, fill: 0.5, spread: 0.1, stretch: 0.15, glow: 0.2, speed: 1.2,
-        bounce: 0.1, ripple: 60, attack: 60, release: 400, wave: 0.2, waveSpeed: 0.6, filled: 0 },
-    thinking: { bar: 20, dots: 6, size: 0.3, fill: 0.3, spread: 0, stretch: 0.25, glow: 0.6, speed: 2,
-        bounce: 0.2, ripple: 0, attack: 40, release: 200, wave: 0.8, waveSpeed: 1.4, filled: 0 },
-    speaking: { bar: 42, dots: 10, size: 0.24, fill: 0.72, spread: 0.35, stretch: 0.75, glow: 0.3, speed: 2.6,
-        bounce: 0.25, ripple: 30, attack: 30, release: 220, wave: 0, waveSpeed: 1, filled: 1 },
+    listening: { bar: 22, dots: 10, size: 0.3, fill: 0.5, spread: 0.45, stretch: 0.35, glow: 0.5, speed: 2.6,
+        bounce: 0.2, ripple: 40, attack: 30, release: 220, wave: 0, waveSpeed: 1, filled: 0, floor: 0.25 },
+    pausing: { bar: 22, dots: 10, size: 0.28, fill: 0.46, spread: 0.08, stretch: 0.1, glow: 0.2, speed: 1.2,
+        bounce: 0.05, ripple: 60, attack: 80, release: 450, wave: 0.25, waveSpeed: 0.5, filled: 0, floor: 0.25 },
+    thinking: { bar: 22, dots: 6, size: 0.3, fill: 0.28, spread: 0, stretch: 0, glow: 0.6, speed: 2,
+        bounce: 0.1, ripple: 0, attack: 40, release: 200, wave: 0.8, waveSpeed: 1.2, filled: 0, floor: 0 },
+    speaking: { bar: 22, dots: 10, size: 0.3, fill: 0.6, spread: 0.3, stretch: 0.15, glow: 0.3, speed: 2.2,
+        bounce: 0.15, ripple: 30, attack: 40, release: 260, wave: 0, waveSpeed: 1, filled: 1, floor: 0.45 },
 };
 
 /** The tallest bar: the drawing's height, so changing state never moves what's around it. */
@@ -133,8 +136,9 @@ export class VoiceBarModel {
         const look = this._look;
         for (const key of Object.keys(target) as (keyof BarLook)[]) look[key] += (target[key] - look[key]) * blend;
 
-        const tau = (level > this._env ? look.attack : look.release) / 1000;
-        this._env += (level - this._env) * (dt ? 1 - Math.exp(-dt / Math.max(0.005, tau)) : 1);
+        const heard = clamp01((level - look.floor) / Math.max(0.05, 1 - look.floor));
+        const tau = (heard > this._env ? look.attack : look.release) / 1000;
+        this._env += (heard - this._env) * (dt ? 1 - Math.exp(-dt / Math.max(0.005, tau)) : 1);
         this._history.push({ at: now, env: this._env });
         while (this._history.length > 1 && this._history[0].at < now - 1000) this._history.shift();
 
@@ -172,7 +176,7 @@ export class VoiceBarModel {
                 }
                 if (s.shown < 0.01) continue;
                 const moved = soft(s.e);
-                const lift = this._still ? 0 : Math.min(1, moved * look.stretch + wave * 0.35);
+                const lift = this._still ? 0 : Math.min(1, moved * look.stretch); // the wave only brightens
                 const offset = (k + 0.5) * gap + (this._still ? 0 : moved * look.spread * reach * (k + 0.5));
                 const lit = Math.min(1, moved * look.glow * 1.6 + wave * 0.6 + (1 - look.glow) * 0.6);
                 const alpha = 0.5 + 0.5 * lit;

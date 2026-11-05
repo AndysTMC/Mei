@@ -132,3 +132,12 @@ test('renderMessageBlocks bounds table cells while retaining full copy formats',
     assert.match(table.markdown, /R199C29/);
     assert.match(table.csv, /R199C29/);
 });
+
+test('a numbered list keeps its own numbers across paragraphs, with bullets under an item', () => {
+    const markdown = ['1. **Timebox it**', '   Treat it as planning.', '', '2. **Three steps:**',
+        '   - **Clear:** your inbox', '   - **Reflect:** what slipped', '', '3. **A checklist**'].join('\n');
+    const lists = renderMessageBlocks(markdown, options).blocks.filter(b => b.type === 'orderedList');
+    const items = lists.flatMap(list => list.type === 'orderedList' ? list.items : []);
+    assert.deepEqual(items.map(item => [item.number ?? '•', item.depth]),
+        [[1, 0], [2, 0], ['•', 1], ['•', 1], [3, 0]]);
+});

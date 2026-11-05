@@ -76,6 +76,8 @@ export class MessageList {
     private readonly _spinner: Animation.Spinner;
     private _expanded = false;
     private _loading = false;
+    /** In Live, the bar under the buttons says Mei is working: no spinner as well. */
+    private _live = false;
     private _hasMessages = false;
     /** Each shown reply's Read aloud button, by message id; and the reply being read. */
     private readonly _readButtons = new Map<string, St.Button>();
@@ -154,6 +156,13 @@ export class MessageList {
         this._hasMessages = false;
     }
 
+    /** Live on or off: while on, the loading spinner stays hidden (the Live bar shows Mei working). */
+    setLive(live: boolean): void {
+        if (this._live === live) return;
+        this._live = live;
+        if (this._loading) this._attachBubble();
+    }
+
     setLoading(loading: boolean): void {
         if (this._loading === loading) return;
         this._loading = loading;
@@ -224,7 +233,7 @@ export class MessageList {
             panels.push({ icon: 'view-list-bullet-symbolic', label: 'Steps', panel: stepsPanel(details) });
         if (details?.outcome)
             panels.push({ icon: CHECKS_ICON[outcomeLine(details.outcome).tone], label: 'Checks', panel: checksPanel(details.outcome) });
-        if (role === 'assistant')
+        if (role === 'assistant' && this._expanded) // the small popup keeps to the answer
             panels.push({ icon: 'dialog-information-symbolic', label: 'Info', panel: createMessageInfoPanel(message.metadata, this._host.isDark()) });
         container.add_child(this._footer(role, message.content, index, panels, Boolean(message.resumable), message.id));
         for (const { panel } of panels) {
@@ -249,7 +258,7 @@ export class MessageList {
     private _footer(role: MessageRole, text: string, index: number, panels: FooterPanel[], resumable: boolean,
         messageId?: string): St.BoxLayout {
         const bar = new St.BoxLayout({
-            style_class: 'mei-action-bar',
+            style_class: role === 'user' ? 'mei-action-bar' : 'mei-action-bar reply',
             x_align: role === 'user' ? Clutter.ActorAlign.END : Clutter.ActorAlign.START,
         });
         const copy = footerButton('edit-copy-symbolic', 'Copy');
@@ -331,12 +340,18 @@ export class MessageList {
                 this._bubble.add_child(part);
             this._spinner.x_expand = this._spinner.y_expand = false;
         } else {
-            this._bubble = new St.BoxLayout({ style_class: 'mei-bubble-ai', x_align: Clutter.ActorAlign.START, x_expand: false });
+            this._bubble = new St.BoxLayout({ style_class: 'mei-bubble-ai', x_align: Clutter.ActorAlign.START, x_expand: false,
+                visible: !this._live }); // only a spinner: nothing to show in Live
             this._bubble.add_child(this._spinner);
             this._spinner.x_expand = this._spinner.y_expand = true;
         }
-        this._spinner.play();
-        this._spinner.visible = true;
+        if (this._live) {
+            this._spinner.stop();
+            this._spinner.visible = false;
+        } else {
+            this._spinner.play();
+            this._spinner.visible = true;
+        }
         this._box.add_child(this._bubble);
         this.actor.visible = true;
         this._hasMessages = true;

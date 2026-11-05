@@ -66,6 +66,10 @@ export interface ListBlock extends BaseBlock {
         text: string;
         checked?: boolean;
         task: boolean;
+        /** The item's own number ("2." stays 2 after a paragraph broke the list); absent for a bullet. */
+        number?: number;
+        /** How deep it is: 0 at the margin, 1 under an item, and so on. */
+        depth?: number;
     }>;
     originalItemCount?: number;
 }

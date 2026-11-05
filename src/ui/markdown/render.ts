@@ -193,11 +193,13 @@ function renderListBlock(block: ListBlock): St.Widget {
     block.items.forEach((item, index) => {
         const prefix = item.task
             ? item.checked ? '[x]' : '[ ]'
-            : block.type === 'orderedList' ? `${index + 1}.` : '•';
+            : item.number !== undefined ? `${item.number}.`
+                : block.type === 'orderedList' && item.depth === undefined ? `${index + 1}.` : '•';
         const row = new St.BoxLayout({
             x_expand: true,
             style_class: 'mei-md-list-row',
         });
+        if (item.depth) row.set_style(`margin-left: ${Math.min(item.depth, 4) * 22}px;`);
         row.add_child(new St.Label({
             text: prefix,
             style_class: 'mei-md-list-marker',

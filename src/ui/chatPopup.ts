@@ -269,6 +269,7 @@ export class ChatPopup {
         this._animateHeight(() => {
             const shown = this._interaction.show(interaction);
             this._composer.actor.visible = !shown;
+            if (!shown) this._keyboardBackToTheBox(); // the card had it, and is gone
         });
         // A new card while the popup is open gets the keyboard; one that arrived while it was closed gets
         // it when the popup opens (below), rather than the hidden message box.
@@ -298,7 +299,17 @@ export class ChatPopup {
             this._messages.clear();
             this._header.setCopyText('');
             this._header.resetCopyState();
+            this._keyboardBackToTheBox(); // a new chat: type right away
         });
+    }
+
+    /** While the popup is open and nothing else holds the keyboard (what held it went away), the
+     * message box takes it, so typing goes where the person expects. */
+    private _keyboardBackToTheBox(): void {
+        if (!this.isOpen || !this._composer.actor.visible) return;
+        const focus = global.stage.get_key_focus();
+        if (!focus || focus === global.stage || !focus.mapped || this._interaction.actor.contains(focus))
+            this._composer.focus();
     }
 
     setLoading(loading: boolean): void {
@@ -319,6 +330,7 @@ export class ChatPopup {
         const mode = dictating ? 'dictating' : talking ? 'talking' : 'idle';
         this._voiceReady = !['off', 'unavailable', 'starting'].includes(view.state);
         const bar = talking && ['listening', 'thinking', 'speaking'].includes(view.state) ? view.state as BarState : null;
+        this._messages.setLive(talking);
         this._composer.setVoice({ available: view.state !== 'off', mode, status: voiceLine(view).status, bar,
             transcript: talking && view.state !== 'speaking' ? view.transcript : '' });
     }

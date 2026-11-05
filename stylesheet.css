@@ -135,12 +135,14 @@
 }
 
 /* ── Ask button ──────────────────────────────────── */
+/* The row under the message box keeps the popup's 10px gutters; its buttons sit 8px apart. */
+.mei-composer-buttons {
+    padding: 4px 10px 10px 10px;
+    spacing: 8px;
+}
+
 .mei-ask-btn {
     border-radius: 8px;
-    margin-top: 4px;
-    margin-bottom: 10px;
-    margin-left: 10px;
-    margin-right: 10px;
     padding-top: 4px;
     padding-bottom: 4px;
     font-size: 11px;
@@ -161,7 +163,6 @@
 /* The mic (dictation) and voice (conversation) buttons; one in use widens and inverts. */
 .mei-mic-btn {
     border-radius: 8px;
-    margin: 4px 10px 10px 0;
     padding: 4px 10px;
     border: none;
     background-color: rgba(128, 128, 128, 0.18);
@@ -170,10 +171,6 @@
 .mei-mic-btn:hover,
 .mei-mic-btn:focus {
     background-color: rgba(128, 128, 128, 0.32);
-}
-
-.mei-mic-btn.active {
-    margin-left: 10px;
 }
 
 .mei-dark .mei-mic-btn.active {
@@ -409,6 +406,12 @@
     spacing: 4px;
     margin-top: 2px;
     margin-bottom: 6px;
+}
+
+/* Under a reply: the first icon close to the text's edge (St has no negative margins: the
+   first button's own padding is what moves). */
+.mei-action-bar.reply .mei-action-btn:first-child {
+    padding-left: 1px;
 }
 
 .mei-action-btn {
@@ -715,23 +718,16 @@
 }
 
 /* What Mei waits for, in the input area's place. */
+/* What Mei waits on the person for: Mei asking, in a reply's own text and place (no box), with its
+   choices under it and the message box's line for anything else. */
 .mei-interaction {
     margin: 4px 10px 10px 10px;
-    padding: 10px 12px;
-    border-radius: 12px;
+    padding: 0 2px;
     spacing: 4px;
-    border: 1px solid rgba(128, 128, 128, 0.32);
-    background-color: rgba(128, 128, 128, 0.08);
-}
-
-.mei-interaction-kicker {
-    font-size: 11px;
-    opacity: 170;
 }
 
 .mei-interaction-title {
     font-size: 13px;
-    font-weight: bold;
 }
 
 .mei-interaction-details {
@@ -752,17 +748,19 @@
     opacity: 255;
 }
 
+/* The answer line: the message box as it always looks, under the choices. */
 .mei-interaction-entry {
-    margin-top: 6px;
-    border-radius: 8px;
-    padding: 5px 8px;
-    font-size: 12px;
-    border: 1px solid rgba(128, 128, 128, 0.32);
+    margin-top: 10px;
+    padding: 0;
+    font-size: 13px;
+    min-height: 22px;
+    border: none;
+    border-width: 0;
     background-color: transparent;
 }
 
 .mei-interaction-entry:focus {
-    border-color: rgba(128, 128, 128, 0.7);
+    border: none;
     box-shadow: none;
 }
 
@@ -920,7 +918,7 @@
     text-decoration: underline;
 }
 
-/* The Live bar (decision 0040): under the buttons, drawn in the popup's text colour. */
+/* The Live bar (decision 0040): under the buttons, in the same gutters, drawn in the popup's text colour. */
 .mei-voice-bar {
     margin: 0 10px 10px 10px;
 }

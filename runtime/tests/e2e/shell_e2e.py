@@ -557,8 +557,8 @@ async def main() -> int:
         await h.hook("Popup", "expand")
         await h.hook("Send", "tidy up my files")
         st = await h.until(lambda s: "approval" in s["controller"]["timeline"], 30, "the approval card")
-        h.check("approval_card_shown", st["controller"]["waiting"] and "Mei wants to" in st["shown"]
-                and "Move ~/Music/old.txt to the trash" in st["shown"] and "Ask" not in st["shown"], st["shown"][-10:])
+        h.check("approval_card_shown", st["controller"]["waiting"]
+                and "Can I move ~/Music/old.txt to the trash?" in st["shown"] and "Ask" not in st["shown"], st["shown"][-10:])
         await asyncio.sleep(0.5)
         await h.hook("Screenshot", os.path.join(OUT, "approval-card.png"))
         await h.hook("Popup", "collapse")  # answered in the small popup, where it used to stay after a click
@@ -573,6 +573,21 @@ async def main() -> int:
                 and os.path.exists(trashed) and not st["controller"]["waiting"] and "Allow once" not in st["shown"]
                 and "Ask" in st["shown"],
                 {"clicks retried": h.retried_clicks} if h.retried_clicks else None)
+        # The card had the keyboard: once it's gone, and after a new chat, typing goes into the box
+        # (a new chat keeps an unsent draft).
+        typed_after_card = (await h.state())["input"]
+        await h.hook("TypeText", "ab")
+        await asyncio.sleep(0.3)
+        after_card = (await h.state())["input"]
+        await h._call("org.gnome.Shell", "/com/andystmc/MeiDev", "com.andystmc.MeiDev", "ClickNamed", "s",
+                      ["Start new chat"])
+        await asyncio.sleep(0.8)
+        await h.hook("TypeText", "cd")
+        await asyncio.sleep(0.3)
+        after_new_chat = (await h.state())["input"]
+        h.check("typing_goes_to_the_box_after_a_card_and_a_new_chat",
+                after_card == typed_after_card + "ab" and after_new_chat == after_card + "cd",  # the draft stays
+                {"after_card": after_card, "after_new_chat": after_new_chat})
         await h.hook("Screenshot", os.path.join(OUT, "approved-compact.png"))
         await h.hook("Popup", "expand")
         await asyncio.sleep(0.6)
@@ -775,7 +790,9 @@ async def main() -> int:
             await h.use_fake([{"text": "It will be sunny tomorrow. Around eighteen degrees."}])
             cfg = await h.runtime("GetConfig", {})
             # A short pause before sending, so the scenario doesn't wait out the 8 s default.
-            config = {**cfg["config"], "voice": {**cfg["config"].get("voice", {}), "enabled": True, "end_pause_ms": 700}}
+            # Computer use on (only which tools are offered), so the screen button shows beside Live.
+            config = {**cfg["config"], "voice": {**cfg["config"].get("voice", {}), "enabled": True, "end_pause_ms": 700},
+                      "computer": {**cfg["config"].get("computer", {}), "enabled": True, "see_without_asking": True}}
             await h.runtime("UpdateConfig", {"revision": cfg["revision"], "config": config})
             await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 90, "voice to be ready")
             await h.hook("Popup", "new")
@@ -795,6 +812,15 @@ async def main() -> int:
             await h.hook("Screenshot", os.path.join(OUT, "voice-listening.png"))
             conv = await h.runtime("GetConversation", {"conversation_id": st["controller"]["current"]})
             user = conv["messages"][0]
+            # A typed request while Live is on (the bar shows Mei working, no spinner), then Live in the large page.
+            await h.use_fake([{"text": "One. Two. Three."}], delay_ms=600, chunk_chars=4)
+            await h.hook("Send", "Count to three.")
+            await h.until(lambda s: len(s["controller"]["messages"]) >= 4, 30, "the typed request answered in Live")
+            await h.hook("Popup", "expand")
+            await asyncio.sleep(0.8)
+            await h.hook("Screenshot", os.path.join(OUT, "voice-live-large.png"))
+            await h.hook("Popup", "collapse")
+            await asyncio.sleep(0.4)
             played = os.path.getsize(os.environ["MEI_VOICE_SINK_FILE"]) / 4 / 16000
             await h.hook("PressEnter")  # the popup is open: Enter ends the conversation (decision 0028)
             await h.until(lambda s: s["controller"]["voice"]["state"] == "idle", 20, "Enter to end the conversation")
@@ -882,4 +908,5 @@ async def main() -> int:
         and "error" not in h.results else 1
 
 
-sys.exit(asyncio.run(main()))
+if __name__ == "__main__":  # demo.py reuses the harness
+    sys.exit(asyncio.run(main()))

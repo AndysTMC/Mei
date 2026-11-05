@@ -1,9 +1,10 @@
 /**
  * What Mei waits on the person for, in place of the input area (§13.3, §8.6): an approval, or a
- * question. While it shows, the message box and Ask are hidden: this is the input.
+ * question. While it shows, the message box and Ask are hidden: this is the input. It reads as Mei
+ * asking, in a reply's own text, not as a box in the conversation; its answer line is the message box.
  *
- *   Approval:  "Mei wants to" · the action · why it asks · Details  →  its choices (Allow once, For
- *              this task, Always, Deny), and "Or tell Mei what to do instead…" (declines, then says it).
+ *   Approval:  "Can I <the action>?" · why it asks · Details  →  its choices (Allow once, For this
+ *              task, Always, Deny), and "Or tell Mei what to do instead…" (declines, then says it).
  *   Question:  the question  →  its choices and "Something else…" for any other answer, or its form
  *              and Send, or only an answer box. A hand-off (a password field Mei won't type into) takes
  *              only its choices.
@@ -24,6 +25,14 @@ import { wrapLabel } from '../effects.js';
 import { cardButton, muted, type CardActions } from './cards.js';
 
 const SCOPE_LABEL: Record<ApprovalScope, string> = { once: 'Allow once', task: 'For this task', always: 'Always' };
+/** A card's title ("Open Apple Music") as Mei asks it: "Can I open Apple Music?". */
+export function asking(title: string): string {
+    const text = title.trim().replace(/[.!?]+$/, '');
+    if (!text) return 'Can I go ahead?';
+    const keep = text.length > 1 && text[1] === text[1].toUpperCase() && text[1] !== text[1].toLowerCase(); // "URL…"
+    return `Can I ${keep ? text : text[0].toLowerCase() + text.slice(1)}?`;
+}
+
 const PROVENANCE: Record<Provenance, string> = {
     user: 'you named this', untrusted: 'suggested by a file or page', model: 'Mei chose this',
 };
@@ -70,8 +79,7 @@ export class InteractionPanel {
 
     private _approval(approval: ApprovalView): void {
         const c = approval.card;
-        this.actor.add_child(new St.Label({ text: 'Mei wants to', style_class: 'mei-interaction-kicker' }));
-        this.actor.add_child(wrapLabel(new St.Label({ text: c.title, style_class: 'mei-interaction-title' })));
+        this.actor.add_child(wrapLabel(new St.Label({ text: asking(c.title), style_class: 'mei-interaction-title' })));
         if (c.reason_text) this.actor.add_child(muted(`Asking because ${c.reason_text}.`));
         this._details(approval);
 
