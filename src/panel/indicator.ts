@@ -22,7 +22,9 @@ const VOICE_MARKS: Record<string, string> = {
     listening: 'audio-input-microphone-symbolic', thinking: 'content-loading-symbolic', speaking: 'audio-volume-high-symbolic',
 };
 
-const PANEL_LABEL = __DEV__ ? 'Mei  <span face="sans-serif" size="60%" alpha="80%">(DEV)</span>' : 'Mei';
+// A development build says so, except where it plays the release (scripts/demo-record.sh).
+const PANEL_LABEL = __DEV__ && GLib.getenv('MEI_DEMO') !== '1'
+    ? 'Mei  <span face="sans-serif" size="60%" alpha="80%">(DEV)</span>' : 'Mei';
 
 type PanelWithCenterBox = typeof Main.panel & {
     _centerBox: St.BoxLayout;
